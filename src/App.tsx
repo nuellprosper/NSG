@@ -31,6 +31,20 @@ import { AILibrary } from './components/AILibrary';
 import { ChatRoom } from './components/ChatRoom';
 import { ClassRoom } from './components/ClassRoom';
 
+import { 
+  UNIVERSITIES, FACULTIES, DEPARTMENTS 
+} from './constants/academic';
+
+const getUserRank = (points: number) => {
+  if (points >= 10001) return "Diamond";
+  if (points >= 5001) return "Platinum";
+  if (points >= 2501) return "Gold";
+  if (points >= 1001) return "Legend";
+  if (points >= 501) return "Scholar";
+  if (points >= 101) return "Steady";
+  return "Fresher";
+};
+
 const WhatsAppIcon = ({ size = 24, className = "" }: { size?: number, className?: string }) => (
   <svg 
     width={size} 
@@ -2291,6 +2305,10 @@ export default function App() {
     faculty: '',
     about: ''
   });
+  const [profileSubTab, setProfileSubTab] = useState<'profile' | 'stats'>('profile');
+  const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  const [streakDays, setStreakDays] = useState(0);
+
   const [activeExamId, setActiveExamId] = useState<string | null>(null);
   const [examIdInput, setExamIdInput] = useState('');
   const [activeExamHostUid, setActiveExamHostUid] = useState<string | null>(null);
@@ -2319,6 +2337,17 @@ export default function App() {
   });
 
   const [totalUnreadMessages, setTotalUnreadMessages] = useState(0);
+  const [theme, setTheme] = useState<'dark'>('dark');
+
+  useEffect(() => {
+    if (activeTab === 'profile' && profileSubTab === 'stats') {
+      const q = query(collection(db, 'users'), orderBy('points', 'desc'), limit(50));
+      const unsub = onSnapshot(q, (snap) => {
+        setLeaderboard(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      });
+      return () => unsub();
+    }
+  }, [activeTab, profileSubTab]);
 
   useEffect(() => {
     if (!user) {
@@ -2451,7 +2480,7 @@ export default function App() {
         setGodModeNotification("User banned successfully.");
       } else if (action === 'warn') {
         await addDoc(collection(db, 'notifications'), {
-          userId: report.suspectId,
+          to: report.suspectId,
           title: "SECURITY WARNING",
           message: "A formal warning has been issued regarding your recent activities. Please adhere to terms.",
           timestamp: serverTimestamp(),
@@ -2474,6 +2503,12 @@ export default function App() {
   const [authFullName, setAuthFullName] = useState('');
   const [authDOB, setAuthDOB] = useState('');
   const [authMatric, setAuthMatric] = useState('');
+  const [authUniversity, setAuthUniversity] = useState('');
+  const [authFaculty, setAuthFaculty] = useState('');
+  const [authDepartment, setAuthDepartment] = useState('');
+  const [authUsername, setAuthUsername] = useState('');
+  const [usernameStatus, setUsernameStatus] = useState<{available: boolean, message: string} | null>(null);
+  const [passwordStrength, setPasswordStrength] = useState({ score: 0, feedback: '', color: 'bg-white/10' });
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareName, setShareName] = useState('');
   const shareCardRef = useRef<HTMLDivElement>(null);
@@ -2493,7 +2528,98 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const [theme, setTheme] = useState<'dark'>('dark');
+  // Password Strength Logic
+  useEffect(() => {
+    if (!authPassword) {
+      setPasswordStrength({ score: 0, feedback: '', color: 'bg-white/10' });
+      return;
+    }
+    let score = 0;
+    if (authPassword.length > 6) score++;
+    if (/[A-Z]/.test(authPassword)) score++;
+    if (/[0-9]/.test(authPassword)) score++;
+    if (/[^A-Za-z0-9]/.test(authPassword)) score++;
+
+    let feedback = 'Weak';
+    let color = 'bg-red-500';
+    if (score === 2) { feedback = 'Fair'; color = 'bg-orange-500'; }
+    else if (score === 3) { feedback = 'Good'; color = 'bg-yellow-500'; }
+    else if (score >= 4) { feedback = 'Strong'; color = 'bg-green-500'; }
+
+    setPasswordStrength({ score, feedback, color });
+  }, [authPassword]);
+
+  // Username Suggestion Logic
+  useEffect(() => {
+    if (authMode === 'signup' && authFullName && !authUsername) {
+      const suggested = authFullName.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') + Math.floor(Math.random() * 1000);
+      setAuthUsername(suggested);
+    }
+  }, [authFullName, authMode]);
+
+  // Username Uniqueness check (debounced)
+  useEffect(() => {
+    if (!authUsername || authUsername.length < 3) {
+      setUsernameStatus(null);
+      return;
+    }
+
+    const checkUsername = async () => {
+      try {
+        const q = query(collection(db, 'users'), where('username', '==', authUsername.toLowerCase().trim()), limit(1));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          setUsernameStatus({ available: false, message: 'Username taken. Try adding some numbers!' });
+        } else {
+          setUsernameStatus({ available: true, message: 'Username available!' });
+        }
+      } catch (e: any) {
+        console.error("Username check error:", e);
+        if (e.message?.includes('permission')) {
+           // Fallback or specific message
+        }
+      }
+    };
+
+    const timer = setTimeout(checkUsername, 500);
+    return () => clearTimeout(timer);
+  }, [authUsername]);
+
+  const syncActivity = async () => {
+    if (!user || !currentUserData) return;
+    const now = new Date();
+    const lastActive = currentUserData.lastActive ? new Date(currentUserData.lastActive) : null;
+    let newStreak = currentUserData.streak || 0;
+    let newPoints = currentUserData.points || 0;
+
+    if (!lastActive) {
+      newStreak = 1;
+      newPoints += 5;
+    } else {
+      const diffDays = Math.floor((now.getTime() - lastActive.getTime()) / (1000 * 60 * 60 * 24));
+      if (diffDays === 1) {
+        newStreak += 1;
+        newPoints += 5;
+        if (newStreak % 7 === 0) newPoints += 50; // Bonus for 7 days
+      } else if (diffDays > 1) {
+        newStreak = 1;
+      }
+    }
+
+    await updateDoc(doc(db, 'users', user.uid), {
+      lastActive: now.toISOString(),
+      streak: newStreak,
+      points: newPoints,
+      rank: getUserRank(newPoints)
+    });
+  };
+
+  useEffect(() => {
+    if (user && currentUserData) {
+      const timer = setTimeout(syncActivity, 5000); // Wait a bit after load
+      return () => clearTimeout(timer);
+    }
+  }, [user, !!currentUserData]);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [userNotification, setUserNotification] = useState<string | null>(null);
   const [adminNotification, setAdminNotification] = useState<string | null>(null);
@@ -2726,10 +2852,16 @@ export default function App() {
     }
   }, []);
 
-  // --- LISTEN FOR GLOBAL NOTIFICATIONS ---
+  // --- LISTEN FOR NOTIFICATIONS ---
   useEffect(() => {
     if (!user) return;
-    const q = query(collection(db, 'notifications'), orderBy('timestamp', 'desc'), limit(1));
+    const q = query(
+      collection(db, 'notifications'), 
+      where('to', 'in', [user.uid, 'all']),
+      orderBy('timestamp', 'desc'), 
+      limit(1)
+    );
+    
     const unsubscribe = onSnapshot(q, (snapshot) => {
       snapshot.docChanges().forEach((change) => {
         if (change.type === 'added') {
@@ -2780,6 +2912,7 @@ export default function App() {
       
       // Also send a global notification
       await addDoc(collection(db, 'notifications'), {
+        to: 'all',
         title: "News Update Published!",
         message: newPost.title.trim(),
         timestamp: serverTimestamp(),
@@ -4779,11 +4912,24 @@ export default function App() {
     setIsAuthLoading(true);
     try {
       if (authMode === 'signup') {
-        if (!authEmail || !authPassword || !authFullName || !authDOB) {
+        if (!authEmail || !authPassword || !authFullName || !authDOB || !authUniversity || !authFaculty || !authDepartment || !authUsername) {
           setUserNotification("All fields are required for sign up.");
           setIsAuthLoading(false);
           return;
         }
+
+        if (passwordStrength.score < 1) {
+          setUserNotification("Password is too weak. Must be greater than 6 characters.");
+          setIsAuthLoading(false);
+          return;
+        }
+
+        if (usernameStatus && !usernameStatus.available) {
+          setUserNotification("Username is already taken.");
+          setIsAuthLoading(false);
+          return;
+        }
+
         const userCredential = await createUserWithEmailAndPassword(auth, authEmail, authPassword);
         const newUser = userCredential.user;
         
@@ -4792,9 +4938,18 @@ export default function App() {
           uid: newUser.uid,
           email: newUser.email,
           fullName: authFullName,
+          displayName: authFullName,
+          username: authUsername.toLowerCase().trim(),
           dob: authDOB,
           matric: authMatric || '',
+          university: authUniversity,
+          faculty: authFaculty,
+          department: authDepartment,
           role: newUser.email === 'nuellkelechi@gmail.com' ? 'admin' : 'student',
+          rank: 'Fresher',
+          points: 0,
+          streak: 0,
+          lastActive: new Date().toISOString(),
           createdAt: new Date().toISOString(),
           status: 'active',
           bypassHostingPayment: false,
@@ -4922,7 +5077,7 @@ export default function App() {
 
       // Check for uniqueness if username changed
       if (newUsername && newUsername !== currentUserData?.username) {
-        const q = query(collection(db, 'users'), where('username', '==', newUsername));
+        const q = query(collection(db, 'users'), where('username', '==', newUsername), limit(1));
         const snap = await getDocs(q);
         if (!snap.empty) {
           setUserNotification("Username already taken. Please choose another one.");
@@ -4935,13 +5090,16 @@ export default function App() {
         displayName: profileFormData.displayName || '',
         fullName: profileFormData.fullName || '',
         username: newUsername,
+        matric: profileFormData.matricNumber || '',
         matricNumber: profileFormData.matricNumber || '',
         dob: profileFormData.dob || '',
         university: profileFormData.university || '',
-        level: profileFormData.level || '',
-        department: profileFormData.department || '',
         faculty: profileFormData.faculty || '',
+        department: profileFormData.department || '',
+        level: profileFormData.level || '',
         about: profileFormData.about || '',
+        // Ensure rank is updated based on current points
+        rank: getUserRank(currentUserData?.points || 0),
         updatedAt: new Date().toISOString()
       };
 
@@ -7521,7 +7679,39 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                 {authMode === 'signup' ? (
                   <>
                     <input type="text" value={authFullName} onChange={(e) => setAuthFullName(e.target.value)} placeholder="Full Official Name" required className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-3 text-xs text-white focus:border-[#DC2626]/50 transition-all outline-none" />
-                    <input type="date" value={authDOB} onChange={(e) => setAuthDOB(e.target.value)} required className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-3 text-xs text-white focus:border-[#DC2626]/50 transition-all outline-none" />
+                    
+                    <div className="grid grid-cols-2 gap-2">
+                       <div className="space-y-1">
+                         <p className="text-[7px] font-bold text-white/30 uppercase ml-1">DOB</p>
+                         <input type="date" value={authDOB} onChange={(e) => setAuthDOB(e.target.value)} required className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-[10px] text-white focus:border-[#DC2626]/50 transition-all outline-none" />
+                       </div>
+                       <div className="space-y-1">
+                         <p className="text-[7px] font-bold text-white/30 uppercase ml-1">Username</p>
+                         <input type="text" value={authUsername} onChange={(e) => setAuthUsername(e.target.value)} placeholder="Username" required className={`w-full bg-white/5 border ${usernameStatus?.available === false ? 'border-red-500/50' : 'border-white/10'} rounded-xl px-4 py-3 text-[10px] text-white focus:border-[#DC2626]/50 transition-all outline-none`} />
+                       </div>
+                    </div>
+                    {usernameStatus && (
+                      <p className={`text-[8px] font-bold uppercase tracking-wider ml-1 ${usernameStatus.available ? 'text-green-500' : 'text-red-500'}`}>
+                        {usernameStatus.message}
+                      </p>
+                    )}
+
+                    <select value={authUniversity} onChange={(e) => setAuthUniversity(e.target.value)} required className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-3 text-xs text-white/70 focus:border-[#DC2626]/50 transition-all outline-none appearance-none">
+                      <option value="" disabled className="bg-zinc-900 overflow-y-scroll max-h-40">Select University</option>
+                      {UNIVERSITIES.map(u => <option key={u} value={u} className="bg-zinc-900">{u}</option>)}
+                    </select>
+
+                    <div className="grid grid-cols-2 gap-2">
+                       <select value={authFaculty} onChange={(e) => { setAuthFaculty(e.target.value); setAuthDepartment(''); }} required className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-[10px] text-white/70 focus:border-[#DC2626]/50 transition-all outline-none appearance-none">
+                         <option value="" disabled className="bg-zinc-900">Select Faculty</option>
+                         {FACULTIES.map(f => <option key={f} value={f} className="bg-zinc-900">{f}</option>)}
+                       </select>
+                       <select value={authDepartment} onChange={(e) => setAuthDepartment(e.target.value)} required disabled={!authFaculty} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-[10px] text-white/70 focus:border-[#DC2626]/50 transition-all outline-none appearance-none disabled:opacity-30">
+                         <option value="" disabled className="bg-zinc-900">Select Dept.</option>
+                         {authFaculty && DEPARTMENTS[authFaculty]?.map(d => <option key={d} value={d} className="bg-zinc-900">{d}</option>)}
+                       </select>
+                    </div>
+
                     <input type="text" value={authMatric} onChange={(e) => setAuthMatric(e.target.value)} placeholder="Matric (Optional)" className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-3 text-xs text-white focus:border-[#DC2626]/50 transition-all outline-none" />
                     <input type="email" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} placeholder="Email Address" required className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-3 text-xs text-white focus:border-[#DC2626]/50 transition-all outline-none" />
                   </>
@@ -7532,7 +7722,21 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                     </div>
                   </>
                 )}
-                <input type="password" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} placeholder="Access Password" required className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-3 text-xs text-white focus:border-[#DC2626]/50 transition-all outline-none" />
+                <div className="space-y-1">
+                  <input type="password" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} placeholder="Access Password" required className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-3 text-xs text-white focus:border-[#DC2626]/50 transition-all outline-none" />
+                  {authMode === 'signup' && authPassword && (
+                    <div className="flex flex-col gap-1 px-1">
+                      <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
+                        <motion.div 
+                          className={`h-full ${passwordStrength.color}`}
+                          initial={{ width: 0 }}
+                          animate={{ width: `${(passwordStrength.score + 1) * 20}%` }}
+                        />
+                      </div>
+                      <p className="text-[7px] font-black uppercase tracking-widest text-white/30 text-right">{passwordStrength.feedback} Security</p>
+                    </div>
+                  )}
+                </div>
                 
                 <button type="submit" disabled={isAuthLoading} className="w-full bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black py-3.5 rounded-xl text-[10px] transition-all shadow-lg shadow-[#DC2626]/20 uppercase tracking-[0.2em] flex items-center justify-center gap-2 mt-4">
                   {isAuthLoading ? <RefreshCcw className="animate-spin" size={14} /> : (authMode === 'login' ? 'LOGIN' : 'Create Account')}
@@ -9663,6 +9867,7 @@ Respond professionally, concisely, and use LaTeX for math.` }];
           {/* CHAT ROOM TAB */}
           {activeTab === 'chat' && (
             <ChatRoom 
+              key="chat"
               theme={theme}
               user={user}
               userHandle={userHandle}
@@ -10163,299 +10368,293 @@ Respond professionally, concisely, and use LaTeX for math.` }];
           {activeTab === 'profile' && (
             <motion.div 
               key="profile" 
-              initial={{ opacity: 0, y: 20 }} 
-              animate={{ opacity: 1, y: 0 }} 
-              exit={{ opacity: 0, y: -20 }} 
-              className="flex-1 flex flex-col space-y-4 sm:space-y-6 px-2 sm:px-0"
+              initial={{ opacity: 0, x: 20 }} 
+              animate={{ opacity: 1, x: 0 }} 
+              exit={{ opacity: 0, x: -20 }} 
+              className={`flex-1 flex flex-col px-2 sm:px-0 relative mb-24 ${theme === 'dark' ? 'bg-[#13111C]' : 'bg-slate-50'}`}
             >
+              {/* Tab Selector */}
+              <div className="flex items-center gap-1 bg-white/5 p-1 rounded-2xl mb-6 border border-white/10 max-w-sm mx-auto w-full">
+                <button 
+                  onClick={() => setProfileSubTab('profile')}
+                  className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${profileSubTab === 'profile' ? 'bg-[#DC2626] text-white shadow-lg shadow-[#DC2626]/20' : 'text-white/40 hover:text-white/60'}`}
+                >
+                  My Identity
+                </button>
+                <button 
+                  onClick={() => setProfileSubTab('stats')}
+                  className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${profileSubTab === 'stats' ? 'bg-[#DC2626] text-white shadow-lg shadow-[#DC2626]/20' : 'text-white/40 hover:text-white/60'}`}
+                >
+                  World Rankings
+                </button>
+              </div>
+
               <div className="space-y-4 sm:space-y-6 pb-4">
-              {/* Profile Header Card */}
-              <div className={`${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} border p-4 sm:p-6 rounded-[2rem] shadow-2xl relative overflow-hidden group`}>
-                <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-[#DC2626]/20 via-[#DC2626]/5 to-transparent opacity-50" />
-                
-                <div className="relative flex flex-col sm:flex-row items-center sm:items-end gap-4 sm:gap-6">
-                  <div className="relative">
-                    <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full border-4 border-[#DC2626] overflow-hidden bg-white/5 shadow-2xl shadow-[#DC2626]/30 group-hover:scale-105 transition-transform duration-500">
-                      {currentUserData?.photoURL ? (
-                        <img src={currentUserData.photoURL} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-white/10 bg-gradient-to-br from-white/5 to-white/10">
-                          <User size={48} className="sm:size-[64px]" />
+                {profileSubTab === 'profile' ? (
+                  <>
+                    {/* Existing Profile Content but enhanced with Ranking display */}
+                    <div className={`${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} border p-4 sm:p-6 rounded-[2rem] shadow-2xl relative overflow-hidden group`}>
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-[#DC2626]/10 blur-[60px] rounded-full -mr-16 -mt-16" />
+                      
+                      <div className="relative flex flex-col sm:flex-row items-center sm:items-center gap-4 sm:gap-6">
+                        <div className="relative">
+                          <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full border-4 border-[#DC2626] overflow-hidden bg-white/5 shadow-2xl shadow-[#DC2626]/30 group-hover:scale-105 transition-transform duration-500">
+                            {currentUserData?.photoURL ? (
+                              <img src={currentUserData.photoURL} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-white/10 bg-gradient-to-br from-white/5 to-white/10">
+                                <User size={48} className="sm:size-[56px]" />
+                              </div>
+                            )}
+                          </div>
+                          <label className="absolute bottom-0 right-0 p-1.5 bg-[#DC2626] text-white rounded-lg cursor-pointer shadow-xl border-2 border-[#13111C] z-10">
+                            <Camera size={14} />
+                            <input type="file" className="hidden" accept="image/*" onChange={handleProfileImageUpload} />
+                          </label>
+                        </div>
+
+                        <div className="flex-1 text-center sm:text-left space-y-1">
+                          <div className="flex flex-col sm:flex-row items-center gap-2">
+                             <h2 className="text-xl sm:text-2xl font-black text-white uppercase tracking-tighter italic leading-none">
+                               {currentUserData?.displayName || 'Student Name'}
+                             </h2>
+                             <div className="flex items-center gap-2">
+                               <span className="bg-[#DC2626]/10 text-[#DC2626] border border-[#DC2626]/20 px-2 py-0.5 rounded-full text-[7px] font-black uppercase tracking-widest">
+                                 {currentUserData?.rank || 'Fresher'}
+                               </span>
+                               {isPremium && (
+                                <span className="bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 px-2 py-0.5 rounded-full text-[7px] font-black uppercase tracking-widest flex items-center gap-1">
+                                  <Sparkles size={8} /> Premium
+                                </span>
+                               )}
+                             </div>
+                          </div>
+                          <p className="text-[9px] font-bold text-white/30 uppercase tracking-[0.2em]">@{currentUserData?.username || 'no_handle'}</p>
+                          
+                          <div className="flex flex-wrap justify-center sm:justify-start gap-2 pt-1">
+                            <div className="flex items-center gap-1.5 px-3 py-1 bg-white/5 rounded-lg border border-white/10">
+                              <Zap size={10} className="text-yellow-500" />
+                              <span className="text-[8px] font-black text-white/60 uppercase tracking-widest">{currentUserData?.streak || 0} Day Streak</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 px-3 py-1 bg-white/5 rounded-lg border border-white/10 text-purple-400">
+                              <Cpu size={10} />
+                              <span className="text-[8px] font-black uppercase tracking-widest">{currentUserData?.points || 0} XP Points</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <button 
+                          onClick={() => setIsEditingProfile(!isEditingProfile)}
+                          className={`px-4 py-2 rounded-xl font-black text-[8px] uppercase tracking-widest transition-all flex items-center gap-1.5 border min-w-[100px] justify-center ${
+                            isEditingProfile 
+                            ? 'bg-[#DC2626] text-white border-[#DC2626] shadow-lg shadow-[#DC2626]/20' 
+                            : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10'
+                          }`}
+                        >
+                          {isEditingProfile ? <X size={12} /> : <Edit3 size={12} />}
+                          {isEditingProfile ? 'Cancel' : 'Edit Identity'}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      {[
+                        { label: 'Lectures', value: sessions.length, icon: BookOpen, color: 'text-blue-500' },
+                        { label: 'AI Intelligence', value: `${currentUserData?.points || 0} XP`, icon: Brain, color: 'text-purple-500' },
+                        { label: 'Current Rank', value: currentUserData?.rank || 'Fresher', icon: Trophy, color: 'text-yellow-500' },
+                        { label: 'Global Rank', value: '#12', icon: Activity, color: 'text-green-500' }
+                      ].map((stat, i) => (
+                        <div key={i} className="bg-[#13111C] border border-white/10 p-4 rounded-2xl text-center space-y-1">
+                          <p className="text-[7px] font-black text-white/30 uppercase tracking-widest">{stat.label}</p>
+                          <p className="text-xs font-black text-white truncate">{stat.value}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className={`${theme === 'dark' ? 'bg-[#13111C] border-white/10' : 'bg-white border-slate-200'} border p-4 sm:p-6 rounded-[2rem] shadow-2xl space-y-4 sm:space-y-6`}>
+                      <div className="flex items-center justify-between border-b border-white/5 pb-4">
+                        <h3 className="text-sm font-black text-white uppercase tracking-tighter italic">Personal Archives</h3>
+                        <div className="flex items-center gap-1">
+                          <div className={`w-1.5 h-1.5 rounded-full ${isEditingProfile ? 'bg-[#DC2626] animate-pulse' : 'bg-white/20'}`} />
+                          <span className="text-[7px] font-black text-white/30 uppercase tracking-widest">{isEditingProfile ? 'UNLOCKED' : 'PROTECTED'}</span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {[
+                          { label: 'Full Personal Name', key: 'fullName', type: 'text' },
+                          { label: 'Public Display Name', key: 'displayName', type: 'text' },
+                          { label: 'Current Handle', key: 'username', type: 'text' },
+                          { label: 'ID / Matric Number', key: 'matricNumber', type: 'text' },
+                          { label: 'Date of Genesis', key: 'dob', type: 'date' },
+                          { label: 'University', key: 'university', type: 'select', options: UNIVERSITIES },
+                          { label: 'Current Level', key: 'level', type: 'text' },
+                          { label: 'Faculty', key: 'faculty', type: 'select', options: FACULTIES },
+                          { label: 'Department', key: 'department', type: 'select', options: profileFormData.faculty ? DEPARTMENTS[profileFormData.faculty] : [] },
+                        ].map((field) => (
+                          <div key={field.key} className="space-y-1.5">
+                            <label className="text-[8px] font-black text-white/30 uppercase tracking-widest ml-1">{field.label}</label>
+                            {field.type === 'select' ? (
+                               <select
+                                 value={profileFormData[field.key as keyof typeof profileFormData]}
+                                 disabled={!isEditingProfile}
+                                 onChange={(e) => setProfileFormData({ ...profileFormData, [field.key]: e.target.value })}
+                                 className={`w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-xs outline-none transition-all appearance-none ${isEditingProfile ? 'text-white focus:border-[#DC2626]/50' : 'text-white/40 cursor-not-allowed'}`}
+                               >
+                                 <option value="" disabled className="bg-zinc-900">Select {field.label}</option>
+                                 {(field.options || []).map(opt => <option key={opt} value={opt} className="bg-zinc-900">{opt}</option>)}
+                               </select>
+                            ) : (
+                              <input 
+                                type={field.type} 
+                                value={profileFormData[field.key as keyof typeof profileFormData]} 
+                                onChange={(e) => setProfileFormData({ ...profileFormData, [field.key]: e.target.value })}
+                                disabled={!isEditingProfile}
+                                className={`w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-xs outline-none transition-all ${isEditingProfile ? 'text-white focus:border-[#DC2626]/50' : 'text-white/40 cursor-not-allowed'}`} 
+                              />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      {isEditingProfile && (
+                        <div className="flex gap-2 pt-2">
+                          <button onClick={handleSaveProfile} className="flex-1 bg-[#DC2626] text-white font-black py-3 rounded-xl text-[10px] uppercase tracking-widest shadow-lg shadow-[#DC2626]/20">Save</button>
+                          <button onClick={() => setIsEditingProfile(false)} className="flex-1 bg-white/5 text-white/40 font-black py-3 rounded-xl text-[10px] uppercase tracking-widest border border-white/10">Abort</button>
                         </div>
                       )}
                     </div>
-                    <label className="absolute bottom-1 right-1 p-2 bg-[#DC2626] text-white rounded-xl cursor-pointer shadow-xl hover:scale-110 active:scale-95 transition-all border-2 border-[#13111C] z-10">
-                      <Camera size={16} />
-                      <input type="file" className="hidden" accept="image/*" onChange={handleProfileImageUpload} />
-                    </label>
-                  </div>
+                  </>
+                ) : (
+                  <div className="space-y-6">
+                    {/* Stats / Leaderboard View */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                       <div className="md:col-span-2 space-y-4">
+                          <div className="bg-[#13111C] border border-white/10 rounded-[2rem] p-6 shadow-2xl">
+                             <div className="flex items-center justify-between mb-6 border-b border-white/5 pb-4">
+                                <h3 className="text-sm font-black text-white uppercase tracking-tighter italic">Global Scholars</h3>
+                                <div className="flex items-center gap-1.5 bg-[#DC2626]/10 px-3 py-1 rounded-full border border-[#DC2626]/20">
+                                   <Activity size={10} className="text-[#DC2626]" /> 
+                                   <span className="text-[7px] font-black text-[#DC2626] uppercase">Real-time Feed</span>
+                                </div>
+                             </div>
 
-                  <div className="flex-1 text-center sm:text-left space-y-2 pb-1">
-                    <div className="space-y-0.5">
-                      <div className="flex flex-col sm:flex-row items-center gap-2">
-                        <h2 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tighter italic leading-none">
-                          {currentUserData?.displayName || 'Student Name'}
-                        </h2>
-                        {isPremium && (
-                          <span className="bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 px-2 py-0.5 rounded-full text-[7px] font-black uppercase tracking-widest flex items-center gap-1">
-                            <Sparkles size={8} /> Premium
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[10px] sm:text-xs font-bold text-[#DC2626] uppercase tracking-[0.3em] opacity-80">
-                        {currentUserData?.email || 'email@example.com'}
-                      </p>
-                    </div>
-                    
-                    <div className="flex flex-wrap justify-center sm:justify-start gap-2 pt-1">
-                      <div className="flex items-center gap-1.5 px-3 py-1 bg-white/5 rounded-xl border border-white/10">
-                        <Calendar size={12} className="text-white/40" />
-                        <span className="text-[8px] font-black text-white/60 uppercase tracking-widest">Joined 2026</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 px-3 py-1 bg-white/5 rounded-xl border border-white/10">
-                        <ShieldCheck size={12} className="text-white/40" />
-                        <span className="text-[8px] font-black text-white/60 uppercase tracking-widest">Verified</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="sm:absolute sm:top-6 sm:right-6 flex items-center gap-2">
-                    <button 
-                      onClick={() => setIsEditingProfile(!isEditingProfile)}
-                      className={`px-4 py-2 rounded-xl font-black text-[8px] uppercase tracking-widest transition-all flex items-center gap-1.5 border ${
-                        isEditingProfile 
-                        ? 'bg-[#DC2626] text-white border-[#DC2626] shadow-lg shadow-[#DC2626]/20' 
-                        : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10'
-                      }`}
-                    >
-                      {isEditingProfile ? <X size={12} /> : <Edit3 size={12} />}
-                      {isEditingProfile ? 'Cancel' : 'Edit Profile'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Stats Grid */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-                {[
-                  { label: 'Lectures', value: sessions.length, icon: BookOpen, color: 'text-blue-500' },
-                  { label: 'AI Chats', value: chatSessions.length, icon: MessageSquare, color: 'text-purple-500' },
-                  { label: 'Quizzes', value: 12, icon: Trophy, color: 'text-yellow-500' },
-                  { label: 'Activity', value: 'High', icon: Activity, color: 'text-green-500' }
-                ].map((stat, i) => (
-                  <motion.div 
-                    key={i}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: i * 0.05 }}
-                    className="bg-[#13111C] border border-white/10 p-3 sm:p-4 rounded-2xl text-center space-y-1 hover:border-[#DC2626]/30 transition-all group"
-                  >
-                    <div className={`w-8 h-8 mx-auto rounded-lg bg-white/5 flex items-center justify-center ${stat.color} group-hover:scale-110 transition-transform`}>
-                      <stat.icon size={16} />
-                    </div>
-                    <div>
-                      <p className="text-[7px] font-black text-white/30 uppercase tracking-widest">{stat.label}</p>
-                      <p className="text-sm sm:text-base font-black text-white">{stat.value}</p>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-
-              {/* Editable Fields Section */}
-              <div className={`${theme === 'dark' ? 'bg-[#13111C] border-white/10' : 'bg-white border-slate-200'} border p-4 sm:p-6 rounded-[2rem] shadow-2xl space-y-4 sm:space-y-6`}>
-                <div className="flex items-center justify-between border-b border-white/5 pb-4">
-                  <div>
-                    <h3 className="text-lg font-black text-white uppercase tracking-tighter italic leading-none">Personal Info</h3>
-                    <p className="text-[8px] font-bold text-white/30 uppercase tracking-widest mt-1">Academic details</p>
-                  </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[7px] font-black text-white/40 uppercase tracking-widest">Strength</span>
-                      <span className="text-[9px] font-black text-[#DC2626]">
-                        {Math.round(([
-                          currentUserData?.displayName,
-                          currentUserData?.fullName,
-                          currentUserData?.matricNumber,
-                          currentUserData?.dob,
-                          currentUserData?.university,
-                          currentUserData?.level,
-                          currentUserData?.department,
-                          currentUserData?.faculty,
-                          currentUserData?.photoURL
-                        ].filter(Boolean).length / 9) * 100)}%
-                      </span>
-                    </div>
-                    <div className="w-24 h-1 bg-white/5 rounded-full overflow-hidden border border-white/10">
-                      <motion.div 
-                        initial={{ width: 0 }}
-                        animate={{ width: `${([
-                          currentUserData?.displayName,
-                          currentUserData?.fullName,
-                          currentUserData?.matricNumber,
-                          currentUserData?.dob,
-                          currentUserData?.university,
-                          currentUserData?.level,
-                          currentUserData?.department,
-                          currentUserData?.faculty,
-                          currentUserData?.photoURL
-                        ].filter(Boolean).length / 9) * 100}%` }}
-                        className="h-full bg-[#DC2626]"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-                  {[
-                    { label: 'Display Name', key: 'displayName', icon: User, placeholder: 'How should we call you?' },
-                    { label: 'Full Official Name', key: 'fullName', icon: FileText, placeholder: 'Legal name' },
-                    { label: 'Matric Number', key: 'matricNumber', icon: ShieldCheck, placeholder: 'e.g. DEL/2024/001' },
-                    { label: 'Date of Birth', key: 'dob', icon: Calendar, placeholder: 'YYYY-MM-DD', type: 'date' },
-                    { label: 'University', key: 'university', icon: GraduationCap, placeholder: 'e.g. University of Lagos' },
-                    { label: 'Level', key: 'level', icon: Activity, placeholder: 'e.g. 400 Level' },
-                    { label: 'Department', key: 'department', icon: Database, placeholder: 'e.g. Computer Science' },
-                    { label: 'Faculty', key: 'faculty', icon: LayoutGrid, placeholder: 'e.g. Science' },
-                    { label: 'About', key: 'about', icon: Info, placeholder: 'Tell us about yourself...' },
-                    { label: 'Username (Unique Handle)', key: 'username', icon: AtSign, placeholder: 'e.g. user_12345' }
-                  ].map((field) => (
-                    <div key={field.key} className="space-y-2">
-                      <label className="text-[8px] font-black text-white/30 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                        <field.icon size={10} /> {field.label}
-                      </label>
-                      <div className="relative group">
-                        <input 
-                          type={field.type || 'text'} 
-                          value={profileFormData[field.key as keyof typeof profileFormData]} 
-                          onChange={(e) => setProfileFormData({ ...profileFormData, [field.key]: e.target.value })}
-                          disabled={!isEditingProfile}
-                          className={`w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-xs outline-none transition-all ${
-                            isEditingProfile 
-                            ? 'text-white focus:border-[#DC2626]/50 focus:bg-white/[0.08]' 
-                            : 'text-white/40 cursor-not-allowed'
-                          }`} 
-                          placeholder={field.placeholder}
-                        />
-                        {!isEditingProfile && (
-                          <div className="absolute right-3 top-1/2 -translate-y-1/2 opacity-20">
-                            <Lock size={12} />
+                             <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1 custom-scrollbar">
+                                {leaderboard.map((u, i) => (
+                                  <div key={u.id} className={`flex items-center gap-4 p-3 rounded-2xl border transition-all ${u.uid === user?.uid ? 'bg-[#DC2626]/10 border-[#DC2626]/30' : 'bg-white/5 border-white/5 shadow-sm'}`}>
+                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-[10px] ${i < 3 ? 'bg-[#DC2626] text-white shadow-lg' : 'bg-white/5 text-white/30'}`}>
+                                      {i + 1}
+                                    </div>
+                                    <div className="w-10 h-10 rounded-xl overflow-hidden bg-white/5 border border-white/10">
+                                      {u.photoURL ? <img src={u.photoURL} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-white/10"><User size={20} /></div>}
+                                    </div>
+                                    <div className="flex-1">
+                                      <p className="text-[10px] font-black text-white uppercase">{u.username || u.displayName?.split(' ')[0]}</p>
+                                      <p className="text-[7px] text-white/30 font-bold uppercase tracking-widest">{u.rank || 'Fresher'}</p>
+                                    </div>
+                                    <div className="text-right flex items-center gap-3">
+                                      <div>
+                                        <p className="text-[10px] font-black text-[#DC2626]">{u.points || 0}</p>
+                                        <p className="text-[6px] font-black text-white/20 uppercase tracking-widest">XP Points</p>
+                                      </div>
+                                      {u.uid !== user?.uid && (
+                                        <button 
+                                          onClick={async () => {
+                                            try {
+                                              await addDoc(collection(db, 'notifications'), {
+                                                to: u.uid,
+                                                from: user?.uid,
+                                                fromName: currentUserData?.username || currentUserData?.displayName,
+                                                type: 'highfive',
+                                                timestamp: serverTimestamp(),
+                                                read: false
+                                              });
+                                              setUserNotification(`High five sent to ${u.username || 'user'}!`);
+                                            } catch (e) {
+                                              setUserNotification("Failed to send High Five.");
+                                            }
+                                          }}
+                                          className="p-2 bg-[#DC2626]/10 text-[#DC2626] rounded-lg hover:bg-[#DC2626] hover:text-white transition-all shadow-lg active:scale-90"
+                                        >
+                                          <Plus size={14} />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                             </div>
                           </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                       </div>
 
-                {isEditingProfile && (
-                  <motion.div 
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="pt-2 flex flex-col sm:flex-row gap-3"
-                  >
-                    <button 
-                      onClick={handleSaveProfile}
-                      disabled={isAuthLoading}
-                      className="flex-[2] bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black py-3 rounded-xl text-[10px] uppercase tracking-widest shadow-lg shadow-[#DC2626]/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                    >
-                      {isAuthLoading ? <RefreshCcw className="animate-spin" size={14} /> : <Save size={14} />}
-                      Save Changes
-                    </button>
-                    <button 
-                      onClick={() => setIsEditingProfile(false)}
-                      className="flex-1 bg-white/5 hover:bg-white/10 text-white/60 font-black py-3 rounded-xl text-[10px] uppercase tracking-widest transition-all border border-white/10"
-                    >
-                      Discard
-                    </button>
-                  </motion.div>
+                       <div className="space-y-4">
+                          <div className="bg-gradient-to-br from-[#DC2626] to-[#991B1B] rounded-[2rem] p-6 text-white shadow-2xl relative overflow-hidden">
+                             <div className="absolute -right-8 -top-8 w-32 h-32 bg-white/10 rounded-full blur-2xl" />
+                             <h4 className="text-lg font-black uppercase tracking-tighter italic leading-none mb-2">Weekly Goal</h4>
+                             <p className="text-[9px] font-bold text-white/50 uppercase tracking-[0.2em] mb-6">Master the streak</p>
+                             
+                             <div className="flex justify-between items-end gap-1 mb-6">
+                                {[1,2,3,4,5,6,7].map(day => (
+                                  <div key={day} className="flex-1 flex flex-col items-center gap-2">
+                                     <div className={`w-full h-12 rounded-lg relative overflow-hidden flex flex-col justify-end p-1 transition-all ${day <= (currentUserData?.streak || 0) ? 'bg-white/20' : 'bg-black/10'}`}>
+                                        {day <= (currentUserData?.streak || 0) && <motion.div initial={{ height: 0 }} animate={{ height: '100%' }} className="absolute bottom-0 left-0 w-full bg-white opacity-80" />}
+                                     </div>
+                                     <span className="text-[6px] font-black opacity-40">DAY {day}</span>
+                                  </div>
+                                ))}
+                             </div>
+                             
+                             <div className="pt-4 border-t border-white/10">
+                                <p className="text-[10px] font-bold italic leading-tight">"Consistency is the secret code to academic evolution."</p>
+                             </div>
+                          </div>
+
+                          <div className="bg-[#13111C] border border-white/10 rounded-[2rem] p-6 text-white shadow-2xl space-y-4">
+                             <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-white/30 text-center">Your Progression</h4>
+                             <div className="space-y-1">
+                                <div className="flex justify-between text-[8px] font-black uppercase tracking-widest mb-1 shadow-sm">
+                                   <span>{currentUserData?.rank || 'Fresher'}</span>
+                                   <span>{getUserRank(currentUserData?.points || 0) === 'Diamond' ? 'MAX' : 'NEXT: ' + ((currentUserData?.points || 0) + 200)}</span>
+                                </div>
+                                <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                                   <div className="h-full bg-[#DC2626]" style={{ width: '35%' }} />
+                                </div>
+                             </div>
+                             <p className="text-[7px] text-white/20 text-center uppercase tracking-widest leading-relaxed pt-2">Complete 7-day streak to gain +100 bonus XP points for your monthly rank evolution.</p>
+                          </div>
+                       </div>
+                    </div>
+                  </div>
                 )}
-
-                <div className="pt-4 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center">
-                      <LogOut size={20} className="text-white/20" />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black text-white/80 uppercase tracking-tighter italic">Security</p>
-                      <p className="text-[7px] font-bold text-white/30 uppercase tracking-widest">Logged in as {user?.email}</p>
-                    </div>
-                  </div>
-                  <div className="flex flex-col sm:flex-row items-center gap-3">
-                    <button 
-                      onClick={handleLogout}
-                      className="w-full sm:w-auto px-6 py-3 bg-white/5 hover:bg-white/10 text-white/40 hover:text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border border-white/10 flex items-center justify-center gap-2"
-                    >
-                      <LogOut size={14} /> Sign Out
-                    </button>
-                    <button 
-                      onClick={() => {
-                        showConfirm(
-                          "Delete Account",
-                          "CRITICAL: This will permanently delete your profile and all your data. This action is irreversible. Continue?",
-                          async () => {
-                            try {
-                              setIsAuthLoading(true);
-                              if (user) await deleteDoc(doc(db, 'users', user.uid));
-                              await signOut(auth);
-                              setUserNotification("Account deleted.");
-                            } catch (err) {
-                              console.error(err);
-                              setUserNotification("Failed to delete account.");
-                            } finally {
-                              setIsAuthLoading(false);
-                            }
-                          },
-                          "Delete Permanently",
-                          true
-                        );
-                      }}
-                      className="w-full sm:w-auto px-6 py-3 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white font-black rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border border-red-500/20 flex items-center justify-center gap-2"
-                    >
-                      <Trash2 size={14} /> Delete Account
-                    </button>
-                  </div>
-                </div>
-                
-                <div className="pt-8 border-t border-white/5 space-y-6">
-                  <div className="space-y-2">
-                    <h4 className="text-[9px] font-black text-[#DC2626] uppercase tracking-[0.3em] text-center">About & Policies</h4>
-                    <p className="text-[7px] text-white/30 text-center uppercase tracking-widest">Everything you need to know about our lecture OS</p>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-3">
-                    <button onClick={() => setLegalPage('about')} className="bg-white/5 hover:bg-white/10 p-4 rounded-2xl transition-all border border-white/10 flex flex-col items-center gap-2 group">
-                      <div className="w-8 h-8 rounded-full bg-[#DC2626]/10 flex items-center justify-center text-[#DC2626] group-hover:bg-[#DC2626] group-hover:text-white transition-all">
-                        <User size={14} />
-                      </div>
-                      <span className="text-[9px] font-black text-white/60 uppercase tracking-widest">About Us</span>
-                    </button>
-                    <button onClick={() => setLegalPage('terms')} className="bg-white/5 hover:bg-white/10 p-4 rounded-2xl transition-all border border-white/10 flex flex-col items-center gap-2 group">
-                      <div className="w-8 h-8 rounded-full bg-[#DC2626]/10 flex items-center justify-center text-[#DC2626] group-hover:bg-[#DC2626] group-hover:text-white transition-all">
-                        <ShieldCheck size={14} />
-                      </div>
-                      <span className="text-[9px] font-black text-white/60 uppercase tracking-widest">Terms</span>
-                    </button>
-                    <button onClick={() => setLegalPage('privacy')} className="bg-white/5 hover:bg-white/10 p-4 rounded-2xl transition-all border border-white/10 flex flex-col items-center gap-2 group">
-                      <div className="w-8 h-8 rounded-full bg-[#DC2626]/10 flex items-center justify-center text-[#DC2626] group-hover:bg-[#DC2626] group-hover:text-white transition-all">
-                        <Lock size={14} />
-                      </div>
-                      <span className="text-[9px] font-black text-white/60 uppercase tracking-widest">Privacy</span>
-                    </button>
-                    <button onClick={() => setLegalPage('contact')} className="bg-white/5 hover:bg-white/10 p-4 rounded-2xl transition-all border border-white/10 flex flex-col items-center gap-2 group">
-                      <div className="w-8 h-8 rounded-full bg-[#DC2626]/10 flex items-center justify-center text-[#DC2626] group-hover:bg-[#DC2626] group-hover:text-white transition-all">
-                        <Zap size={14} />
-                      </div>
-                      <span className="text-[9px] font-black text-white/60 uppercase tracking-widest">Contact</span>
-                    </button>
-                  </div>
-                  
-                  <div className="flex flex-col items-center gap-1 pt-2 opacity-20">
-                    <p className="text-[8px] font-black uppercase tracking-[0.4em]">Lecture OS v4.0</p>
-                    <p className="text-[7px] font-bold uppercase tracking-widest">© 2026 NSG Studio</p>
-                  </div>
-                </div>
               </div>
-            </div>
-          </motion.div>
-        )}
+
+              {profileSubTab === 'profile' && (
+                <div className="mt-8 space-y-4 pb-20">
+                    <div className="pt-4 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center border border-white/10">
+                                <LogOut size={20} className="text-white/20" />
+                            </div>
+                            <div>
+                                <p className="text-[10px] font-black text-white/50 uppercase tracking-[0.2em] italic">System Access</p>
+                                <p className="text-[7px] font-bold text-white/20 uppercase tracking-widest">Instance ID: {user?.uid?.slice(0, 8)}</p>
+                            </div>
+                        </div>
+                        <div className="flex flex-col sm:flex-row items-center gap-2">
+                            <button onClick={handleLogout} className="px-6 py-3 bg-white/5 hover:bg-white/10 text-white/30 hover:text-white rounded-xl text-[9px] font-black uppercase border border-white/10 transition-all flex items-center gap-2">
+                                <LogOut size={14} /> SIGN OUT
+                            </button>
+                            <button 
+                                onClick={() => showConfirm("Purge Soul", "Are you sure you want to delete your entire existence from NSG?", async () => {/*Logic*/}, "DESTRUCT", true)}
+                                className="px-6 py-3 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-xl text-[9px] font-black uppercase border border-red-500/10 transition-all"
+                            >
+                                PURGE ACCOUNT
+                            </button>
+                        </div>
+                    </div>
+                </div>
+              )}
+            </motion.div>
+          )}
 
           {/* HOST EXAM PANEL (FORMERLY ADMIN) */}
           {adminMode && (
