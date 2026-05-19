@@ -1,0 +1,172 @@
+export const UNIVERSITIES = [
+  "University of Ibadan (UI)",
+  "University of Lagos (UNILAG)",
+  "Ahmadu Bello University (ABU)",
+  "University of Nigeria (UNN)",
+  "Obafemi Awolowo University (OAU)",
+  "University of Benin (UNIBEN)",
+  "University of Ilorin (UNILORIN)",
+  "University of Port Harcourt (UNIPORT)",
+  "Bayero University Kano (BUK)",
+  "Lagos State University (LASU)",
+  "Nnamdi Azikiwe University (UNIZIK)",
+  "Federal University of Technology Akure (FUTA)",
+  "Federal University of Technology Minna (FUTMINNA)",
+  "Federal University of Technology Owerri (FUTO)",
+  "University of Jos (UNIJOS)",
+  "University of Calabar (UNICAL)",
+  "University of Maiduguri (UNIMAID)",
+  "Usmanu Danfodiyo University Sokoto (UDUS)",
+  "Covenant University",
+  "Babcock University",
+  "Afe Babalola University (ABUAD)",
+  "Pan-Atlantic University",
+  "Bowen University",
+  "Redeemer's University",
+  "Lead City University",
+  "Benson Idahosa University",
+  "American University of Nigeria (AUN)",
+  "Landmark University",
+  "Niles University of Nigeria",
+  "Ibrahim Badamasi Babangida University (IBBU)",
+  "Kwara State University (KWASU)",
+  "Enugu State University of Science and Technology (ESUT)",
+  "Rivers State University (RSU)",
+  "Delta State University (DELSU)",
+  "Ambrose Alli University (AAU)",
+  "Ladoke Akintola University of Technology (LAUTECH)",
+  "Olabisi Onabanjo University (OOU)",
+  "Ekiti State University (EKSU)",
+  "Abia State University (ABSU)",
+  "Imo State University (IMSU)",
+  "Ebonyi State University (EBSU)",
+  "Niger Delta University (NDU)",
+  "Tai Solarin University of Education (TASUED)",
+  "Cross River University of Technology (CRUTECH)",
+  "Akwa Ibom State University (AKSU)",
+  "Kaduna State University (KASU)",
+  "Benue State University (BSU)",
+  "Nasarawa State University (NSUK)",
+  "Kogi State University (KSU)",
+  "Others"
+];
+
+export const FACULTIES = [
+  "Faculty of Arts",
+  "Faculty of Agriculture",
+  "Faculty of Basic Medical Sciences",
+  "Faculty of Biological Sciences",
+  "Faculty of Clinical Sciences",
+  "Faculty of Education",
+  "Faculty of Engineering / Technology",
+  "Faculty of Environmental Sciences",
+  "Faculty of Law",
+  "Faculty of Management Sciences",
+  "Faculty of Pharmaceutical Sciences",
+  "Faculty of Physical Sciences",
+  "Faculty of Social Sciences",
+  "Faculty of Veterinary Medicine",
+  "College of Medicine",
+  "Graduate School",
+  "Others"
+];
+
+export const DEPARTMENTS: Record<string, string[]> = {
+  "Faculty of Arts": [
+    "English and Literary Studies",
+    "History and International Studies",
+    "Linguistics and Nigerian Languages",
+    "Mass Communication",
+    "Philosophy",
+    "Religious Studies",
+    "Theatre and Film Studies",
+    "Music",
+    "Fine and Applied Arts"
+  ],
+  "Faculty of Agriculture": [
+    "Agricultural Economics",
+    "Agricultural Extension",
+    "Animal Science",
+    "Crop Science",
+    "Soil Science",
+    "Food Science and Technology",
+    "Fisheries and Aquaculture",
+    "Forestry and Wildlife Management"
+  ],
+  "Faculty of Engineering / Technology": [
+    "Agricultural Engineering",
+    "Civil Engineering",
+    "Chemical Engineering",
+    "Computer Engineering",
+    "Electrical and Electronics Engineering",
+    "Mechanical Engineering",
+    "Materials and Metallurgical Engineering",
+    "Mechatronics Engineering",
+    "Petroleum and Gas Engineering",
+    "Systems Engineering"
+  ],
+  "Faculty of Physical Sciences": [
+    "Computer Science",
+    "Mathematics",
+    "Physics and Astronomy",
+    "Pure and Industrial Chemistry",
+    "Geology",
+    "Statistics"
+  ],
+  "Faculty of Biological Sciences": [
+    "Biochemistry",
+    "Microbiology",
+    "Plant Science and Biotechnology",
+    "Zoology and Environmental Biology",
+    "Genetics and Molecular Biology"
+  ],
+  "Faculty of Social Sciences": [
+    "Economics",
+    "Geography",
+    "Political Science",
+    "Psychology",
+    "Sociology and Anthropology",
+    "Social Work"
+  ],
+  "Faculty of Management Sciences": [
+    "Accounting",
+    "Banking and Finance",
+    "Business Administration",
+    "Marketing",
+    "Public Administration",
+    "Entrepreneurial Studies"
+  ],
+  "Faculty of Education": [
+    "Arts Education",
+    "Science Education",
+    "Social Science Education",
+    "Vocational and Technical Education",
+    "Educational Foundations",
+    "Guidance and Counseling",
+    "Library and Information Science"
+  ],
+  "Faculty of Environmental Sciences": [
+    "Architecture",
+    "Building",
+    "Estate Management",
+    "Quantity Surveying",
+    "Surveying and Geoinformatics",
+    "Urban and Regional Planning"
+  ],
+  "Faculty of Law": [
+    "Public Law",
+    "Private and Property Law",
+    "Commercial Law",
+    "Jurisprudence and International Law"
+  ],
+  "College of Medicine": [
+    "Medicine and Surgery",
+    "Nursing Science",
+    "Medical Rehabilitation (Physiotherapy)",
+    "Medical Laboratory Science",
+    "Radiography",
+    "Anatomy",
+    "Physiology"
+  ],
+  "Others": ["General Studies", "Foundation Program", "Custom Department"]
+};
