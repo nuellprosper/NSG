@@ -62,9 +62,11 @@ service cloud.firestore {
              (!('matric' in data) || isValString(data.matric, 128)) &&
              (!('matricNumber' in data) || isValString(data.matricNumber, 128)) &&
              (!('isPremium' in data) || data.isPremium is bool) &&
-             (!('bypassAllPayments' in data) || data.bypassAllPayments is bool) &&
+             (!('points' in data) || data.points is int) &&
+             (!('streak' in data) || data.streak is int) &&
+             (!('rank' in data) || data.rank is string) &&
+             (!('lastActive' in data) || (data.lastActive is string || data.lastActive is timestamp)) &&
              (!('bypassHostingPayment' in data) || data.bypassHostingPayment is bool) &&
-             (!('bypassTakingPayment' in data) || data.bypassTakingPayment is bool) &&
              (!('lastSeen' in data) || (data.lastSeen is string || data.lastSeen is timestamp)) &&
              (!('updatedAt' in data) || (data.updatedAt is string || data.updatedAt is timestamp));
     }
@@ -105,11 +107,11 @@ service cloud.firestore {
     // Users Collection
     match /users/{uid} {
       allow get: if isSignedIn();
-      allow list: if isSignedIn();
-      allow create: if isOwner(uid) && isValidUser(incoming());
+      allow list: if isSignedIn() || (request.query.limit <= 1);
+      allow create: if (isOwner(uid) || (request.auth == null && uid != null)) && isValidUser(incoming());
       allow update: if (isOwner(uid) || isAdmin()) && isValidUser(incoming()) && (
         // Action: Profile Update
-        (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'username', 'university', 'level', 'department', 'faculty', 'dob', 'matric', 'matricNumber', 'updatedAt', 'fullName', 'status', 'premiumUntil', 'bypassHostingPayment', 'bypassTakingPayment', 'bypassAllPayments', 'isPremium', 'about', 'lastSeen', 'email'])) ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'username', 'university', 'level', 'department', 'faculty', 'dob', 'matric', 'matricNumber', 'updatedAt', 'fullName', 'status', 'premiumUntil', 'bypassHostingPayment', 'bypassTakingPayment', 'bypassAllPayments', 'isPremium', 'about', 'lastSeen', 'email', 'points', 'streak', 'lastActive', 'rank'])) ||
         // Action: Presence Heartbeat
         (incoming().diff(existing()).affectedKeys().hasOnly(['lastSeen', 'status'])) ||
         // Action: Admin Role Update
@@ -151,9 +153,18 @@ service cloud.firestore {
 
     // Notifications
     match /notifications/{notifId} {
-      allow read: if isSignedIn();
-      allow create, update: if isAdmin();
-      allow delete: if isAdmin();
+      allow read: if isSignedIn() && (
+        resource.data.get('to', '') == request.auth.uid || 
+        !('to' in resource.data) || 
+        isAdmin()
+      );
+      allow create: if isSignedIn() && (
+        (incoming().type == 'highfive' && incoming().from == request.auth.uid) || 
+        isAdmin()
+      );
+      allow update: if isSignedIn() && (resource.data.get('to', '') == request.auth.uid || isAdmin()) && 
+                    incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.get('to', '') == request.auth.uid);
     }
 
     // Reports Collection
