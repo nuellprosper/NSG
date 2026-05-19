@@ -76,13 +76,27 @@ app.use((req, res, next) => {
 });
 
 // --- Email Setup ---
-const transporter = nodemailer.createTransport({
+let transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS?.replace(/\s/g, ''),
   },
 });
+
+async function sendMailSafely(options: any) {
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    throw new Error("EMAIL_USER or EMAIL_PASS environment variables are not set. SMTP configuration missing.");
+  }
+  try {
+    return await transporter.sendMail(options);
+  } catch (error: any) {
+    if (error.message?.includes('535') || error.message?.includes('Invalid login')) {
+      throw new Error("SMTP Authentication Failed: Your EMAIL_USER or EMAIL_PASS is incorrect. If using Gmail, please use an 'App Password' instead of your regular password.");
+    }
+    throw error;
+  }
+}
 
 // --- Webhook Verification ---
 app.get("/api/whatsapp", (req, res) => {
@@ -307,32 +321,32 @@ app.get("/api/lookup-user", async (req, res) => {
 app.post("/api/send-welcome-email", async (req, res) => {
   const { email, name } = req.body;
   try {
-    await transporter.sendMail({
+    await sendMailSafely({
       from: process.env.EMAIL_USER,
       to: email,
       subject: `Welcome to NSG, ${name}!`,
       html: `<h1>Welcome to NSG!</h1><p>Hi ${name}, thank you for joining NSG. Start your academic journey with OMNI today!</p>`
     });
     res.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Welcome email error:", error);
-    res.status(500).json({ error: "Failed to send email" });
+    res.status(500).json({ error: error.message || "Failed to send email" });
   }
 });
 
 app.post("/api/send-premium-thank-you", async (req, res) => {
   const { email, name, plan } = req.body;
   try {
-    await transporter.sendMail({
+    await sendMailSafely({
       from: process.env.EMAIL_USER,
       to: email,
       subject: `Thank You for Going Premium!`,
       html: `<h1>Premium Activated!</h1><p>Hi ${name}, thank you for subscribing to the ${plan} plan.</p>`
     });
     res.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Premium email error:", error);
-    res.status(500).json({ error: "Failed to send email" });
+    res.status(500).json({ error: error.message || "Failed to send email" });
   }
 });
 
@@ -344,7 +358,7 @@ app.post("/api/admin/broadcast-list", async (req, res) => {
   try {
     for (const user of recipients) {
       const body = bodyTemplate.replace(/{{name}}/g, user.name);
-      await transporter.sendMail({
+      await sendMailSafely({
         from: process.env.EMAIL_USER,
         to: user.email,
         subject: subjectTemplate,
