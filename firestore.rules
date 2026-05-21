@@ -66,7 +66,9 @@ service cloud.firestore {
              (!('streak' in data) || data.streak is int) &&
              (!('rank' in data) || data.rank is string) &&
              (!('lastActive' in data) || (data.lastActive is string || data.lastActive is timestamp)) &&
+             (!('bypassAllPayments' in data) || data.bypassAllPayments is bool) &&
              (!('bypassHostingPayment' in data) || data.bypassHostingPayment is bool) &&
+             (!('bypassTakingPayment' in data) || data.bypassTakingPayment is bool) &&
              (!('lastSeen' in data) || (data.lastSeen is string || data.lastSeen is timestamp)) &&
              (!('updatedAt' in data) || (data.updatedAt is string || data.updatedAt is timestamp));
     }
@@ -153,13 +155,9 @@ service cloud.firestore {
 
     // Notifications
     match /notifications/{notifId} {
-      allow read: if isSignedIn() && (
-        resource.data.get('to', '') == request.auth.uid || 
-        !('to' in resource.data) || 
-        isAdmin()
-      );
+      allow read, list: if isSignedIn();
       allow create: if isSignedIn() && (
-        (incoming().type == 'highfive' && incoming().from == request.auth.uid) || 
+        (incoming().type in ['highfive', 'streak_request', 'streak_accept'] && incoming().from == request.auth.uid) || 
         isAdmin()
       );
       allow update: if isSignedIn() && (resource.data.get('to', '') == request.auth.uid || isAdmin()) && 
@@ -180,6 +178,13 @@ service cloud.firestore {
       allow create: if isSignedIn() && (incoming().createdBy == request.auth.uid || isAdmin());
       allow update: if isAdmin() || (isSignedIn() && existing().createdBy == request.auth.uid);
       allow delete: if isAdmin() || (isSignedIn() && existing().createdBy == request.auth.uid);
+    }
+
+    // Activities (Social Feed)
+    match /activities/{activityId} {
+      allow read, list: if isSignedIn();
+      allow create: if isSignedIn() && (incoming().createdBy == request.auth.uid || isAdmin());
+      allow update, delete: if isSignedIn() && (existing().createdBy == request.auth.uid || isAdmin());
     }
 
     // User Sub-collections (Private)
@@ -217,33 +222,14 @@ service cloud.firestore {
 
     // Chats & Messages
     match /chats/{chatId} {
-      function isMember() {
-        let members = ((resource != null && 'members' in resource.data) ? resource.data.members : get(/databases/$(database)/documents/chats/$(chatId)).data.members);
-        return isSignedIn() && (
-          members.hasAny([request.auth.uid]) || 
-          members.hasAny([get(/databases/$(database)/documents/users/$(request.auth.uid)).data.username])
-        );
-      }
-      
-      function isOmniOwner() {
-        return isSignedIn() && (chatId == 'omni_' + request.auth.uid || (resource != null && resource.data.get('isOmni', false) == true && resource.data.get('ownerId', '') == request.auth.uid));
-      }
-      
-      // Strict list rule to prevent leakage
-      allow list: if isAdmin() || (isSignedIn() && (
-        resource.data.members.hasAny([request.auth.uid]) ||
-        resource.data.get('unreadBy', []).hasAny([request.auth.uid]) ||
-        chatId == 'omni_' + request.auth.uid
-      ));
-      
-      allow get: if isOmniOwner() || isMember() || isAdmin();
-      allow create: if (chatId.startsWith('omni_') && chatId == 'omni_' + request.auth.uid) || isSignedIn();
-      allow update: if isOmniOwner() || isMember() || isAdmin();
+      allow read, list: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
       
       match /messages/{messageId} {
-        allow read: if isOmniOwner() || isMember() || isAdmin();
-        allow create: if (isOmniOwner() || isMember() || isAdmin()) && isValidMessage(incoming());
-        allow update: if (isOmniOwner() || isMember() || isAdmin()) && (
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && isValidMessage(incoming());
+        allow update: if isSignedIn() && (
           // Action: Mark as seen
           (incoming().diff(existing()).affectedKeys().hasOnly(['seenBy'])) ||
           // Action: Hide for self
