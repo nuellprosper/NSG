@@ -295,10 +295,12 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     const queryMembers = [user.uid];
     if (userHandle) queryMembers.push(userHandle);
 
+    console.log("Subscribing to chats for:", queryMembers);
+
     // Listen for chats where user is a member
     const q = query(
       collection(db, 'chats'),
-      where('members', 'array-contains-any', queryMembers),
+      where('members', 'array-contains', user.uid),
       orderBy('updatedAt', 'desc')
     );
 
