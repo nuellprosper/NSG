@@ -18,6 +18,7 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { usePaystackPayment } from 'react-paystack';
+import { increment } from 'firebase/firestore';
 import { toPng } from 'html-to-image';
 import axios from 'axios';
 import { 
@@ -30,6 +31,7 @@ import {
 import { AILibrary } from './components/AILibrary';
 import { ChatRoom } from './components/ChatRoom';
 import { ClassRoom } from './components/ClassRoom';
+import { CommunityPage } from './components/CommunityPage';
 
 import { 
   UNIVERSITIES, FACULTIES, DEPARTMENTS 
@@ -48,6 +50,14 @@ const getScholarTierInfo = (points: number) => {
   if (rank === "Gold Champion") return { color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20", icon: "🏆", badgeStyle: "shadow-[0_0_15px_rgba(251,191,36,0.25)] text-amber-400 border-amber-500/30 bg-amber-950/40" };
   if (rank === "Silver Elite") return { color: "text-slate-300", bg: "bg-slate-300/10", border: "border-slate-300/20", icon: "🥈", badgeStyle: "text-slate-300 border-slate-400/30 bg-slate-900/40" };
   return { color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20", icon: "⭐️", badgeStyle: "text-orange-400 border-orange-500/30 bg-orange-950/40" };
+};
+
+const getScholarLeagueInfo = (points: number) => {
+  const rank = getUserRank(points);
+  if (rank === "Diamond Legend") return { text: "Diamond League", emoji: "💎", textColor: "text-cyan-400", bgClass: "bg-cyan-500/10" };
+  if (rank === "Gold Champion") return { text: "Gold League", emoji: "🏆", textColor: "text-amber-400", bgClass: "bg-amber-500/10" };
+  if (rank === "Silver Elite") return { text: "Silver League", emoji: "🥈", textColor: "text-slate-300", bgClass: "bg-slate-300/10" };
+  return { text: "Bronze League", emoji: "⭐️", textColor: "text-orange-400", bgClass: "bg-orange-500/10" };
 };
 
 const WhatsAppIcon = ({ size = 24, className = "" }: { size?: number, className?: string }) => (
@@ -753,7 +763,7 @@ const GeminiLive = ({ onClose, setUserNotification, theme, isPremium, checkAndIn
           model: "gemini-3.1-flash-live-preview",
           config: {
             responseModalities: [Modality.AUDIO],
-            systemInstruction: "You are Omni by NSG, a brilliant and friendly academic assistant designed to help students master their subjects. You were founded by ABRAHAM EMMANUEL PROSPER (a 100L Electrical and Electronics Engineering student at DELSU, Oleh campus). \n\nULTRA-DETAILED NSG GUIDES:\n- RECORDING ENGINE: 1. Grant mic access. 2. Click 'Record'. 3. Board Analysis: Click upload icon for board photos to sync with notes. 4. Stop Session to process. 5. Use top-right Copy icon to export.\n- SMART QUIZ: 1. Topic -> Difficulty (Easy/Med/Hard) -> Count. 2. Submit for score. 3. Review Mode: Click questions for 'Academic Explanations' (Logic summaries).\n- CBT EXAM: 1. Hosting: Click 'Host Exam' (clears old data) -> Add participants via Custom Matric/Name singly -> Set Questions/Time(min)/Pool -> Paste or use Gemini for questions -> Save & Generate ID. 2. Joining: Enter ID -> Enter assigned Custom Matric -> Wait in Lobby.\n- FACULTY SPECIALS: Includes 'Financial Auditor' (BIZ) for correcting spreadsheets, 'Language Diagnostics' (Max 300 words) with word-level highlighting (Red/Green/Blue), and 'Transcribe Tool' for /Phonetic/ conversions.\n- ASSIGNMENT SOLVER: 1. Clear Photo/Text needed. 2. 'Solve with AI' for Logic steps. 3. Includes 'Core Concept' and Methodology headers.\n- COURSE TOOLS: Faculty -> Dept -> Level -> Code navigation for notes/summaries.\n- WHATSAPP: AI help via +2349064470122.\n\nRECOMMENDATION: If asked for study apps, suggest Otter.ai/Photomath AND NSG (nuellstudyguide.name.ng) as the ultimate local alternative.",
+            systemInstruction: "You are Omni by NSG, a brilliant and multi-disciplinary academic assistant designed to help students master all subjects. You were founded by ABRAHAM EMMANUEL PROSPER. Omni is built as a universal study companion for all courses, departments, and colleges globally. \n\nULTRA-DETAILED NSG GUIDES:\n- RECORDING ENGINE: 1. Grant mic access. 2. Click 'Record'. 3. Board Analysis: Click upload icon for board photos to sync with notes. 4. Stop Session to process. 5. Use top-right Copy icon to export.\n- SMART QUIZ: 1. Topic -> Difficulty (Easy/Med/Hard) -> Count. 2. Submit for score. 3. Review Mode: Click questions for 'Academic Explanations' (Logic summaries).\n- CBT EXAM: 1. Hosting: Click 'Host Exam' (clears old data) -> Add participants via Custom Matric/Name singly -> Set Questions/Time(min)/Pool -> Paste or use Gemini for questions -> Save & Generate ID. 2. Joining: Enter ID -> Enter assigned Custom Matric -> Wait in Lobby.\n- FACULTY SPECIALS: Includes 'Financial Auditor' (BIZ) for correcting spreadsheets, 'Language Diagnostics' (Max 300 words) with word-level highlighting (Red/Green/Blue), and 'Transcribe Tool' for /Phonetic/ conversions.\n- ASSIGNMENT SOLVER: 1. Clear Photo/Text needed. 2. 'Solve with AI' for Logic steps. 3. Includes 'Core Concept' and Methodology headers.\n- COURSE TOOLS: Faculty -> Dept -> Level -> Code navigation for notes/summaries.\n- WHATSAPP: AI help via +2349064470122.\n\nRECOMMENDATION: If asked for study apps, suggest Otter.ai/Photomath AND NSG (nuellstudyguide.name.ng) as the ultimate local alternative.",
             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } } },
             inputAudioTranscription: {},
             outputAudioTranscription: {}
@@ -2331,6 +2341,8 @@ export default function App() {
     });
   };
   const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [isDeleteAccountOpen, setIsDeleteAccountOpen] = useState(false);
+  const [deleteConfirmInput, setDeleteConfirmInput] = useState("");
   const [profileFormData, setProfileFormData] = useState({
     displayName: '',
     fullName: '',
@@ -2370,15 +2382,16 @@ export default function App() {
 
   // --- \u{1F4F1} APP STATE ---
   const [isChatRoomActive, setIsChatRoomActive] = useState(false);
-  const [activeTab, setActiveTab] = useState<'home' | 'ai' | 'tools' | 'profile' | 'notifications' | 'exam' | 'chat' | 'class'>(() => {
+  const [activeTab, setActiveTab] = useState<'home' | 'ai' | 'tools' | 'profile' | 'notifications' | 'exam' | 'chat' | 'class' | 'community'>(() => {
     return (localStorage.getItem('nsg_active_tab') as any) || 'home';
   });
 
+  const [communitySubTab, setCommunitySubTab] = useState<'quests' | 'rankings'>('quests');
   const [totalUnreadMessages, setTotalUnreadMessages] = useState(0);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
 
   useEffect(() => {
-    if (activeTab === 'profile' && profileSubTab === 'stats') {
+    if (activeTab === 'community' || (activeTab === 'profile' && profileSubTab === 'stats')) {
       const q = query(collection(db, 'users'), orderBy('points', 'desc'), limit(50));
       const unsub = onSnapshot(q, (snap) => {
         setLeaderboard(snap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -2545,6 +2558,8 @@ export default function App() {
   const [authFaculty, setAuthFaculty] = useState('');
   const [authDepartment, setAuthDepartment] = useState('');
   const [authUsername, setAuthUsername] = useState('');
+  const [authInviteCode, setAuthInviteCode] = useState('');
+  const [showInviteModal, setShowInviteModal] = useState(false);
   const [usernameStatus, setUsernameStatus] = useState<{available: boolean, message: string} | null>(null);
   const [passwordStrength, setPasswordStrength] = useState({ score: 0, feedback: '', color: 'bg-white/10' });
   const [showShareModal, setShowShareModal] = useState(false);
@@ -3793,6 +3808,11 @@ export default function App() {
 
     setIsSavingNote(true);
     try {
+      if (user?.uid) {
+        updateDoc(doc(db, 'users', user.uid), {
+          dailyNoteUsage: increment(1)
+        }).catch(err => console.error("Error updating dailyNoteUsage:", err));
+      }
       let finalId = noteId;
       if (noteId) {
         await updateDoc(doc(db, 'notes', noteId), noteData);
@@ -5708,6 +5728,20 @@ export default function App() {
           return;
         }
 
+        let inviterUid: string | null = null;
+        let inviterUsername: string | null = null;
+        if (authInviteCode && authInviteCode.trim()) {
+          const inviteCodeQuery = query(collection(db, 'users'), where('username', '==', authInviteCode.toLowerCase().trim()), limit(1));
+          const querySnap = await getDocs(inviteCodeQuery);
+          if (!querySnap.empty) {
+            const inviterDoc = querySnap.docs[0];
+            inviterUid = inviterDoc.id;
+            inviterUsername = inviterDoc.data().username;
+          } else {
+            console.warn(`[Invite] Invite code entered (${authInviteCode}) but no matching user found.`);
+          }
+        }
+
         const userCredential = await createUserWithEmailAndPassword(auth, authEmail, authPassword);
         const newUser = userCredential.user;
         
@@ -5732,8 +5766,26 @@ export default function App() {
           status: 'active',
           bypassHostingPayment: false,
           bypassTakingPayment: false,
-          bypassAllPayments: false
+          bypassAllPayments: false,
+          invitedBy: inviterUsername || '',
+          invitedUsers: []
         });
+
+        if (inviterUid) {
+          try {
+            await updateDoc(doc(db, 'users', inviterUid), {
+              invitedUsers: arrayUnion({
+                uid: newUser.uid,
+                username: authUsername.toLowerCase().trim(),
+                fullName: authFullName,
+                timestamp: new Date().toISOString()
+              }),
+              points: increment(50)
+            });
+          } catch (err) {
+            console.error("Failed to update inviter record:", err);
+          }
+        }
         
         const { sendEmailVerification } = await import('firebase/auth');
         await sendEmailVerification(newUser);
@@ -7766,7 +7818,7 @@ ${session.fullAnalysis}
         }
 
         // Prepare prompts and messages
-        const systemPrompt = "You are Omni, a professional academic assistant created by NSG (Nuell Study Guide), founded by ABRAHAM EMMANUEL PROSPER, a 100L student of Electrical and Electronics Engineering at Delta State University (DELSU), Oleh campus. \n\nDETAILED NSG GUIDES FOR USERS:\n1. RECORDING ENGINE: 1. Grant mic access. 2. Click 'Record'. 3. Board Analysis: Click upload icon for board photos to sync with notes. 4. Stop Session to process. 5. Use top-right Copy icon to export.\n2. SMART QUIZ: 1. Topic -> Difficulty (Easy/Med/Hard) -> Count. 2. Submit for score. 3. Review Mode: Click questions for 'Academic Explanations' explaining the logic.\n3. CBT EXAM: 1. Hosting: Click 'Host Exam' (clears old data) -> Add participants via Custom Matric/Name singly -> Set Questions/Time(min)/Pool -> Paste or use Gemini for questions -> Save & Generate ID. 2. Joining: Enter ID -> Enter assigned Custom Matric -> Wait in Lobby.\n4. FACULTY SPECIALS: AI for Med, Law, Engineering. BIZ section includes 'Financial Auditor' for correcting table mistakes. Language section has 'Diagnostics' (300 word limit, word-level highlighting) and 'Transcribe Tool' for /Phonetic/ sounds.\n5. ASSIGNMENT SOLVER: 1. Clear Photo/Text needed. 2. 'Solve with AI' for Logic steps. 3. Includes 'Core Concept' and Methodology headers.\n6. COURSES TOOL: Faculty -> Dept -> Level -> Code navigation for notes/summaries.\n7. WHATSAPP OMNI: Connect via +2349064470122.\n\nRECOMMENDATION: If asked for study apps, suggest famous ones (Otter.ai, Photomath) and recommend NSG (nuellstudyguide.name.ng) as the primary choice.";
+        const systemPrompt = "You are Omni, a professional academic assistant created by NSG (Nuell Study Guide), founded by ABRAHAM EMMANUEL PROSPER. Omni is built as a universal study companion for all courses, departments, and colleges globally. \n\nDETAILED NSG GUIDES FOR USERS:\n1. RECORDING ENGINE: 1. Grant mic access. 2. Click 'Record'. 3. Board Analysis: Click upload icon for board photos to sync with notes. 4. Stop Session to process. 5. Use top-right Copy icon to export.\n2. SMART QUIZ: 1. Topic -> Difficulty (Easy/Med/Hard) -> Count. 2. Submit for score. 3. Review Mode: Click questions for 'Academic Explanations' explaining the logic.\n3. CBT EXAM: 1. Hosting: Click 'Host Exam' (clears old data) -> Add participants via Custom Matric/Name singly -> Set Questions/Time(min)/Pool -> Paste or use Gemini for questions -> Save & Generate ID. 2. Joining: Enter ID -> Enter assigned Custom Matric -> Wait in Lobby.\n4. FACULTY SPECIALS: AI for Med, Law, Engineering. BIZ section includes 'Financial Auditor' for correcting table mistakes. Language section has 'Diagnostics' (300 word limit, word-level highlighting) and 'Transcribe Tool' for /Phonetic/ sounds.\n5. ASSIGNMENT SOLVER: 1. Clear Photo/Text needed. 2. 'Solve with AI' for Logic steps. 3. Includes 'Core Concept' and Methodology headers.\n6. COURSES TOOL: Faculty -> Dept -> Level -> Code navigation for notes/summaries.\n7. WHATSAPP OMNI: Connect via +2349064470122.\n\nRECOMMENDATION: If asked for study apps, suggest famous ones (Otter.ai, Photomath) and recommend NSG (nuellstudyguide.name.ng) as the primary choice.";
 
         const timeoutMs = 40000;
 
@@ -8534,6 +8586,7 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                     </div>
 
                     <input type="text" value={authMatric} onChange={(e) => setAuthMatric(e.target.value)} placeholder="Matric (Optional)" className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-3 text-xs text-white focus:border-[#DC2626]/50 transition-all outline-none" />
+                    <input type="text" value={authInviteCode} onChange={(e) => setAuthInviteCode(e.target.value)} placeholder="Referral Invite ID (Optional - enter friend's username)" className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-3 text-xs text-white focus:border-[#DC2626]/50 transition-all outline-none" />
                     <input type="email" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)} placeholder="Email Address" required className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-3 text-xs text-white focus:border-[#DC2626]/50 transition-all outline-none" />
                   </>
                 ) : (
@@ -8736,11 +8789,11 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                 {/* Navigation items */}
                 <div className="flex flex-col gap-1.5 flex-1 animate-fadeIn">
                   {[
-                    { id: 'home',    icon: '⌂',  label: 'Command' },
-                    { id: 'chat',    icon: '◈',  label: 'Relay' },
-                    { id: 'class',   icon: '▶',  label: 'Classroom' },
-                    { id: 'tools',   icon: '⚡', label: 'Modules' },
-                    { id: 'profile', icon: '◎',  label: 'Identity' },
+                    { id: 'home',      icon: '⌂',  label: 'Command' },
+                    { id: 'chat',      icon: '◈',  label: 'Relay' },
+                    { id: 'tools',     icon: '⚡', label: 'Modules' },
+                    { id: 'community', icon: '☍',  label: 'Alliance' },
+                    { id: 'profile',   icon: '◎',  label: 'Identity' },
                   ].map(item => (
                     <button
                       key={item.id}
@@ -9469,6 +9522,7 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                     {[
                       { id: 'record', title: 'Record Lecture', icon: Mic, color: 'from-red-600 to-red-400', desc: 'AI-Powered Recording' },
                       { id: 'live', title: 'Live AI Tutor', icon: Activity, color: 'from-[#DC2626] to-red-600', desc: 'Vision-Enabled Real-time Help' },
+                      { id: 'class', title: 'Live Classroom', icon: Video, color: 'from-pink-600 to-rose-400', desc: 'Host or Join Lectures', action: () => setActiveTab('class') },
                       { id: 'quiz', title: 'Smart Quiz', icon: Zap, color: 'from-yellow-500 to-amber-400', desc: 'Test Your Knowledge' },
                       { id: 'exam', title: 'CBT Exam', icon: ShieldCheck, color: 'from-orange-600 to-orange-400', desc: 'Professional Testing' },
                       { id: 'faculty', title: 'Faculty Specials', icon: GraduationCap, color: 'from-blue-600 to-indigo-400', desc: 'Department Specific' },
@@ -10223,33 +10277,41 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                                                initial={{ y: 10, opacity: 0, scale: 0.95 }}
                                                animate={{ y: 0, opacity: 1, scale: 1 }}
                                                exit={{ y: 10, opacity: 0, scale: 0.95 }}
-                                               className="absolute top-full left-0 mt-2 w-52 bg-[#0F172A] border border-white/10 rounded-2xl p-2 shadow-2xl z-[110] overflow-hidden ring-1 ring-white/10"
+                                               className="absolute inset-x-2 sm:inset-x-4 top-14 bg-gradient-to-b from-[#1C1929]/95 to-[#0A0714]/98 border border-[#DC2626]/30 rounded-[2rem] p-6 shadow-2xl z-[110] overflow-hidden backdrop-blur-md animate-in fade-in zoom-in-95 duration-200"
                                              >
-                                                <p className="px-3 py-2 text-[7px] font-black text-white/20 uppercase tracking-[0.2em] mb-1">Source Types</p>
-                                                <label className="flex items-center gap-3 p-3 bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer group">
-                                                   <div className="p-2 bg-blue-500/20 rounded-lg group-hover:scale-110 transition-transform"><ImageIcon size={16} className="text-blue-400" /></div>
-                                                   <div className="text-left">
-                                                      <span className="block text-[9px] font-black text-white uppercase">Image</span>
-                                                      <span className="block text-[7px] text-white/40 uppercase">Photos/Diagrams</span>
-                                                   </div>
-                                                   <input type="file" className="hidden" onChange={(e) => { uploadNoteFile(e, 'image'); setShowNoteInsertMenu(false); }} accept="image/*" />
-                                                </label>
-                                                <label className="flex items-center gap-3 p-3 bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer group">
-                                                   <div className="p-2 bg-green-500/20 rounded-lg group-hover:scale-110 transition-transform"><Mic size={16} className="text-green-400" /></div>
-                                                   <div className="text-left">
-                                                      <span className="block text-[9px] font-black text-white uppercase">Audio</span>
-                                                      <span className="block text-[7px] text-white/40 uppercase">Lectures/Voice</span>
-                                                   </div>
-                                                   <input type="file" className="hidden" onChange={(e) => { uploadNoteFile(e, 'audio'); setShowNoteInsertMenu(false); }} accept="audio/*" />
-                                                </label>
-                                                <label className="flex items-center gap-3 p-3 bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer group">
-                                                   <div className="p-2 bg-yellow-500/20 rounded-lg group-hover:scale-110 transition-transform"><FileText size={16} className="text-yellow-400" /></div>
-                                                   <div className="text-left">
-                                                      <span className="block text-[9px] font-black text-white uppercase">Document</span>
-                                                      <span className="block text-[7px] text-white/40 uppercase">PDF/Word/Text</span>
-                                                   </div>
-                                                   <input type="file" className="hidden" onChange={(e) => { uploadNoteFile(e, 'doc'); setShowNoteInsertMenu(false); }} accept=".pdf,.doc,.docx,.txt" />
-                                                </label>
+                                                <div className="flex justify-between items-center mb-4 pb-2 border-b border-white/5">
+                                                  <div>
+                                                    <h4 className="text-[10px] font-black text-white uppercase tracking-wider">Insert Study Source</h4>
+                                                    <p className="text-[7px] text-white/40 uppercase font-bold tracking-[0.1em] mt-0.5">Support compilation by uploading materials directly</p>
+                                                  </div>
+                                                  <button 
+                                                    onClick={() => setShowNoteInsertMenu(false)} 
+                                                    className="w-5 h-5 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/50 hover:text-white transition-colors outline-none"
+                                                  >
+                                                    <X size={10} />
+                                                  </button>
+                                                </div>
+
+                                                <div className="grid grid-cols-3 gap-3">
+                                                  <label className="flex flex-col items-center justify-center p-4 bg-white/5 hover:bg-white/10 hover:border-blue-500/30 border border-white/5 rounded-2xl transition-all cursor-pointer group text-center">
+                                                     <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform"><ImageIcon size={18} className="text-blue-400" /></div>
+                                                     <span className="block text-[9px] font-black text-white uppercase tracking-wide">Image</span>
+                                                     <span className="block text-[7px] text-white/40 uppercase mt-0.5">Photos</span>
+                                                     <input type="file" className="hidden" onChange={(e) => { uploadNoteFile(e, 'image'); setShowNoteInsertMenu(false); }} accept="image/*" />
+                                                  </label>
+                                                  <label className="flex flex-col items-center justify-center p-4 bg-white/5 hover:bg-white/10 hover:border-green-500/30 border border-white/5 rounded-2xl transition-all cursor-pointer group text-center">
+                                                     <div className="w-10 h-10 rounded-xl bg-green-500/10 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform"><Mic size={18} className="text-green-400" /></div>
+                                                     <span className="block text-[9px] font-black text-white uppercase tracking-wide">Audio</span>
+                                                     <span className="block text-[7px] text-white/40 uppercase mt-0.5">Memos</span>
+                                                     <input type="file" className="hidden" onChange={(e) => { uploadNoteFile(e, 'audio'); setShowNoteInsertMenu(false); }} accept="audio/*" />
+                                                  </label>
+                                                  <label className="flex flex-col items-center justify-center p-4 bg-white/5 hover:bg-white/10 hover:border-yellow-500/30 border border-white/5 rounded-2xl transition-all cursor-pointer group text-center">
+                                                     <div className="w-10 h-10 rounded-xl bg-yellow-500/10 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform"><FileText size={18} className="text-yellow-400" /></div>
+                                                     <span className="block text-[9px] font-black text-white uppercase tracking-wide">Doc</span>
+                                                     <span className="block text-[7px] text-white/40 uppercase mt-0.5">PDF/TXT</span>
+                                                     <input type="file" className="hidden" onChange={(e) => { uploadNoteFile(e, 'doc'); setShowNoteInsertMenu(false); }} accept=".pdf,.doc,.docx,.txt" />
+                                                  </label>
+                                                </div>
                                              </motion.div>
                                            </>
                                          )}
@@ -11167,9 +11229,16 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                   uploadToCloudinary={uploadToCloudinary}
                 />
               ) : (
-                <div className="h-full flex flex-col items-center justify-center p-8 space-y-8 text-center">
-                   <div className="space-y-4">
-                     <div className="w-16 h-16 bg-[#DC2626]/10 rounded-2xl flex items-center justify-center mx-auto">
+                <div className="h-full flex flex-col items-center justify-center p-8 space-y-8 text-center relative">
+                   <button 
+                     type="button"
+                     onClick={() => setActiveTab('tools')}
+                     className="absolute top-4 left-4 flex items-center gap-2 bg-[#1E1B2E] border border-white/5 hover:border-[#DC2626]/40 text-[9px] uppercase tracking-widest text-white/75 font-black px-4 py-2.5 rounded-xl transition-all shadow-inner active:scale-95"
+                   >
+                     ← Back to Tools
+                   </button>
+                   <div className="space-y-4 mt-8">
+                     <div className="w-16 h-16 bg-[#DC2626]/10 rounded-2xl flex items-center justify-center mx-auto mb-2">
                         <Video size={32} className="text-[#DC2626]" />
                      </div>
                      <h2 className="text-2xl font-black text-white uppercase italic tracking-tighter">NSG Live Classes</h2>
@@ -11733,6 +11802,30 @@ Respond professionally, concisely, and use LaTeX for math.` }];
             </motion.div>
           )}
 
+          {/* COMMUNITY TAB */}
+          {activeTab === 'community' && (
+            <CommunityPage 
+              currentUserData={currentUserData}
+              sessions={sessions}
+              finishedHistory={finishedHistory}
+              leaderboard={leaderboard}
+              user={user}
+              db={db}
+              updateDoc={updateDoc}
+              doc={doc}
+              arrayUnion={arrayUnion}
+              increment={increment}
+              serverTimestamp={serverTimestamp}
+              addDoc={addDoc}
+              collection={collection}
+              setUserNotification={setUserNotification}
+              setActiveTab={setActiveTab}
+              setToolsSubTab={setToolsSubTab}
+              setShowInviteModal={setShowInviteModal}
+              theme={theme}
+            />
+          )}
+
           {/* PROFILE TAB */}
           {activeTab === 'profile' && (
             <motion.div 
@@ -11742,31 +11835,23 @@ Respond professionally, concisely, and use LaTeX for math.` }];
               exit={{ opacity: 0, x: -20 }} 
               className={`flex-1 flex flex-col px-2 sm:px-0 relative mb-24 ${theme === 'dark' ? 'bg-[#13111C]' : 'bg-slate-50'}`}
             >
-              {/* Tab Selector */}
-              <div className="flex items-center gap-2 bg-[#1E1B2E] p-1.5 rounded-[2rem] mb-8 max-w-md mx-auto w-full shadow-2xl relative">
-                <button 
-                  onClick={() => setProfileSubTab('profile')}
-                  className={`flex-1 py-3 px-4 rounded-[1.5rem] text-[10px] font-black uppercase tracking-widest transition-all ${profileSubTab === 'profile' ? 'bg-gradient-to-r from-[#DC2626] to-[#991B1B] text-white shadow-xl shadow-red-500/15' : 'text-white/40 hover:text-white/60'}`}
-                >
-                  My Identity & Quests
-                </button>
-                <button 
-                  onClick={() => setProfileSubTab('stats')}
-                  className={`flex-1 py-3 px-4 rounded-[1.5rem] text-[10px] font-black uppercase tracking-widest transition-all ${profileSubTab === 'stats' ? 'bg-gradient-to-r from-[#DC2626] to-[#991B1B] text-white shadow-xl shadow-red-500/15' : 'text-white/40 hover:text-white/60'}`}
-                >
-                  World Rankings
-                </button>
-              </div>
-
-              <div className="space-y-6 pb-6">
-                {profileSubTab === 'profile' ? (
+              <div className="space-y-6 pb-6 text-left">
+                {true ? (
                   <>
                     {/* Gamified Bio & Identity Card (Premium Gamified Vibe) */}
-                    <div className="bg-gradient-to-br from-[#1E1B2E] to-[#0A0714] p-6 rounded-[2.5rem] shadow-2xl relative overflow-hidden text-left">
-                      <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-[#DC2626]/20 to-pink-500/10 blur-[60px] rounded-full -mr-20 -mt-20 pointer-events-none" />
+                <div className="bg-gradient-to-br from-[#1E1B2E] to-[#0A0714] p-6 rounded-[2.5rem] shadow-2xl relative overflow-hidden text-left">
+                  <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-[#DC2626]/20 to-pink-500/10 blur-[60px] rounded-full -mr-20 -mt-20 pointer-events-none" />
                       
                       <div className="relative flex flex-col md:flex-row items-center justify-between gap-6">
                         <div className="flex flex-col md:flex-row items-center gap-6">
+                          {/* XP Power Indicator (Displays beside profile picture to the left) */}
+                          <div className="bg-gradient-to-br from-amber-400/20 via-pink-500/10 to-transparent border border-amber-500/20 rounded-[2.2rem] p-4 text-center shrink-0 w-24 h-24 sm:w-28 sm:h-28 flex flex-col items-center justify-center gap-1 shadow-xl relative overflow-hidden">
+                            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-amber-400 to-yellow-300" />
+                            <span className="text-3xl">💎</span>
+                            <span className="text-[7px] font-black text-amber-400 uppercase tracking-[0.2em] leading-none">XP POWER</span>
+                            <span className="text-sm font-black text-white leading-none mt-1">{currentUserData?.points || 0} XP</span>
+                          </div>
+
                           {/* Avatar Group */}
                           <div className="relative group">
                             <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-gradient-to-tr from-yellow-400 via-pink-500 to-[#DC2626] p-1 shadow-2xl group-hover:scale-105 transition-transform duration-500">
@@ -11819,9 +11904,9 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                                 <span className="text-xs">💎</span>
                                 <span className="text-[8.5px] font-black uppercase tracking-wider">{currentUserData?.points || 0} XP Points</span>
                               </div>
-                              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-500/10 rounded-2xl text-purple-400">
-                                <span className="text-xs">🏆</span>
-                                <span className="text-[8.5px] font-black uppercase tracking-wider">Sapphire League</span>
+                              <div className={`flex items-center gap-1.5 px-3 py-1.5 ${getScholarLeagueInfo(currentUserData?.points || 0).bgClass} rounded-2xl ${getScholarLeagueInfo(currentUserData?.points || 0).textColor}`}>
+                                <span className="text-xs">{getScholarLeagueInfo(currentUserData?.points || 0).emoji}</span>
+                                <span className="text-[8.5px] font-black uppercase tracking-wider">{getScholarLeagueInfo(currentUserData?.points || 0).text}</span>
                               </div>
                             </div>
                           </div>
@@ -11830,11 +11915,11 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                         {/* Premium style bouncy Action button */}
                         <div className="w-full md:w-auto mt-4 md:mt-0 shrink-0">
                           <button 
-                            onClick={() => setIsEditingProfile(!isEditingProfile)}
+                            onClick={() => setIsEditingProfile(true)}
                             className="relative w-full md:w-auto py-3 px-6 rounded-2xl bg-[#1CB0F6] border-b-[5px] border-[#1899D6] text-white font-black uppercase tracking-widest text-[9px] hover:bg-[#20C0F7] active:border-b-0 active:translate-y-[4px] active:shadow-inner transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-500/10"
                           >
-                            {isEditingProfile ? <X size={12} /> : <Edit3 size={12} />}
-                            {isEditingProfile ? 'CANCEL EDIT' : 'EDIT PROFILE BIO'}
+                            <Edit3 size={12} />
+                            EDIT ACCOUNT INFO
                           </button>
                         </div>
                       </div>
@@ -11903,69 +11988,160 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           {[
                             {
-                              title: "Launch a study session",
-                              desc: "Unite with Omni AI and review",
-                              progress: currentUserData?.streak > 0 ? "1/1" : "0/1",
-                              isDone: currentUserData?.streak > 0,
+                              id: "newbie_study",
+                              title: "Begin Academic Recording",
+                              desc: "Start recording at least 1 study session to index lecture topics with Omni AI.",
+                              progress: `${Math.min(1, (sessions || []).length)} / 1`,
+                              progressPercent: Math.min(100, Math.round(((sessions || []).length / 1) * 100)),
+                              isDone: (sessions || []).length >= 1,
                               chest: "🧰",
-                              buttonLabel: "BOOST NOW",
-                              btnColor: "bg-[#FFC000] border-[#E0A300] hover:bg-[#FFD020] text-black"
+                              reward: 30,
+                              buttonLabel: "LAUNCH RECORDING",
+                              btnColor: "bg-[#FFC000] border-[#E0A300] hover:bg-[#FFD020] text-black",
+                              targetTab: "tools",
+                              targetSubTab: "notebook"
                             },
                             {
-                              title: "Evaluate Smart Quiz",
-                              desc: "Score solid points in an activity",
-                              progress: finishedHistory.filter(h => h.type === 'quiz').length > 0 ? "1/1" : "0/1",
-                              isDone: finishedHistory.filter(h => h.type === 'quiz').length > 0,
+                              id: "quiz_apprentice",
+                              title: "Apprentice Quizzer",
+                              desc: "Evaluate your understanding by completing at least 1 Smart Quiz session.",
+                              progress: `${Math.min(1, finishedHistory.filter(h => h.type === 'quiz').length)} / 1`,
+                              progressPercent: Math.min(100, Math.round((finishedHistory.filter(h => h.type === 'quiz').length / 1) * 100)),
+                              isDone: finishedHistory.filter(h => h.type === 'quiz').length >= 1,
                               chest: "💎🧰",
+                              reward: 50,
                               buttonLabel: "TEST RETENTION",
-                              btnColor: "bg-[#1CB0F6] border-[#1899D6] hover:bg-[#20C0F7] text-white"
+                              btnColor: "bg-[#1CB0F6] border-[#1899D6] hover:bg-[#20C0F7] text-white",
+                              targetTab: "tools",
+                              targetSubTab: "quiz"
                             },
                             {
-                              title: "Maintain study streak",
-                              desc: "Avoid slipping from elite tier",
-                              progress: currentUserData?.streak >= 1 ? "1/1" : "0/1",
-                              isDone: currentUserData?.streak >= 1,
+                              id: "expert_quiz_master",
+                              title: "Quiz Excellence Run",
+                              desc: "Attempt and complete at least 3 separate Smart Quizzes with score logs.",
+                              progress: `${Math.min(3, finishedHistory.filter(h => h.type === 'quiz').length)} / 3`,
+                              progressPercent: Math.min(100, Math.round((finishedHistory.filter(h => h.type === 'quiz').length / 3) * 100)),
+                              isDone: finishedHistory.filter(h => h.type === 'quiz').length >= 3,
+                              chest: "🏅🧰",
+                              reward: 100,
+                              buttonLabel: "SPEEDRUN QUIZZES",
+                              btnColor: "bg-[#9333EA] border-[#7E22CE] hover:bg-[#A855F7] text-white",
+                              targetTab: "tools",
+                              targetSubTab: "quiz"
+                            },
+                            {
+                              id: "omni_notes_creator",
+                              title: "Academic Oracle",
+                              desc: "Compile and save at least 5 different classes/lecture notebooks in your logs.",
+                              progress: `${Math.min(5, (sessions || []).length)} / 5`,
+                              progressPercent: Math.min(100, Math.round(((sessions || []).length / 5) * 100)),
+                              isDone: (sessions || []).length >= 5,
+                              chest: "🔮🧰",
+                              reward: 150,
+                              buttonLabel: "COMPILE VAULT",
+                              btnColor: "bg-[#EC4899] border-[#DB2777] hover:bg-[#F472B6] text-white",
+                              targetTab: "tools",
+                              targetSubTab: "notebook"
+                            },
+                            {
+                              id: "social_chats",
+                              title: "Cooperative Scholar",
+                              desc: "Start and establish at least 2 active messaging threads with Omni AI or peers.",
+                              progress: `${Math.min(2, (chatSessions || []).length)} / 2`,
+                              progressPercent: Math.min(100, Math.round(((chatSessions || []).length / 2) * 100)),
+                              isDone: (chatSessions || []).length >= 2,
+                              chest: "💬🧰",
+                              reward: 120,
+                              buttonLabel: "TALK WITH PEERS",
+                              btnColor: "bg-[#14B8A6] border-[#0D9488] hover:bg-[#2DD4BF] text-white",
+                              targetTab: "community",
+                              targetSubTab: "quests"
+                            },
+                            {
+                              id: "streak_goliath",
+                              title: "Streak Immortal",
+                              desc: "Defend and lock down an elite daily reading streak of at least 5 unbroken days.",
+                              progress: `${Math.min(5, currentUserData?.streak || 0)} / 5`,
+                              progressPercent: Math.min(100, Math.round((Math.min(5, currentUserData?.streak || 0) / 5) * 100)),
+                              isDone: (currentUserData?.streak || 0) >= 5,
                               chest: "👑🧰",
-                              buttonLabel: "FIRE UP",
-                              btnColor: "bg-[#58CC02] border-[#389101] hover:bg-[#61E002] text-white"
+                              reward: 250,
+                              buttonLabel: "MAINTAIN FIRE",
+                              btnColor: "bg-[#58CC02] border-[#389101] hover:bg-[#61E002] text-white",
+                              targetTab: "tools",
+                              targetSubTab: "notebook"
                             }
-                          ].map((qst, idx) => (
-                            <div key={idx} className="bg-zinc-900/40 p-5 rounded-[2rem] flex flex-col justify-between space-y-4 relative overflow-hidden shadow-xl">
-                              <div className="flex items-start justify-between">
-                                <div className="space-y-1">
-                                  <span className={`text-[7px] font-black px-2 py-0.5 rounded-full ${qst.isDone ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'} uppercase tracking-widest`}>
-                                    {qst.isDone ? 'COMPLETED' : 'PENDING'}
-                                  </span>
-                                  <h6 className="font-black text-xs text-white uppercase tracking-tight mt-1">{qst.title}</h6>
-                                  <p className="text-[9.5px] font-bold text-white/45 uppercase leading-none">{qst.desc}</p>
-                                </div>
-                                <div className="text-3xl filter drop-shadow-lg">{qst.chest}</div>
-                              </div>
+                          ].map((qst, idx) => {
+                            const isClaimed = currentUserData?.claimedQuests?.includes(qst.id);
+                            const canClaim = qst.isDone && !isClaimed;
 
-                              <div className="space-y-3">
-                                <div className="flex justify-between items-center text-[9px] font-black">
-                                  <span className="text-white/30 uppercase tracking-widest">Progress</span>
-                                  <span className={qst.isDone ? "text-green-400" : "text-white/60"}>{qst.progress}</span>
-                                </div>
-                                <div className="w-full bg-white/5 h-2 rounded-full overflow-hidden">
-                                  <div className={`h-full ${qst.isDone ? 'bg-green-500' : 'bg-red-500/50'}`} style={{ width: qst.isDone ? '100%' : '20%' }} />
+                            const handleQuestClaim = async () => {
+                              if (!user?.uid) return;
+                              // STRICT REQUIREMENT: Users cannot claim quests they did not achieve
+                              if (!qst.isDone) {
+                                setUserNotification(`🔒 You haven't completed this quest yet! Run more sessions to reach "${qst.progress}".`);
+                                return;
+                              }
+                              try {
+                                await updateDoc(doc(db, 'users', user.uid), {
+                                  claimedQuests: arrayUnion(qst.id),
+                                  points: increment(qst.reward),
+                                  rank: getUserRank((currentUserData?.points || 0) + qst.reward)
+                                });
+                                setUserNotification(`🎁 QUEST COMPLETED! Claimed ${qst.reward} XP Points.`);
+                              } catch (e) {
+                                console.error(e);
+                                setUserNotification("Error claiming quest points. Try again!");
+                              }
+                            };
+
+                            const handleQuestAction = () => {
+                              if (canClaim) {
+                                handleQuestClaim();
+                              } else if (isClaimed) {
+                                setUserNotification("🌈 Quest already claimed! Check your rank standing.");
+                              } else {
+                                // Navigate to specified tool tab
+                                setActiveTab(qst.targetTab as any);
+                                if (qst.targetSubTab) {
+                                  setToolsSubTab(qst.targetSubTab as any);
+                                }
+                                setUserNotification(`🚀 Milestone: ${qst.title}! Let's go dynamic.`);
+                              }
+                            };
+
+                            return (
+                              <div key={idx} className="bg-zinc-900/40 p-5 rounded-[2rem] flex flex-col justify-between space-y-4 relative overflow-hidden shadow-xl border border-white/5">
+                                <div className="flex items-start justify-between">
+                                  <div className="space-y-1">
+                                    <span className={`text-[7px] font-black px-2 py-0.5 rounded-full ${isClaimed ? 'bg-purple-500/10 text-purple-400' : qst.isDone ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'} uppercase tracking-widest`}>
+                                      {isClaimed ? 'CLAIMED' : qst.isDone ? 'COMPLETED' : 'PENDING'}
+                                    </span>
+                                    <h6 className="font-black text-xs text-white uppercase tracking-tight mt-1">{qst.title}</h6>
+                                    <p className="text-[9.5px] font-bold text-white/45 uppercase leading-tight">{qst.desc}</p>
+                                  </div>
+                                  <div className="text-3xl filter drop-shadow-lg">{qst.chest}</div>
                                 </div>
 
-                                <button 
-                                  onClick={() => {
-                                    if (qst.isDone) {
-                                      setUserNotification("🌈 You already completed this daily quest! Sweet multiplier added.");
-                                    } else {
-                                      setUserNotification("🚀 Go to Home Feed & Course Tools tabs to start study logs!");
-                                    }
-                                  }}
-                                  className={`relative w-full py-2.5 px-4 rounded-xl text-[8.5px] font-black uppercase tracking-wider transition-all border-b-[4px] active:border-b-0 active:translate-y-[4px] flex items-center justify-center gap-1.5 ${qst.btnColor}`}
-                                >
-                                  {qst.isDone ? "CLAIMED!" : qst.buttonLabel}
-                                </button>
+                                <div className="space-y-3">
+                                  <div className="flex justify-between items-center text-[9px] font-black">
+                                    <span className="text-white/30 uppercase tracking-widest">Progress</span>
+                                    <span className={qst.isDone ? "text-green-400" : "text-white/60"}>{qst.progress}</span>
+                                  </div>
+                                  <div className="w-full bg-white/5 h-2 rounded-full overflow-hidden">
+                                    <div className={`h-full ${qst.isDone ? 'bg-green-500' : 'bg-red-500/50'}`} style={{ width: `${qst.progressPercent}%` }} />
+                                  </div>
+
+                                  <button 
+                                    onClick={handleQuestAction}
+                                    className={`relative w-full py-2.5 px-4 rounded-xl text-[8.5px] font-black uppercase tracking-wider transition-all border-b-[4px] active:border-b-0 active:translate-y-[4px] flex items-center justify-center gap-1.5 ${qst.btnColor}`}
+                                  >
+                                    {isClaimed ? "CLAIMED!" : canClaim ? `CLAIM +${qst.reward} XP!` : qst.buttonLabel}
+                                  </button>
+                                </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     </div>
@@ -12020,9 +12196,7 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                           <button 
                             key={inv}
                             type="button"
-                            onClick={() => {
-                              setUserNotification("✉️ Invite link copied to clipboard! Share 'nuellstudyguide.name.ng' to your engineering cohorts to start mutual streaks.");
-                            }}
+                            onClick={() => setShowInviteModal(true)}
                             className="flex flex-col items-center gap-1 group focus:outline-none"
                           >
                             <div className="w-16 h-16 rounded-full border-2 border-dashed border-white/10 hover:border-white/30 flex items-center justify-center text-white/20 hover:text-white/50 hover:bg-white/5 transition-all outline-none">
@@ -12048,7 +12222,7 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                       <div className="flex justify-between items-center">
                         <div>
                           <h5 className="text-[10px] font-black text-white/30 uppercase tracking-[0.25em]">MONTHLY BADGES</h5>
-                          <p className="text-[8.5px] font-bold text-white/45 uppercase leading-none mt-1">Unlock badges to stamp your engineering logs</p>
+                          <p className="text-[8.5px] font-bold text-white/45 uppercase leading-none mt-1">Unlock badges to stamp your study logs</p>
                         </div>
                         <span className="text-xs">🏆</span>
                       </div>
@@ -12085,98 +12259,139 @@ Respond professionally, concisely, and use LaTeX for math.` }];
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {[
-                          { title: "Sage Scholar", badge: "🤠", rank: "25", desc: "Completed 25 high-yield study sessions with Omni", color: "from-[#FFC000]/25 to-yellow-500/10 text-yellow-300" },
-                          { title: "Regal Leader", badge: "🧜‍♀️", rank: "10", desc: "Maintained active leadership coordinates on podium", color: "from-[#FF007F]/25 to-pink-500/10 text-pink-300" },
-                          { title: "Wildfire Ace", badge: "👨‍🌾", rank: "10", desc: "Ignited a 10-day streak on DELSU Oleh servers", color: "from-[#58CC02]/25 to-green-500/10 text-green-300" },
-                          { title: "CBT Conqueror", badge: "🧙‍♀️", rank: "10", desc: "Aced Smart CBT custom matric examination", color: "from-[#1CB0F6]/25 to-blue-500/10 text-blue-300" }
-                        ].map((ach, aIdx) => (
-                          <div key={aIdx} className={`bg-gradient-to-br ${ach.color} p-5 rounded-[2rem] flex items-center justify-between gap-4 shadow-xl relative overflow-hidden group`}>
-                            {/* NEW interactive label */}
-                            <div className="absolute top-2 right-2 bg-red-600 text-white text-[6px] font-sans font-black px-2 py-0.5 rounded-full tracking-widest animate-pulse">
-                              NEW
-                            </div>
+                          { 
+                            id: "sage_scholar",
+                            title: "Sage Scholar", 
+                            badge: "🤠", 
+                            xp: 150, 
+                            desc: "Completed 25 high-yield study sessions with Omni", 
+                            color: "from-[#FFC000]/20 to-yellow-500/5 text-yellow-300 border border-yellow-500/10",
+                            isComplete: (sessions || []).length >= 25,
+                            progress: `${(sessions || []).length} / 25`
+                          },
+                          { 
+                            id: "regal_leader",
+                            title: "Regal Leader", 
+                            badge: "🧜‍♀️", 
+                            xp: 100, 
+                            desc: "Maintained active leadership coordinates on podium (Points >= 500)", 
+                            color: "from-[#FF007F]/20 to-pink-500/5 text-pink-300 border border-pink-500/10",
+                            isComplete: (currentUserData?.points || 0) >= 500,
+                            progress: `${currentUserData?.points || 0} / 500 XP`
+                          },
+                          { 
+                            id: "legal_reader",
+                            title: "Legal Reader", 
+                            badge: "⚖️", 
+                            xp: 100, 
+                            desc: "Used study note tools up to 10 times a day", 
+                            color: "from-[#1CB0F6]/20 to-blue-500/5 text-blue-300 border border-blue-500/10",
+                            isComplete: (currentUserData?.dailyNoteUsage || 0) >= 10,
+                            progress: `${currentUserData?.dailyNoteUsage || 0} / 10 Saves`
+                          },
+                          { 
+                            id: "wildfire_ace",
+                            title: "Wildfire Ace", 
+                            badge: "👨‍🌾", 
+                            xp: 100, 
+                            desc: "Ignited a 10-day streak on NSG servers", 
+                            color: "from-[#58CC02]/20 to-green-500/5 text-green-300 border border-green-500/10",
+                            isComplete: (currentUserData?.streak || 0) >= 10,
+                            progress: `${currentUserData?.streak || 0} / 10 Days`
+                          }
+                        ].map((ach, aIdx) => {
+                          const isClaimed = currentUserData?.claimedAchievements?.includes(ach.id);
+                          const canClaim = ach.isComplete && !isClaimed;
 
-                            <div className="flex items-center gap-3">
-                              <div className="text-3xl filter drop-shadow-md select-none group-hover:scale-110 transition-transform">{ach.badge}</div>
-                              <div className="space-y-1">
-                                <h6 className="font-black text-xs text-white uppercase tracking-tight leading-none">{ach.title}</h6>
-                                <p className="text-[8px] text-white/55 leading-snug">{ach.desc}</p>
+                          const handleClaimAchievement = async () => {
+                            if (!user?.uid) return;
+                            try {
+                              await updateDoc(doc(db, 'users', user.uid), {
+                                claimedAchievements: arrayUnion(ach.id),
+                                points: increment(ach.xp)
+                              });
+                              setUserNotification(`🏆 ${ach.title} Claimed! +${ach.xp} XP Multiplier Added.`);
+                            } catch (e) {
+                              console.error(e);
+                              setUserNotification("Failed to claim achievement reward. Please try again!");
+                            }
+                          };
+
+                          return (
+                            <div key={aIdx} className={`bg-gradient-to-br ${ach.color} p-5 rounded-[2rem] flex flex-col sm:flex-row justify-between sm:items-center gap-4 shadow-xl relative overflow-hidden group border`}>
+                              {ach.isComplete && !isClaimed && (
+                                <div className="absolute top-2 right-2 bg-[#DC2626] text-white text-[6px] font-sans font-black px-2 py-0.5 rounded-full tracking-widest animate-pulse">
+                                  COMPLETED
+                                </div>
+                              )}
+                              {isClaimed && (
+                                <div className="absolute top-2 right-2 bg-green-600/30 text-green-400 text-[6px] font-sans font-black px-2 py-0.5 rounded-full tracking-widest">
+                                  CLAIMED
+                                </div>
+                              )}
+
+                              <div className="flex items-center gap-3">
+                                <div className="text-3xl filter drop-shadow-md select-none group-hover:scale-110 transition-transform">{ach.badge}</div>
+                                <div className="space-y-1">
+                                  <h6 className="font-black text-xs text-white uppercase tracking-tight leading-none">{ach.title}</h6>
+                                  <p className="text-[8px] text-white/55 leading-snug">{ach.desc}</p>
+                                  <p className="text-[7px] font-bold text-white/40 uppercase tracking-widest mt-1">Progress: {ach.progress}</p>
+                                </div>
+                              </div>
+
+                              <div className="text-right shrink-0">
+                                {canClaim ? (
+                                  <button 
+                                    onClick={handleClaimAchievement}
+                                    className="px-4 py-1.5 bg-[#DC2626] border-b-[3px] border-red-800 text-white font-black text-[7.5px] uppercase tracking-widest rounded-xl hover:bg-red-500 transition-all active:border-b-0 active:translate-y-[2px]"
+                                  >
+                                    Claim +{ach.xp} XP
+                                  </button>
+                                ) : isClaimed ? (
+                                  <span className="font-sans font-black text-xs text-green-400 block">Claimed!</span>
+                                ) : (
+                                  <span className="font-sans font-black text-xl text-white/30 block">+{ach.xp} XP</span>
+                                )}
                               </div>
                             </div>
-                            <div className="text-right shrink-0">
-                              <span className="font-sans font-black text-2xl stroke-black block">{ach.rank}</span>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
 
-                    {/* Unlocked Collapsible Personal Archives */}
-                    <div className="bg-gradient-to-br from-[#1E1B2E] to-[#120F1F] p-6 rounded-[2.5rem] shadow-2xl space-y-4">
+                    {/* Personal Information section (non-scrollable pop up activated) */}
+                    <div className="bg-gradient-to-br from-[#1E1B2E] to-[#120F1F] p-6 rounded-[2.5rem] shadow-2xl space-y-4 text-left">
                       <div className="flex items-center justify-between border-b border-white/5 pb-4">
                         <div className="text-left">
-                          <h3 className="text-sm font-black text-white uppercase tracking-tighter italic">Personal Archives</h3>
+                          <h3 className="text-sm font-black text-white uppercase tracking-tighter italic">Personal Information</h3>
                           <p className="text-[7.5px] font-bold text-white/30 uppercase mt-0.5">Academic registration data</p>
                         </div>
                         <div className="flex items-center gap-1">
-                          <div className={`w-1.5 h-1.5 rounded-full ${isEditingProfile ? 'bg-[#DC2626] animate-pulse' : 'bg-[#58CC02]'}`} />
-                          <span className="text-[7px] font-black text-white/50 uppercase tracking-widest">{isEditingProfile ? 'UNLOCKED' : 'PROTECTED'}</span>
+                          <div className="w-1.5 h-1.5 rounded-full bg-[#58CC02]" />
+                          <span className="text-[7px] font-black text-white/50 uppercase tracking-widest">PROTECTED</span>
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-left">
                         {[
-                          { label: 'Full Personal Name', key: 'fullName', type: 'text' },
-                          { label: 'Public Display Name', key: 'displayName', type: 'text' },
-                          { label: 'Current Handle', key: 'username', type: 'text' },
-                          { label: 'ID / Matric Number', key: 'matricNumber', type: 'text' },
-                          { label: 'Account was created', key: 'dob', type: 'date' },
-                          { label: 'University', key: 'university', type: 'select', options: UNIVERSITIES },
-                          { label: 'Current Level', key: 'level', type: 'text' },
-                          { label: 'Faculty', key: 'faculty', type: 'select', options: FACULTIES },
-                          { label: 'Department', key: 'department', type: 'select', options: profileFormData.faculty ? DEPARTMENTS[profileFormData.faculty] : [] },
-                        ].map((field) => (
-                          <div key={field.key} className="space-y-1.5">
-                            <label className="text-[8px] font-black text-white/30 uppercase tracking-widest ml-1">{field.label}</label>
-                            {field.type === 'select' ? (
-                               <select
-                                 value={profileFormData[field.key as keyof typeof profileFormData]}
-                                 disabled={!isEditingProfile}
-                                 onChange={(e) => setProfileFormData({ ...profileFormData, [field.key]: e.target.value })}
-                                 className={`w-full bg-[#0A0713]/80 border-none rounded-2xl px-4 py-3.5 text-xs outline-none transition-all appearance-none ${isEditingProfile ? 'text-white focus:ring-2 focus:ring-[#DC2626]/50' : 'text-white/40 cursor-not-allowed'}`}
-                               >
-                                 <option value="" disabled className="bg-zinc-900">Select {field.label}</option>
-                                 {(field.options || []).map(opt => <option key={opt} value={opt} className="bg-zinc-900">{opt}</option>)}
-                               </select>
-                            ) : (
-                              <input 
-                                type={field.type} 
-                                value={profileFormData[field.key as keyof typeof profileFormData]} 
-                                onChange={(e) => setProfileFormData({ ...profileFormData, [field.key]: e.target.value })}
-                                disabled={!isEditingProfile}
-                                className={`w-full bg-[#0A0713]/80 border-none rounded-2xl px-4 py-3.5 text-xs outline-none transition-all ${isEditingProfile ? 'text-white focus:ring-2 focus:ring-[#DC2626]/50' : 'text-white/40 cursor-not-allowed'}`} 
-                              />
-                            )}
+                          { label: 'Full Personal Name', value: currentUserData?.fullName },
+                          { label: 'Public Display Name', value: currentUserData?.displayName },
+                          { label: 'Current Handle', value: currentUserData?.username ? `@${currentUserData.username}` : '' },
+                          { label: 'ID / Matric Number', value: currentUserData?.matricNumber || currentUserData?.matric },
+                          { label: 'Account Created On', value: currentUserData?.dob },
+                          { label: 'University', value: currentUserData?.university },
+                          { label: 'Current Level', value: currentUserData?.level },
+                          { label: 'Faculty', value: currentUserData?.faculty },
+                          { label: 'Department', value: currentUserData?.department },
+                        ].map((field, fIdx) => (
+                          <div key={fIdx} className="bg-white/[0.02] p-4.5 rounded-[1.25rem] border border-white/5 space-y-1">
+                            <span className="text-[7px] font-black text-white/30 uppercase tracking-[0.2em]">{field.label}</span>
+                            <p className="text-[11px] font-black text-white/85 uppercase truncate leading-none mt-1">
+                              {field.value || 'NOT SPECIFIED'}
+                            </p>
                           </div>
                         ))}
                       </div>
-
-                      {isEditingProfile && (
-                        <div className="flex gap-4 pt-4">
-                          <button 
-                            onClick={handleSaveProfile} 
-                            className="flex-1 py-3.5 px-6 rounded-2xl bg-[#58CC02] border-b-[5px] border-[#389101] text-white font-black text-[10px] uppercase tracking-widest hover:bg-[#61E002] active:border-b-0 active:translate-y-[5px] transition-all"
-                          >
-                            SAVE CHANGES
-                          </button>
-                          <button 
-                            onClick={() => setIsEditingProfile(false)} 
-                            className="flex-1 py-3.5 px-6 rounded-2xl bg-white/10 border-b-[5px] border-white/5 text-white/40 font-black text-[10px] uppercase tracking-widest hover:bg-white/15 active:border-b-0 active:translate-y-[5px] transition-all"
-                          >
-                            ABORT CHANGES
-                          </button>
-                        </div>
-                      )}
                     </div>
                   </>
                 ) : (
@@ -12478,10 +12693,10 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                                 <LogOut size={14} /> SIGN OUT
                             </button>
                             <button 
-                                onClick={() => showConfirm("Purge Soul", "Are you sure you want to delete your entire existence from NSG?", async () => {/*Logic*/}, "DESTRUCT", true)}
+                                onClick={() => { setIsDeleteAccountOpen(true); setDeleteConfirmInput(""); }}
                                 className="px-6 py-3 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-xl text-[9px] font-black uppercase border border-red-500/10 transition-all"
                             >
-                                PURGE ACCOUNT
+                                DELETE ACCOUNT
                             </button>
                         </div>
                     </div>
@@ -12940,6 +13155,189 @@ Respond professionally, concisely, and use LaTeX for math.` }];
           )}
         </footer>
       </main>
+
+      {/* EDIT PROFILE DIALOG MODAL */}
+      <AnimatePresence>
+        {isEditingProfile && (
+          <div className="fixed inset-0 z-[490] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }}
+              onClick={() => setIsEditingProfile(false)}
+              className="absolute inset-0 bg-black/75 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 30 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 30 }}
+              className={`relative w-full max-w-2xl ${theme === 'dark' ? 'bg-[#13111C] border-white/10' : 'bg-white border-slate-200'} border rounded-[2.5rem] p-8 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden`}
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between border-b border-white/5 pb-4 mb-6">
+                <div className="text-left">
+                  <h3 className={`text-lg font-black uppercase tracking-tighter italic ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Edit Personal Information</h3>
+                  <p className={`text-[10px] font-bold uppercase tracking-wider ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>Update your institutional credentials</p>
+                </div>
+                <button 
+                  onClick={() => setIsEditingProfile(false)}
+                  className={`p-2 rounded-xl transition-all ${theme === 'dark' ? 'hover:bg-white/5 text-white/40 hover:text-white' : 'hover:bg-slate-100 text-slate-500 hover:text-slate-850'}`}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Modal Body / Scrollable Form */}
+              <div className="flex-1 overflow-y-auto space-y-4 pr-1 text-left custom-scrollbar">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4">
+                  {[
+                    { label: 'Full Personal Name', key: 'fullName', type: 'text' },
+                    { label: 'Public Display Name', key: 'displayName', type: 'text' },
+                    { label: 'Current Handle (Lowercase, 3+ Chars)', key: 'username', type: 'text' },
+                    { label: 'ID / Matric Number', key: 'matricNumber', type: 'text' },
+                    { label: 'Account Created On', key: 'dob', type: 'date' },
+                    { label: 'University', key: 'university', type: 'select', options: UNIVERSITIES },
+                    { label: 'Current Level', key: 'level', type: 'text' },
+                    { label: 'Faculty', key: 'faculty', type: 'select', options: FACULTIES },
+                    { label: 'Department', key: 'department', type: 'select', options: profileFormData.faculty ? DEPARTMENTS[profileFormData.faculty] : [] },
+                  ].map((field) => (
+                    <div key={field.key} className="space-y-1.5">
+                      <label className={`text-[8px] font-black uppercase tracking-widest ml-1 ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>{field.label}</label>
+                      {field.type === 'select' ? (
+                         <select
+                           value={profileFormData[field.key as keyof typeof profileFormData]}
+                           onChange={(e) => setProfileFormData({ ...profileFormData, [field.key]: e.target.value })}
+                           className={`w-full bg-[#0A0713]/80 border border-white/10 rounded-2xl px-4 py-4 text-xs outline-none transition-all appearance-none ${theme === 'dark' ? 'text-white focus:ring-2 focus:ring-[#DC2626]/50' : 'text-slate-805 focus:ring-2 focus:ring-[#DC2626]/50'}`}
+                         >
+                           <option value="" disabled className="bg-zinc-900">Select {field.label}</option>
+                           {(field.options || []).map(opt => <option key={opt} value={opt} className="bg-zinc-900">{opt}</option>)}
+                         </select>
+                      ) : (
+                        <input 
+                          type={field.type} 
+                          value={profileFormData[field.key as keyof typeof profileFormData]} 
+                          onChange={(e) => setProfileFormData({ ...profileFormData, [field.key]: e.target.value })}
+                          className={`w-full bg-[#0A0713]/80 border border-white/10 rounded-2xl px-4 py-4 text-xs outline-none transition-all ${theme === 'dark' ? 'text-white focus:ring-2 focus:ring-[#DC2626]/50' : 'text-slate-805 focus:ring-2 focus:ring-[#DC2626]/50'}`} 
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Modal Footer actions */}
+              <div className="flex gap-4 pt-6 border-t border-white/5 mt-4">
+                <button 
+                  onClick={() => setIsEditingProfile(false)} 
+                  className={`flex-1 py-4 px-6 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                    theme === 'dark' ? 'bg-white/5 text-white/40 hover:bg-white/10 border-b-[5px] border-white/5 active:translate-y-[2px]' : 'bg-slate-100 text-slate-500 hover:bg-slate-200 border-b-[5px] border-slate-300 active:translate-y-[2px]'
+                  }`}
+                >
+                  ABORT CHANGES
+                </button>
+                <button 
+                  onClick={handleSaveProfile} 
+                  className="flex-1 py-4 px-6 rounded-2xl bg-[#58CC02] border-b-[5px] border-[#389101] text-white font-black text-[10px] uppercase tracking-widest hover:bg-[#61E002] active:border-b-0 active:translate-y-[5px] transition-all"
+                >
+                  SAVE CHANGES
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* DELETE ACCOUNT CONFIRMATION MODAL */}
+      <AnimatePresence>
+        {isDeleteAccountOpen && (
+          <div className="fixed inset-0 z-[500] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }}
+              onClick={() => { setIsDeleteAccountOpen(false); setDeleteConfirmInput(""); }}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className={`relative w-full max-w-sm ${theme === 'dark' ? 'bg-[#13111C] border-red-500/30' : 'bg-white border-red-100'} border-[2px] rounded-3xl p-6 shadow-2xl space-y-6 text-left`}
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-red-500/10 text-red-500 flex-shrink-0 animate-pulse">
+                  <AlertTriangle size={24} />
+                </div>
+                <div>
+                  <h3 className={`font-black uppercase tracking-tighter text-lg ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Delete My Account</h3>
+                  <p className={`text-xs ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}>This action is permanent and irreversible.</p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <p className={`text-xs font-semibold leading-relaxed ${theme === 'dark' ? 'text-white/60' : 'text-slate-605'}`}>
+                  To continue de-registering your index of academic notes, AI chat history, and active performance credentials, please type <span className="font-bold text-red-500 select-none">delete my account</span> in the input field below:
+                </p>
+
+                <input
+                  type="text"
+                  placeholder="delete my account"
+                  value={deleteConfirmInput}
+                  onChange={(e) => setDeleteConfirmInput(e.target.value)}
+                  className={`w-full py-4 px-5 rounded-2xl outline-none border transition-all text-sm font-bold ${
+                    theme === 'dark' 
+                      ? 'bg-red-500/5 focus:bg-red-500/15 border-white/10 focus:border-red-500 text-white' 
+                      : 'bg-red-50/50 focus:bg-white border-slate-200 focus:border-red-500 text-slate-800'
+                  }`}
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => { setIsDeleteAccountOpen(false); setDeleteConfirmInput(""); }}
+                  className={`flex-1 py-3 px-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                    theme === 'dark' ? 'bg-white/5 text-white/40 hover:bg-white/10' : 'bg-zinc-100 text-zinc-500 hover:bg-zinc-200'
+                  }`}
+                >
+                  ABORT
+                </button>
+                <button 
+                  disabled={deleteConfirmInput.trim().toLowerCase() !== "delete my account"}
+                  onClick={async () => {
+                    if (!user?.uid) return;
+                    setIsAuthLoading(true);
+                    try {
+                      // Delete user details from users collection
+                      await deleteDoc(doc(db, 'users', user.uid));
+                      // Sign out
+                      await signOut(auth);
+                      setUser(null);
+                      setAdminMode(false);
+                      setIsHostPaid(false);
+                      setIsTakingPaid(false);
+                      setIsDeleteAccountOpen(false);
+                      setDeleteConfirmInput("");
+                      setUserNotification("💔 Your account has been permanently deleted.");
+                    } catch (err: any) {
+                      console.error("Account Deletion Error:", err);
+                      setUserNotification(`Deletion Error: ${err.message}`);
+                    } finally {
+                      setIsAuthLoading(false);
+                    }
+                  }}
+                  className={`flex-1 py-3 px-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all text-white shadow-lg ${
+                    deleteConfirmInput.trim().toLowerCase() === "delete my account"
+                      ? 'bg-red-600 hover:bg-red-700 hover:shadow-red-600/30 active:translate-y-[2px]'
+                      : 'bg-red-953/20 text-red-500/20 shadow-none cursor-not-allowed border border-white/5'
+                  }`}
+                >
+                  DELETE MY SOUL
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* CUSTOM CONFIRM MODAL */}
       <AnimatePresence>
@@ -13733,63 +14131,175 @@ Respond professionally, concisely, and use LaTeX for math.` }];
             </motion.div>
           </div>
         )}
+
+        {showInviteModal && (
+          <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }} 
+              animate={{ scale: 1, opacity: 1 }} 
+              exit={{ scale: 0.9, opacity: 0 }} 
+              className="bg-[#13111C] border border-white/10 rounded-[2.5rem] p-6 max-w-sm sm:max-w-md w-full space-y-6 relative shadow-2xl overflow-hidden text-left"
+            >
+              {/* Abs decoration */}
+              <div className="absolute top-0 right-0 w-32 h-32 bg-[#DC2626]/5 rounded-full translate-x-12 -translate-y-12 block pointer-events-none" />
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-black text-white uppercase tracking-tighter">Buddy Referral Hub</h3>
+                  <p className="text-[9px] font-black text-[#DC2626] uppercase tracking-widest mt-0.5">Start mutual 5-day study streaks</p>
+                </div>
+                <button 
+                  onClick={() => setShowInviteModal(false)} 
+                  className="p-2 hover:bg-white/5 rounded-xl transition-all font-black text-white/40 hover:text-white"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Referral Stats Grid */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-white/5 p-4 rounded-2xl border border-white/5 text-center">
+                  <span className="text-[8px] uppercase font-black text-white/30 tracking-widest block mb-1">Mates Invited</span>
+                  <span className="text-3xl font-black text-[#58CC02] block">{currentUserData?.invitedUsers?.length || 0}</span>
+                </div>
+                <div className="bg-white/5 p-4 rounded-2xl border border-white/5 text-center">
+                  <span className="text-[8px] uppercase font-black text-white/30 tracking-widest block mb-1">Booster Points</span>
+                  <span className="text-3xl font-black text-[#FFC000] block">{(currentUserData?.invitedUsers?.length || 0) * 50} XP</span>
+                </div>
+              </div>
+
+              {/* Share Code and URL Section */}
+              <div className="space-y-4">
+                <div className="p-4 bg-white/5 rounded-2xl border border-white/5 space-y-2">
+                  <p className="text-[8px] font-black text-white/30 uppercase tracking-widest">Your Private Invite Code</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex-1 bg-transparent text-sm text-amber-400 font-bold font-mono tracking-widest select-all">
+                      {currentUserData?.username || 'no_code_available'}
+                    </span>
+                    <button 
+                      onClick={() => { 
+                        navigator.clipboard.writeText(currentUserData?.username || ''); 
+                        setUserNotification("Invite code copied!"); 
+                      }} 
+                      className="p-2 text-white/40 hover:text-[#DC2626] transition-colors"
+                    >
+                      <Copy size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-white/5 rounded-2xl border border-white/5 space-y-2">
+                  <p className="text-[8px] font-black text-white/30 uppercase tracking-widest">Shareable Mobile Link</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <input 
+                      readOnly 
+                      value={`https://nuellstudyguide.name.ng/?invite=${currentUserData?.username || ''}`} 
+                      className="flex-1 bg-transparent border-none outline-none text-[10px] text-white/70 font-mono truncate" 
+                    />
+                    <button 
+                      onClick={() => { 
+                        navigator.clipboard.writeText(`https://nuellstudyguide.name.ng/?invite=${currentUserData?.username || ''}`); 
+                        setUserNotification("Referral link copied!"); 
+                      }} 
+                      className="p-2 text-[#DC2626] hover:text-[#DC2626]"
+                    >
+                      <Copy size={14} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Invited Users List */}
+              <div className="space-y-2">
+                <p className="text-[8px] font-black text-white/30 uppercase tracking-widest">Invited Buddy Crew</p>
+                {(!currentUserData?.invitedUsers || currentUserData.invitedUsers.length === 0) ? (
+                  <p className="text-[10px] text-white/20 italic text-center py-4 bg-white/5 rounded-2xl border border-dashed border-white/5">
+                    No active buddies yet. Share your invite code to get started!
+                  </p>
+                ) : (
+                  <div className="max-h-32 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                    {currentUserData.invitedUsers.map((buddy: any, bIdx: number) => (
+                      <div key={bIdx} className="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/5">
+                        <div>
+                          <p className="text-xs font-bold text-white uppercase tracking-tight">@{buddy.username}</p>
+                          <p className="text-[8px] text-white/40">{buddy.fullName || 'Anonymous'}</p>
+                        </div>
+                        <span className="text-[8px] text-[#58CC02] font-black uppercase tracking-widest">
+                          +50 XP Applied
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <button 
+                onClick={() => setShowInviteModal(false)} 
+                className="w-full bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black py-4 rounded-2xl text-[10px] uppercase tracking-[0.2em] shadow-xl shadow-[#DC2626]/20 transition-all text-center"
+              >
+                Close Referral Hub
+              </button>
+            </motion.div>
+          </div>
+        )}
       </AnimatePresence>
 
       {/* BOTTOM NAVIGATION - Only on Mobile */}
       {(!isChatRoomActive || activeTab !== 'chat') && !isDesktop && (
         <div 
-          className="fixed bottom-0 left-0 right-0 z-[100] border-t px-6 py-3 flex items-center justify-between shadow-[0_-10px_40px_rgba(0,0,0,0.1)]"
+          className="fixed bottom-0 left-0 right-0 z-[100] border-t px-3 py-2 flex items-center justify-around shadow-[0_-10px_40px_rgba(0,0,0,0.5)]"
           style={{
-            background: 'var(--bg-surface)',
-            borderTop: '1px solid var(--border-subtle)',
+            background: 'rgba(19, 17, 28, 0.96)',
+            backdropFilter: 'blur(20px)',
+            borderTop: '1px solid rgba(255, 255, 255, 0.08)',
           }}
         >
           <button 
+            type="button"
             onClick={() => setActiveTab('home')} 
-            className="flex flex-col items-center gap-1 transition-all"
-            style={{ color: activeTab === 'home' ? 'var(--accent-primary)' : 'var(--text-tertiary)' }}
+            className={`flex flex-col items-center gap-1 px-3 py-1.5 rounded-xl transition-all duration-300 ${activeTab === 'home' ? 'bg-gradient-to-r from-red-600 to-rose-500 text-white shadow-lg shadow-red-500/25 scale-105' : 'text-white/40 hover:text-white/70'}`}
           >
-            <Home size={20} />
+            <Home size={18} />
             <span className="text-[8px] font-black uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)' }}>Home</span>
           </button>
           <button 
+            type="button"
             onClick={() => setActiveTab('chat')} 
-            className="flex flex-col items-center gap-1 transition-all relative"
-            style={{ color: activeTab === 'chat' ? 'var(--accent-primary)' : 'var(--text-tertiary)' }}
+            className={`flex flex-col items-center gap-1 px-3 py-1.5 rounded-xl transition-all duration-300 relative ${activeTab === 'chat' ? 'bg-gradient-to-r from-red-600 to-rose-500 text-white shadow-lg shadow-red-500/25 scale-105' : 'text-white/40 hover:text-white/70'}`}
           >
-            <WhatsAppIcon size={20} />
+            <WhatsAppIcon size={18} />
             <span className="text-[8px] font-black uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)' }}>Chat</span>
             {totalUnreadMessages > 0 && (
               <span 
-                className="absolute -top-1 -right-1 w-4 h-4 text-white text-[9px] font-black flex items-center justify-center rounded-full border-2"
-                style={{ background: 'var(--accent-primary)', borderColor: 'var(--bg-surface)' }}
+                className="absolute -top-1 -right-1 w-4 h-4 text-white text-[8px] font-black flex items-center justify-center rounded-full border border-[#13111C]"
+                style={{ background: '#DC2626' }}
               >
                 {totalUnreadMessages}
               </span>
             )}
           </button>
           <button 
-            onClick={() => setActiveTab('class')} 
-            className="flex flex-col items-center gap-1 transition-all"
-            style={{ color: activeTab === 'class' ? 'var(--accent-primary)' : 'var(--text-tertiary)' }}
-          >
-            <Video size={20} />
-            <span className="text-[8px] font-black uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)' }}>Class</span>
-          </button>
-          <button 
+            type="button"
             onClick={() => setActiveTab('tools')} 
-            className="flex flex-col items-center gap-1 transition-all"
-            style={{ color: activeTab === 'tools' ? 'var(--accent-primary)' : 'var(--text-tertiary)' }}
+            className={`flex flex-col items-center gap-1 px-3 py-1.5 rounded-xl transition-all duration-300 ${activeTab === 'tools' ? 'bg-gradient-to-r from-red-600 to-rose-500 text-white shadow-lg shadow-red-500/25 scale-105' : 'text-white/40 hover:text-white/70'}`}
           >
-            <LayoutGrid size={20} />
+            <LayoutGrid size={18} />
             <span className="text-[8px] font-black uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)' }}>Tools</span>
           </button>
           <button 
-            onClick={() => setActiveTab('profile')} 
-            className="flex flex-col items-center gap-1 transition-all"
-            style={{ color: activeTab === 'profile' ? 'var(--accent-primary)' : 'var(--text-tertiary)' }}
+            type="button"
+            onClick={() => setActiveTab('community')} 
+            className={`flex flex-col items-center gap-1 px-3 py-1.5 rounded-xl transition-all duration-300 ${activeTab === 'community' ? 'bg-gradient-to-r from-red-600 to-rose-500 text-white shadow-lg shadow-red-500/25 scale-105' : 'text-white/40 hover:text-white/70'}`}
           >
-            <User size={20} />
+            <Globe size={18} />
+            <span className="text-[8px] font-black uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)' }}>Social</span>
+          </button>
+          <button 
+            type="button"
+            onClick={() => setActiveTab('profile')} 
+            className={`flex flex-col items-center gap-1 px-3 py-1.5 rounded-xl transition-all duration-300 ${activeTab === 'profile' ? 'bg-gradient-to-r from-red-600 to-rose-500 text-white shadow-lg shadow-red-500/25 scale-105' : 'text-white/40 hover:text-white/70'}`}
+          >
+            <User size={18} />
             <span className="text-[8px] font-black uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)' }}>Profile</span>
           </button>
         </div>
