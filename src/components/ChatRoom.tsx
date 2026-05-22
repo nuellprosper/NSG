@@ -165,12 +165,12 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   const lastMessageIdRef = useRef<string | null>(null);
 
   const emojis = useMemo(() => ([
-    { category: 'Smileys', items: ['😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚', '😋', '😛', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🤩', '🥳', '😏', '😒', '😞', '😔', '😟', '😕'] },
-    { category: 'Gestures', items: ['👍', '👎', '👊', '✊', '🤛', '🤜', '🤞', '✌️', '🤟', '🤘', '👌', '🤏', '👈', '👉', '👆', '👇', '✋', '🤚', '🖐️', '🖖', '👋', '🤙', '💪', '🦾'] },
-    { category: 'Hearts', items: ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❣️', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '☮️', '✝️', '☪️', '🕉️', '☸️'] },
-    { category: 'Academic', items: ['📚', '🎓', '📝', '🧠', '💡', '🧪', '🧬', '🔬', '🔭', '📡', '📜', '⚖️', '📐', '📏', '📊', '📈', '📉', '📅', '📝', '🖋️', '🖊️', '🖌️', '🖍️'] },
-    { category: 'Objects', items: ['🔥', '✨', '⚡', '🌈', '☀️', '🌙', '⭐', '🚀', '🛸', '💻', '📱', '📷', '🎥', '📞', '💾', '💿', '📼', '📷', '⏲️', '⏱️', '⏰', '🔋', '🔌', '🕯️', '💡'] },
-    { category: 'Food', items: ['🍎', '🍌', '🍉', '🍇', '🍓', '🍒', '🍑', '🥭', '🍍', '🥥', '🥝', '🍅', '🍆', '🥑', '🥦', '🥬', '🥒', '🌽', '🥕', '🧄', '🧅', '🥔', '🍠', '🥐', '🍞'] }
+    { category: 'Smileys', items: ['ðŸ˜€', 'ðŸ˜ƒ', 'ðŸ˜„', 'ðŸ˜', 'ðŸ˜†', 'ðŸ˜…', 'ðŸ˜‚', 'ðŸ¤£', 'ðŸ˜Š', 'ðŸ˜‡', 'ðŸ™‚', 'ðŸ™ƒ', 'ðŸ˜‰', 'ðŸ˜Œ', 'ðŸ˜', 'ðŸ¥°', 'ðŸ˜˜', 'ðŸ˜—', 'ðŸ˜™', 'ðŸ˜š', 'ðŸ˜‹', 'ðŸ˜›', 'ðŸ˜œ', 'ðŸ¤ª', 'ðŸ¤¨', 'ðŸ§', 'ðŸ¤“', 'ðŸ˜Ž', 'ðŸ¤©', 'ðŸ¥³', 'ðŸ˜', 'ðŸ˜’', 'ðŸ˜ž', 'ðŸ˜”', 'ðŸ˜Ÿ', 'ðŸ˜•'] },
+    { category: 'Gestures', items: ['ðŸ‘', 'ðŸ‘Ž', 'ðŸ‘Š', 'âœŠ', 'ðŸ¤›', 'ðŸ¤œ', 'ðŸ¤ž', 'âœŒï¸', 'ðŸ¤Ÿ', 'ðŸ¤˜', 'ðŸ‘Œ', 'ðŸ¤', 'ðŸ‘ˆ', 'ðŸ‘‰', 'ðŸ‘†', 'ðŸ‘‡', 'âœ‹', 'ðŸ¤š', 'ðŸ–ï¸', 'ðŸ––', 'ðŸ‘‹', 'ðŸ¤™', 'ðŸ’ª', 'ðŸ¦¾'] },
+    { category: 'Hearts', items: ['â¤ï¸', 'ðŸ§¡', 'ðŸ’›', 'ðŸ’š', 'ðŸ’™', 'ðŸ’œ', 'ðŸ–¤', 'ðŸ¤', 'ðŸ¤Ž', 'ðŸ’”', 'â£ï¸', 'ðŸ’•', 'ðŸ’ž', 'ðŸ’“', 'ðŸ’—', 'ðŸ’–', 'ðŸ’˜', 'ðŸ’', 'ðŸ’Ÿ', 'â˜®ï¸', 'âœï¸', 'â˜ªï¸', 'ðŸ•‰ï¸', 'â˜¸ï¸'] },
+    { category: 'Academic', items: ['ðŸ“š', 'ðŸŽ“', 'ðŸ“', 'ðŸ§ ', 'ðŸ’¡', 'ðŸ§ª', 'ðŸ§¬', 'ðŸ”¬', 'ðŸ”­', 'ðŸ“¡', 'ðŸ“œ', 'âš–ï¸', 'ðŸ“', 'ðŸ“', 'ðŸ“Š', 'ðŸ“ˆ', 'ðŸ“‰', 'ðŸ“…', 'ðŸ“', 'ðŸ–‹ï¸', 'ðŸ–Šï¸', 'ðŸ–Œï¸', 'ðŸ–ï¸'] },
+    { category: 'Objects', items: ['ðŸ”¥', 'âœ¨', 'âš¡', 'ðŸŒˆ', 'â˜€ï¸', 'ðŸŒ™', 'â­', 'ðŸš€', 'ðŸ›¸', 'ðŸ’»', 'ðŸ“±', 'ðŸ“·', 'ðŸŽ¥', 'ðŸ“ž', 'ðŸ’¾', 'ðŸ’¿', 'ðŸ“¼', 'ðŸ“·', 'â²ï¸', 'â±ï¸', 'â°', 'ðŸ”‹', 'ðŸ”Œ', 'ðŸ•¯ï¸', 'ðŸ’¡'] },
+    { category: 'Food', items: ['ðŸŽ', 'ðŸŒ', 'ðŸ‰', 'ðŸ‡', 'ðŸ“', 'ðŸ’', 'ðŸ‘', 'ðŸ¥­', 'ðŸ', 'ðŸ¥¥', 'ðŸ¥', 'ðŸ…', 'ðŸ†', 'ðŸ¥‘', 'ðŸ¥¦', 'ðŸ¥¬', 'ðŸ¥’', 'ðŸŒ½', 'ðŸ¥•', 'ðŸ§„', 'ðŸ§…', 'ðŸ¥”', 'ðŸ ', 'ðŸ¥', 'ðŸž'] }
   ]), []);
 
   const [activeEmojiCategory, setActiveEmojiCategory] = useState(emojis[0].category);
@@ -682,7 +682,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
       await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData);
       await updateDoc(doc(db, 'chats', selectedChat.id), {
-        lastMessage: `📎 ${type.toUpperCase()}`,
+        lastMessage: `ðŸ“Ž ${type.toUpperCase()}`,
         updatedAt: serverTimestamp()
       });
     } catch (err) {
@@ -723,7 +723,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
         await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData);
         await updateDoc(doc(db, 'chats', selectedChat.id), {
-            lastMessage: `📸 ${caption || 'Image'}`,
+            lastMessage: `ðŸ“¸ ${caption || 'Image'}`,
             lastMessageSender: user.displayName || userHandle,
             updatedAt: serverTimestamp(),
             unreadBy: arrayUnion(...otherMembers)
@@ -763,7 +763,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
           };
           await addDoc(collection(db, 'chats', selectedChat!.id, 'messages'), msgData);
           await updateDoc(doc(db, 'chats', selectedChat!.id), {
-            lastMessage: '🎤 Voice Note',
+            lastMessage: 'ðŸŽ¤ Voice Note',
             updatedAt: serverTimestamp()
           });
         } catch (err) {
@@ -899,7 +899,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     try {
       if (isOwn && choice) {
         await updateDoc(doc(db, 'chats', selectedChat.id, 'messages', msgId), {
-            text: "🚫 This message was deleted",
+            text: "ðŸš« This message was deleted",
             mediaUrl: null,
             type: 'text',
             deletedForEveryone: true
@@ -1321,7 +1321,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         )}
       </AnimatePresence>
       {/* Left Pane (Chat List) */}
-      <div className={`flex flex-col border-r border-white/5 bg-black/20 overflow-hidden h-full transition-all duration-300 ${isDesktop ? 'w-[400px] shrink-0' : (selectedChat ? 'hidden' : 'w-full')}`}>
+      <div className={`flex flex-col border-r border-[#2C2142]/40 bg-gradient-to-b from-[#181628] to-[#0E0C16] overflow-hidden h-full transition-all duration-300 ${isDesktop ? 'w-[400px] shrink-0' : (selectedChat ? 'hidden' : 'w-full')}`}>
         {!selectedChat || isDesktop ? (
           <div className="flex flex-col flex-1 h-full overflow-hidden min-h-0">
           {/* Header Action Bar for Selection Mode */}
@@ -1353,7 +1353,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
               </motion.div>
             )}
           </AnimatePresence>
-
+ 
           <div className="px-6 pt-6 mb-4">
             <h2 className="text-2xl font-black text-white uppercase italic tracking-tighter mb-4">Messages</h2>
             <div className="relative group">
@@ -1366,7 +1366,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
               />
             </div>
           </div>
-
+ 
           <div className="flex px-4 gap-2 mb-2">
             {[
               {id: 'chats', icon: MessageSquare, label: 'Chats', count: totalUnreadCount},
@@ -1376,10 +1376,10 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
               <button 
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`flex-1 flex items-center justify-center gap-2 py-1.5 px-[6px] rounded-xl border transition-all relative ${
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-[6px] rounded-2xl transition-all relative ${
                   activeTab === tab.id 
-                  ? 'bg-white/10 border-[#DC2626] text-white' 
-                  : 'bg-white/5 border-transparent text-white/40'
+                  ? 'bg-gradient-to-r from-red-650 to-amber-650 text-white font-black shadow-lg shadow-red-950/40' 
+                  : 'bg-white/5 text-white/40 hover:bg-white/10 hover:text-white'
                 }`}
               >
                 <tab.icon size={16} />
@@ -1393,14 +1393,14 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             ))}
             <button 
               onClick={() => setUserNotification("Chat History coming soon!")}
-              className="flex items-center justify-center w-10 h-10 bg-white/5 border border-white/10 text-white/40 rounded-xl hover:text-white transition-all"
+              className="flex items-center justify-center w-10 h-10 bg-white/5 border border-white/10 text-white/40 rounded-xl hover:text-white transition-all text-xs font-black"
               title="History"
             >
               <History size={18} />
             </button>
             <button 
               onClick={() => activeTab === 'groups' ? setIsCreatingGroup(true) : setIsAddingChat(true)}
-              className="flex items-center justify-center w-12 h-12 bg-[#DC2626] text-white rounded-2xl shadow-lg shadow-red-900/20 active:scale-95 transition-all shrink-0"
+              className="flex items-center justify-center w-12 h-12 bg-gradient-to-r from-red-600 to-pink-600 text-white rounded-2xl shadow-lg shadow-pink-900/40 hover:brightness-110 active:scale-95 hover:-translate-y-0.5 active:translate-y-0 transition-all shrink-0 font-black"
             >
               <Plus size={22} />
             </button>
@@ -1594,25 +1594,27 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                 <ArrowLeft size={20} className="text-white/60" />
               </button>
             )}
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-black overflow-hidden border border-white/10 ${selectedChat.id.startsWith('omni_') ? 'bg-black shadow-[0_0_8px_rgba(220,38,38,0.4)]' : 'bg-[#DC2626]'}`}>
-              {selectedChat.id.startsWith('omni_') ? (
-                <Brain size={16} className="text-red-600 drop-shadow-[0_0_5px_rgba(220,38,38,0.8)]" />
-              ) : selectedChat.photoURL ? (
-                <img src={selectedChat.photoURL} alt="" className="w-full h-full object-cover" />
-              ) : (
-                selectedChat.name.charAt(0)
-              )}
-            </div>
             <div 
               onClick={handleViewUser}
-              className="flex-1 min-w-0 cursor-pointer hover:bg-white/5 p-0.5 rounded-lg transition-all"
+              className="flex items-center gap-3 cursor-pointer hover:bg-white/5 py-1.5 px-3.5 rounded-2xl transition-all"
             >
-              <h3 className="text-sm font-black text-white uppercase tracking-tight italic leading-tight whitespace-nowrap overflow-visible">
-                {selectedChat.name}
-              </h3>
-              <p className={`text-[7px] font-bold uppercase tracking-[0.2em] ${recipientStatus === 'Online' ? 'text-green-500' : 'text-white/20'}`}>
-                {selectedChat.isOmni ? 'Omni by NSG | AI Assistant' : recipientStatus}
-              </p>
+              <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white font-black overflow-hidden border border-white/10 ${selectedChat.id.startsWith('omni_') ? 'bg-black shadow-[0_0_8px_rgba(220,38,38,0.4)]' : 'bg-[#DC2626]'}`}>
+                {selectedChat.id.startsWith('omni_') ? (
+                  <Brain size={18} className="text-red-650 drop-shadow-[0_0_5px_rgba(220,38,38,0.8)]" />
+                ) : selectedChat.photoURL ? (
+                  <img src={selectedChat.photoURL} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  selectedChat.name.charAt(0)
+                )}
+              </div>
+              <div className="flex-1 min-w-0 text-left">
+                <h3 className="text-sm font-black text-white uppercase tracking-tight italic leading-tight whitespace-nowrap overflow-visible">
+                  {selectedChat.name}
+                </h3>
+                <p className={`text-[7px] font-bold uppercase tracking-[0.2em] ${recipientStatus === 'Online' ? 'text-green-500 animate-pulse' : 'text-white/20'}`}>
+                  {selectedChat.isOmni ? 'Omni by NSG | AI Assistant' : recipientStatus}
+                </p>
+              </div>
             </div>
             <div className="flex gap-2 relative">
               <motion.button 
@@ -2006,6 +2008,71 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                   <p className={`text-xs font-bold tracking-[0.2em] uppercase mt-1 ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'}`}>@{viewingUser.username || viewingUser.uid?.slice(0, 8)}</p>
                 </div>
               </div>
+
+              {/* Scholar Credentials (Connects to profiles XP, Badges, etc) */}
+              {!viewingUser.isOmni && (
+                <div className={`${theme === 'dark' ? 'bg-[#0F172A]' : 'bg-white'} p-6 rounded-3xl shadow-lg space-y-4 border border-white/5 mx-4 mb-4`}>
+                  <p className="text-[10px] font-black text-[#DC2626] uppercase tracking-[0.2em] flex items-center gap-2">
+                    ðŸ† SCHOLAR CREDENTIALS
+                  </p>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    {/* XP Points */}
+                    <div className={`${theme === 'dark' ? 'bg-white/5' : 'bg-slate-100'} p-4 rounded-2xl flex flex-col items-center justify-center text-center`}>
+                      <span className="text-2xl">ðŸ’Ž</span>
+                      <p className={`text-[8px] font-black ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} uppercase tracking-widest mt-1`}>XP Power</p>
+                      <p className={`text-sm font-black ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{viewingUser.points || 0} XP</p>
+                    </div>
+
+                    {/* Day Streak */}
+                    <div className={`${theme === 'dark' ? 'bg-white/5' : 'bg-slate-100'} p-4 rounded-2xl flex flex-col items-center justify-center text-center`}>
+                      <span className="text-2xl">ðŸ”¥</span>
+                      <p className={`text-[8px] font-black ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} uppercase tracking-widest mt-1`}>Daily Streak</p>
+                      <p className={`text-sm font-black ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{viewingUser.streak || 0} Days</p>
+                    </div>
+                  </div>
+
+                  {/* Honor Tier Rank */}
+                  <div className="bg-gradient-to-r from-red-650/10 to-amber-655/10 border border-red-500/20 p-4 rounded-2xl flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">âš¡</span>
+                      <div className="text-left">
+                        <p className={`text-[7px] font-black ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} uppercase tracking-widest`}>Scholar Standing</p>
+                        <p className={`text-xs font-black uppercase tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-950'}`}>{viewingUser.rank || 'Bronze Scholar'}</p>
+                      </div>
+                    </div>
+                    <span className="text-[8px] font-black text-amber-500 px-3 py-1 rounded-full bg-amber-500/10">
+                      RANK SPECIAL
+                    </span>
+                  </div>
+
+                  {/* Achieved Badges */}
+                  <div className="space-y-2 mt-2 pt-2 border-t border-white/5">
+                    <p className={`text-[8px] font-black ${theme === 'dark' ? 'text-white/40' : 'text-slate-450'} uppercase tracking-widest text-left`}>UNLOCKED SPECIALIST BADGES</p>
+                    <div className="flex flex-wrap gap-2 justify-start">
+                      {/* Always unlock at least a default or dynamically based on points */}
+                      <div className="px-3 py-1.5 rounded-full bg-pink-505/10 border border-pink-505/20 text-pink-400 text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
+                        ðŸŒ¸ May Synergy
+                      </div>
+                      {(viewingUser.points || 0) >= 100 && (
+                        <div className="px-3 py-1.5 rounded-full bg-blue-505/10 border border-blue-505/20 text-blue-400 text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
+                          ðŸŽ“ Exam Victor
+                        </div>
+                      )}
+                      {(viewingUser.points || 0) >= 500 && (
+                        <div className="px-3 py-1.5 rounded-full bg-yellow-505/10 border border-yellow-505/20 text-yellow-500 text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
+                          âš¡ Quiz Prodigy
+                        </div>
+                      )}
+                      {(viewingUser.streak || 0) >= 10 && (
+                        <div className="px-3 py-1.5 rounded-full bg-green-550/10 border border-green-550/20 text-green-400 text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
+                          ðŸŒ¾ Wildfire Ace
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Info Section */}
               <div className="space-y-4 px-4 pb-10">
