@@ -6,13 +6,78 @@ import {
   Smile, Paperclip, UserPlus, RefreshCw, StopCircle,
   Copy, X, Brain, Info, Calendar, MapPin, User, GraduationCap, Trash2,
   Reply, BellRing, PhoneOff, VideoOff, Volume2, VolumeX, MicOff, GraduationCap as SchoolIcon,
-  Play, Pause, History, Camera, FileText
+  Play, Pause, History, Camera, FileText, Trash, BookOpen, Award
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
+import Peer from 'peerjs';
+
+const extractYoutubeLinks = (text: string): string[] => {
+  if (!text) return [];
+  const regex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})/gi;
+  const matches: string[] = [];
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    if (match[1]) matches.push(match[1]);
+  }
+  return Array.from(new Set(matches));
+};
+
+interface TypewriterTextProps {
+  text: string;
+  msgId: string;
+  isOmniReply: boolean;
+  onFinish?: () => void;
+}
+
+const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniReply, onFinish }) => {
+  const [displayedText, setDisplayedText] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+  
+  useEffect(() => {
+    if (!isOmniReply) {
+      setDisplayedText(text);
+      return;
+    }
+    
+    const cached = sessionStorage.getItem(`typed_msg_nsg_${msgId}`);
+    if (cached) {
+      setDisplayedText(text);
+      return;
+    }
+    
+    setIsTyping(true);
+    let index = 0;
+    const interval = setInterval(() => {
+      index += 6; // Fast type stream simulation characters increment
+      if (index >= text.length) {
+        setDisplayedText(text);
+        setIsTyping(false);
+        sessionStorage.setItem(`typed_msg_nsg_${msgId}`, 'true');
+        clearInterval(interval);
+        if (onFinish) onFinish();
+      } else {
+        setDisplayedText(text.substring(0, index));
+      }
+    }, 20);
+    
+    return () => clearInterval(interval);
+  }, [text, msgId, isOmniReply, onFinish]);
+
+  return (
+    <div className="relative">
+      <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+        {displayedText}
+      </ReactMarkdown>
+      {isTyping && (
+        <span className="inline-block w-2 h-4 bg-red-600 animate-pulse ml-1 align-middle" />
+      )}
+    </div>
+  );
+};
 import { 
   collection, query, where, orderBy, onSnapshot, 
   addDoc, serverTimestamp, doc, updateDoc, 
@@ -39,6 +104,10 @@ interface Message {
   seenBy?: string[];
   isViewOnce?: boolean;
   status?: 'sending' | 'sent' | 'error';
+  isSharedNote?: boolean;
+  sharedAccessType?: 'readonly' | 'editable';
+  noteTitle?: string;
+  noteContent?: string;
 }
 
 interface Chat {
@@ -99,6 +168,123 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   const [deliveredTo, setDeliveredTo] = useState<Record<string, string[]>>({});
   const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 1024);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+
+  // --- WEBRTC CALLING STATES & REFS ---
+  const peerInstanceRef = useRef<any>(null);
+  const localStreamRef = useRef<any>(null);
+  const remoteStreamRef = useRef<any>(null);
+  const callInstanceRef = useRef<any>(null);
+  const [localStream, setLocalStreamState] = useState<any>(null);
+  const [remoteStream, setRemoteStreamState] = useState<any>(null);
+  const [isIncomingCall, setIsIncomingCall] = useState(false);
+  const [recipientPeerId, setRecipientPeerId] = useState<string | null>(null);
+
+  // --- DYNAMIC CONTACT HEADERS TRACKING ---
+  const [memberProfiles, setMemberProfiles] = useState<Record<string, { displayName: string, photoURL: string | null }>>({});
+
+  // --- OMNI NEW ADDITIONS STATES ---
+  const [isOmniThinking, setIsOmniThinking] = useState(false);
+  const [showOmniThreads, setShowOmniThreads] = useState(false);
+  const [omniThreads, setOmniThreads] = useState<Chat[]>([]);
+  const [activeSpeech, setActiveSpeech] = useState<{ id: string; paused: boolean } | null>(null);
+
+  // Find the exact ID of the latest Omni message to ensure only the latest is animated
+  const latestOmniMsgId = useMemo(() => {
+    if (!selectedChat?.isOmni) return null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].senderId !== user.uid && !messages[i].isSharedNote) {
+        return messages[i].id;
+      }
+    }
+    return null;
+  }, [messages, selectedChat, user]);
+
+  // --- PWA WEB PUSH SUBSCRIPTIONS ---
+  const [pushSubscribed, setPushSubscribed] = useState(false);
+
+  // --- WHATSAPP GALLERY AND NOTE SHARING STATES (CUSTOM CONTROLS) ---
+  const [showPhotoLibrary, setShowPhotoLibrary] = useState(false);
+  const [showNoteShareOverlay, setShowNoteShareOverlay] = useState(false);
+  const [noteShareMode, setNoteShareMode] = useState<'readonly' | 'editable'>('readonly');
+  const [selectedSharedNote, setSelectedSharedNote] = useState<any>(null);
+  const [showQuizShareOverlay, setShowQuizShareOverlay] = useState(false);
+
+  // --- UTILS helper functions ---
+  const getChatMetadata = (chat: Chat) => {
+    if (chat.isOmni) {
+      return { name: 'Omni by NSG', photoURL: chat.photoURL || 'https://images.unsplash.com/photo-1675557009875-436f09789900?q=80&w=200&auto=format&fit=crop' };
+    }
+    if (chat.type === 'direct') {
+      const otherId = chat.members.find(m => m !== user?.uid && m !== userHandle);
+      if (otherId && memberProfiles[otherId]) {
+        return {
+          name: memberProfiles[otherId].displayName,
+          photoURL: memberProfiles[otherId].photoURL
+        };
+      }
+    }
+    return { name: chat.name, photoURL: chat.photoURL || null };
+  };
+
+  const getChatName = (chat: Chat) => getChatMetadata(chat).name;
+  const getChatPhoto = (chat: Chat) => getChatMetadata(chat).photoURL;
+
+  // Track dynamic peer profiles
+  useEffect(() => {
+    if (!user) return;
+    const otherMemberIds = new Set<string>();
+    chats.forEach(c => {
+      if (c.type === 'direct' && !c.isOmni) {
+        const otherId = c.members.find(m => m !== user.uid && m !== userHandle);
+        if (otherId) otherMemberIds.add(otherId);
+      }
+    });
+
+    otherMemberIds.forEach(async (id) => {
+      if (memberProfiles[id]) return;
+      try {
+        const docRef = doc(db, 'users', id);
+        const snap = await getDoc(docRef);
+        if (snap.exists()) {
+          const uData = snap.data();
+          setMemberProfiles(prev => ({
+            ...prev,
+            [id]: {
+              displayName: uData.displayName || uData.username || id,
+              photoURL: uData.photoURL || null
+            }
+          }));
+        } else {
+          const q = query(collection(db, 'users'), where('username', '==', id));
+          const qSnap = await getDocs(q);
+          if (!qSnap.empty) {
+            const uData = qSnap.docs[0].data();
+            setMemberProfiles(prev => ({
+              ...prev,
+              [id]: {
+                displayName: uData.displayName || uData.username || id,
+                photoURL: uData.photoURL || null
+              }
+            }));
+          }
+        }
+      } catch (err: any) {
+        const errorMsg = err?.message || String(err);
+        if (errorMsg.includes('client is offline') || errorMsg.includes('the client is offline')) {
+          console.debug("Offline persistence: using user ID as placeholder for peer metadata:", id);
+          setMemberProfiles(prev => ({
+            ...prev,
+            [id]: {
+              displayName: `User (${id.slice(0, 5)})`,
+              photoURL: null
+            }
+          }));
+        } else {
+          console.error("Error loading peer metadata:", err);
+        }
+      }
+    });
+  }, [chats, user, userHandle]);
 
   // Audio setup
   const sendSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3');
@@ -182,10 +368,113 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   useEffect(() => {
     if (!user) return;
 
+    // Helper: urlBase64ToUint8Array for parsing VAPID key
+    const urlBase64ToUint8Array = (base64String: string) => {
+      const padding = '='.repeat((4 - base64String.length % 4) % 4);
+      const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+      const rawData = window.atob(base64);
+      const outputArray = new Uint8Array(rawData.length);
+      for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i);
+      }
+      return outputArray;
+    };
+
+    // --- PWA BACKGROUND PUSH ALERTS LAYER REGISTER ---
+    const setupPushNotifications = async () => {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        console.log("Push notifications not supported in this browser.");
+        return;
+      }
+      try {
+        const registration = await navigator.serviceWorker.register('/sw.js');
+        console.log("Service Worker active scope:", registration.scope);
+        
+        const response = await fetch('/api/notifications/vapid-public-key');
+        if (!response.ok) return;
+        
+        const data = await response.json();
+        const publicKey = data.publicKey;
+        if (!publicKey) return;
+
+        const subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey)
+        });
+
+        const subJSON = JSON.parse(JSON.stringify(subscription));
+        await updateDoc(doc(db, 'users', user.uid), {
+          pushSubscription: subJSON
+        });
+        setPushSubscribed(true);
+        console.log("PWA Web Push setup completed successfully!");
+      } catch (err) {
+        console.warn("Failed setting up Push notifications subscription:", err);
+      }
+    };
+    setupPushNotifications();
+
+    // --- WEBRTC PEERJS SECURITY STREAM REGISTRATION ---
+    const peer = new Peer(user.uid, {
+      host: '0.peerjs.com',
+      secure: true,
+      port: 443
+    });
+
+    peerInstanceRef.current = peer;
+
+    peer.on('open', (id) => {
+      console.log("PeerJS Connection Ready. Active Peer ID:", id);
+    });
+
+    peer.on('call', async (incomingCall) => {
+      setIsIncomingCall(true);
+      callInstanceRef.current = incomingCall;
+
+      let callerName = "NSG Peer";
+      for (const c of chats) {
+        if (c.members.includes(incomingCall.peer)) {
+          callerName = getChatMetadata(c).name;
+          break;
+        }
+      }
+
+      setActiveCall({ type: 'video', chatName: callerName });
+      setActiveCallStatus('ringing');
+
+      // Simple click to accept mechanism
+      const acceptCall = confirm(`Incoming call from ${callerName}. Answer video call?`);
+      if (acceptCall) {
+        try {
+          const constraints = { audio: true, video: true };
+          const stream = await navigator.mediaDevices.getUserMedia(constraints);
+          localStreamRef.current = stream;
+          setLocalStreamState(stream);
+
+          incomingCall.answer(stream);
+          setActiveCallStatus('connected');
+
+          incomingCall.on('stream', (rStream) => {
+            remoteStreamRef.current = rStream;
+            setRemoteStreamState(rStream);
+          });
+
+          incomingCall.on('close', () => {
+            hangUp();
+          });
+        } catch (err) {
+          console.error(err);
+          incomingCall.close();
+          hangUp();
+        }
+      } else {
+        incomingCall.close();
+        hangUp();
+      }
+    });
+
     // Ensure Omni constant contact
     const syncOmni = async () => {
-      if (!user) return;
-
       const omniId = `omni_${user.uid}`;
       const omniRef = doc(db, 'chats', omniId);
       try {
@@ -210,7 +499,14 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
       }
     };
     syncOmni();
-  }, [user, userHandle]);
+
+    return () => {
+      if (peer) peer.destroy();
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((track: any) => track.stop());
+      }
+    };
+  }, [user, userHandle, chats]);
 
   useEffect(() => {
     if (activeCallStatus === 'ringing') {
@@ -421,6 +717,12 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
       const isNewMessage = lastMsg && lastMsg.id !== lastMessageIdRef.current;
       
       setMessages(msgList);
+      if (msgList.length > 0) {
+        const lastMsgObj = msgList[msgList.length - 1];
+        if (lastMsgObj.senderId !== user.uid) {
+          setIsOmniThinking(false);
+        }
+      }
       try {
         localStorage.setItem(`nsg_msgs_${selectedChat.id}`, circularSafeStringify(msgList));
       } catch (e) {
@@ -567,7 +869,24 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         unreadBy: arrayUnion(...otherMembers)
       });
 
+      otherMembers.forEach((memberUid: string) => {
+        if (memberUid && memberUid !== userHandle && memberUid.length > 5) {
+          addDoc(collection(db, 'notifications'), {
+            to: memberUid,
+            title: `ðŸ’¬ New Message from ${senderName}`,
+            message: text.length > 80 ? `${text.slice(0, 80)}...` : text,
+            type: 'chat',
+            subtype: 'new_message',
+            targetTab: 'chat',
+            chatId: selectedChat.id,
+            timestamp: serverTimestamp() || new Date(),
+            read: false
+          }).catch(err => console.error("Error creating chat notification:", err));
+        }
+      });
+
       if (selectedChat.id.startsWith('omni_') || text.toLowerCase().includes('@omni')) {
+        setIsOmniThinking(true);
         onTagOmni(text, selectedChat.id);
       }
     } catch (err) {
@@ -799,16 +1118,91 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     return () => clearInterval(interval);
   }, [isRecording]);
 
+  const hangUp = () => {
+    if (callInstanceRef.current) {
+      callInstanceRef.current.close();
+    }
+    if (localStreamRef.current) {
+      try {
+        localStreamRef.current.getTracks().forEach((track: any) => track.stop());
+      } catch (e) {
+        console.warn("Stopping local tracks error:", e);
+      }
+    }
+    localStreamRef.current = null;
+    remoteStreamRef.current = null;
+    setLocalStreamState(null);
+    setRemoteStreamState(null);
+    setActiveCall(null);
+    setActiveCallStatus(null);
+    setIsIncomingCall(false);
+  };
+
   const startCall = async (type: 'voice' | 'video') => {
     if (!selectedChat) return;
-    const callData = {
-      name: selectedChat.name,
-      type,
-      timestamp: serverTimestamp(),
-      direction: 'outgoing'
-    };
-    await addDoc(collection(db, 'users', user.uid, 'callLogs'), callData);
-    setActiveCall({ type, chatName: selectedChat.name });
+    const otherId = selectedChat.members.find(m => m !== user.uid && m !== userHandle);
+    if (!otherId) {
+      setUserNotification("Could not identify remote peer for handshaking.");
+      return;
+    }
+
+    try {
+      const constraints = {
+        audio: true,
+        video: type === 'video'
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      localStreamRef.current = stream;
+      setLocalStreamState(stream);
+
+      const callData = {
+        name: getChatMetadata(selectedChat).name,
+        type,
+        timestamp: serverTimestamp(),
+        direction: 'outgoing'
+      };
+      await addDoc(collection(db, 'users', user.uid, 'callLogs'), callData);
+      
+      setActiveCall({ type, chatName: getChatMetadata(selectedChat).name });
+      setActiveCallStatus('ringing');
+
+      const outCall = peerInstanceRef.current?.call(otherId, stream);
+      if (outCall) {
+        callInstanceRef.current = outCall;
+        outCall.on('stream', (rStream: any) => {
+          remoteStreamRef.current = rStream;
+          setRemoteStreamState(rStream);
+          setActiveCallStatus('connected');
+        });
+        outCall.on('close', () => {
+          hangUp();
+        });
+      }
+    } catch (err) {
+      console.error("Failed to initiate media call:", err);
+      setUserNotification("Media devices access denied or camera/microphone busy.");
+    }
+  };
+
+  const speakUtterance = (msgText: string, msgId: string) => {
+    if (activeSpeech && activeSpeech.id === msgId) {
+      if (activeSpeech.paused) {
+        window.speechSynthesis.resume();
+        setActiveSpeech({ id: msgId, paused: false });
+      } else {
+        window.speechSynthesis.pause();
+        setActiveSpeech({ id: msgId, paused: true });
+      }
+      return;
+    }
+    window.speechSynthesis.cancel();
+    // Clean markdown characters for perfect audio flow
+    const cleanText = msgText.replace(/[\*\_\#\-\`\[\]\(\)]/g, '');
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.onend = () => setActiveSpeech(null);
+    utterance.onerror = () => setActiveSpeech(null);
+    setActiveSpeech({ id: msgId, paused: false });
+    window.speechSynthesis.speak(utterance);
   };
 
   const handleViewUser = async () => {
@@ -992,6 +1386,50 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   const [groupSettingsDesc, setGroupSettingsDesc] = useState('');
   const [groupSettingsPhoto, setGroupSettingsPhoto] = useState<string | null>(null);
   const [groupSettingsMembers, setGroupSettingsMembers] = useState<string[]>([]);
+  const [userIdToUsername, setUserIdToUsername] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const resolveUIDs = async () => {
+      const uidsToFetch = groupSettingsMembers.filter(m => m && m.length >= 20);
+      const newMappings = { ...userIdToUsername };
+      let updated = false;
+
+      for (const uid of uidsToFetch) {
+        if (!newMappings[uid]) {
+          try {
+            const uDoc = await getDoc(doc(db, 'users', uid));
+            if (uDoc.exists()) {
+              newMappings[uid] = uDoc.data()?.username || uid;
+              updated = true;
+            }
+          } catch (e) {
+            console.error("Error resolving uid:", uid, e);
+          }
+        }
+      }
+
+      if (updated) {
+        setUserIdToUsername(newMappings);
+      }
+    };
+    if (groupSettingsMembers.length > 0) {
+      resolveUIDs();
+    }
+  }, [groupSettingsMembers]);
+
+  const uniqueDisplayMembers = React.useMemo(() => {
+    const names = new Set<string>();
+    groupSettingsMembers.forEach(m => {
+      if (m && m.length >= 20) {
+        const resolved = userIdToUsername[m];
+        if (resolved) names.add(resolved);
+      } else if (m) {
+        names.add(m.trim());
+      }
+    });
+    return Array.from(names);
+  }, [groupSettingsMembers, userIdToUsername]);
+
   const [isAddingGroupMember, setIsAddingGroupMember] = useState(false);
   const [newGroupMemberHandle, setNewGroupMemberHandle] = useState('');
 
@@ -1072,10 +1510,48 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     }
   };
 
-  const toggleGroupMember = (member: string) => {
-    setGroupSettingsMembers(prev => 
-      prev.includes(member) ? prev.filter(m => m !== member) : [...prev, member]
-    );
+  const toggleGroupMember = async (memberHandle: string) => {
+    const handleClean = memberHandle.trim().toLowerCase();
+    if (!handleClean) return;
+
+    try {
+      const q = query(collection(db, 'users'), where('username', '==', handleClean), limit(1));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const userDoc = snap.docs[0];
+        const uid = userDoc.id;
+        const actualUsername = userDoc.data().username || handleClean;
+
+        setGroupSettingsMembers(prev => {
+          const hasUid = prev.includes(uid);
+          const hasHandle = prev.includes(actualUsername);
+          if (hasUid || hasHandle) {
+            return prev.filter(m => m !== uid && m !== actualUsername && m !== handleClean);
+          } else {
+            return [...prev, uid, actualUsername];
+          }
+        });
+        setUserNotification(`Added member: @${actualUsername}`);
+      } else {
+        setGroupSettingsMembers(prev => {
+          if (prev.includes(memberHandle)) {
+            return prev.filter(m => m !== memberHandle);
+          } else {
+            return [...prev, memberHandle];
+          }
+        });
+        setUserNotification(`User @${memberHandle} not found. Added raw handle.`);
+      }
+    } catch (e) {
+      console.error("Error toggling member UUID:", e);
+      setGroupSettingsMembers(prev => {
+        if (prev.includes(memberHandle)) {
+          return prev.filter(m => m !== memberHandle);
+        } else {
+          return [...prev, memberHandle];
+        }
+      });
+    }
   };
 
   const AudioMessage: React.FC<{ url: string, theme: 'dark' | 'light', isOwn: boolean }> = ({ url, theme, isOwn }) => {
@@ -1249,25 +1725,31 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                   </div>
 
                   <div className="grid grid-cols-1 gap-2">
-                    {groupSettingsMembers.map(member => (
-                      <div key={member} className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5 hover:bg-white/10 transition-all">
-                        <div className="flex items-center gap-3">
-                           <div className="w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center font-bold text-[#DC2626] text-xs">@{member.charAt(0)}</div>
-                           <div>
-                             <p className="text-xs font-black text-white uppercase truncate">@{member}</p>
-                             {member === userHandle && <p className="text-[7px] font-bold text-[#DC2626] uppercase">Primary Node</p>}
-                           </div>
+                    {groupSettingsMembers.filter(m => m && (!m.startsWith('0') || m.length < 15)).map(member => {
+                      const isUid = member.length >= 20;
+                      const displayName = isUid ? (userIdToUsername[member] || `Resolving ${member.slice(0, 5)}...`) : member;
+                      const isMe = member === userHandle || member === user.uid;
+
+                      return (
+                        <div key={member} className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5 hover:bg-white/10 transition-all">
+                          <div className="flex items-center gap-3">
+                             <div className="w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center font-bold text-[#DC2626] text-xs">@{displayName.charAt(0)}</div>
+                             <div>
+                               <p className="text-xs font-black text-white uppercase truncate">@{displayName}</p>
+                               {isMe && <p className="text-[7px] font-bold text-[#DC2626] uppercase">Primary Node</p>}
+                             </div>
+                          </div>
+                          {(selectedChat as any).admin === user.uid && !isMe && (
+                            <button onClick={() => toggleGroupMember(member)} className="p-2 text-white/20 hover:text-red-500 transition-all">
+                              <Trash2 size={16} />
+                            </button>
+                          )}
+                          {((selectedChat as any).admin === member || ((selectedChat as any).admin === user.uid && isMe)) && (
+                            <span className="text-[7px] font-black text-[#DC2626] uppercase border border-[#DC2626]/40 px-2 py-0.5 rounded italic">Admin Hub</span>
+                          )}
                         </div>
-                        {(selectedChat as any).admin === user.uid && member !== userHandle && (
-                          <button onClick={() => toggleGroupMember(member)} className="p-2 text-white/20 hover:text-red-500 transition-all">
-                            <Trash2 size={16} />
-                          </button>
-                        )}
-                        {(selectedChat as any).admin === member && (
-                          <span className="text-[7px] font-black text-[#DC2626] uppercase border border-[#DC2626]/40 px-2 py-0.5 rounded italic">Admin Hub</span>
-                        )}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -1355,7 +1837,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
           </AnimatePresence>
  
           <div className="px-6 pt-6 mb-4">
-            <h2 className="text-2xl font-black text-white uppercase italic tracking-tighter mb-4">Messages</h2>
+            <h2 className="text-2xl font-black bg-gradient-to-r from-red-500 via-pink-500 to-amber-500 bg-clip-text text-transparent uppercase italic tracking-tighter mb-4">NSG</h2>
             <div className="relative group">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20 group-focus-within:text-[#DC2626] transition-colors" size={16} />
               <input 
@@ -1367,42 +1849,45 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             </div>
           </div>
  
-          <div className="flex px-4 gap-2 mb-2">
+          <div className="flex px-4 gap-1.5 mb-2 items-center">
             {[
-              {id: 'chats', icon: MessageSquare, label: 'Chats', count: totalUnreadCount},
-              {id: 'groups', icon: Users, label: 'Groups'},
-              {id: 'calls', icon: Phone, label: 'Calls'}
-            ].map(tab => (
-              <button 
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-[6px] rounded-2xl transition-all relative ${
-                  activeTab === tab.id 
-                  ? 'bg-gradient-to-r from-red-650 to-amber-650 text-white font-black shadow-lg shadow-red-950/40' 
-                  : 'bg-white/5 text-white/40 hover:bg-white/10 hover:text-white'
-                }`}
-              >
-                <tab.icon size={16} />
-                <span className="text-[10px] font-black uppercase tracking-[0.12em]">{tab.label}</span>
-                {tab.count ? (
-                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#DC2626] text-white text-[8px] font-black flex items-center justify-center rounded-full border border-[#13111C]">
-                    {tab.count}
-                  </span>
-                ) : null}
-              </button>
-            ))}
+              {id: 'chats', icon: MessageSquare, label: 'Chats', count: totalUnreadCount, gradient: 'from-blue-600/30 to-cyan-500/15 text-blue-300 border-blue-500/20', activeGrad: 'from-blue-600 to-cyan-400 text-white shadow-blue-500/30 ring-2 ring-blue-500/30'},
+              {id: 'groups', icon: Users, label: 'Groups', gradient: 'from-purple-650/30 to-pink-500/15 text-purple-300 border-purple-500/20', activeGrad: 'from-purple-600 to-pink-500 text-white shadow-purple-500/30 ring-2 ring-purple-500/30'},
+              {id: 'calls', icon: Phone, label: 'Calls', gradient: 'from-[#DC2626]/30 to-amber-500/15 text-red-300 border-[#DC2626]/20', activeGrad: 'from-[#DC2626] to-amber-500 text-white shadow-[#DC2626]/30 ring-2 ring-[#DC2626]/30'}
+            ].map(tab => {
+              const isActive = activeTab === tab.id;
+              return (
+                <button 
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as any)}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-1 rounded-2xl transition-all relative font-black shadow-md border ${
+                    isActive 
+                    ? `bg-gradient-to-r ${tab.activeGrad} scale-[1.03]` 
+                    : `bg-gradient-to-r ${tab.gradient} hover:brightness-125`
+                  }`}
+                >
+                  <tab.icon size={13} />
+                  <span className="text-[9px] font-black uppercase tracking-wider">{tab.label}</span>
+                  {tab.count ? (
+                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[8px] font-black flex items-center justify-center rounded-full border border-zinc-950 shadow-md animate-pulse">
+                      {tab.count}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
             <button 
               onClick={() => setUserNotification("Chat History coming soon!")}
-              className="flex items-center justify-center w-10 h-10 bg-white/5 border border-white/10 text-white/40 rounded-xl hover:text-white transition-all text-xs font-black"
+              className="flex items-center justify-center w-9 h-9 bg-white/5 border border-white/10 text-white/40 rounded-xl hover:text-white transition-all text-xs font-black shrink-0"
               title="History"
             >
-              <History size={18} />
+              <History size={16} />
             </button>
             <button 
               onClick={() => activeTab === 'groups' ? setIsCreatingGroup(true) : setIsAddingChat(true)}
-              className="flex items-center justify-center w-12 h-12 bg-gradient-to-r from-red-600 to-pink-600 text-white rounded-2xl shadow-lg shadow-pink-900/40 hover:brightness-110 active:scale-95 hover:-translate-y-0.5 active:translate-y-0 transition-all shrink-0 font-black"
+              className="flex items-center justify-center w-10 h-10 bg-gradient-to-r from-red-650 to-pink-650 hover:from-red-500 hover:to-pink-500 text-white rounded-xl shadow-lg shadow-pink-900/30 hover:brightness-110 active:scale-95 transition-all shrink-0 font-black border border-white/10"
             >
-              <Plus size={22} />
+              <Plus size={18} />
             </button>
           </div>
 
@@ -1473,9 +1958,9 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                         {selectedChatIds.includes(chat.id) && <Check size={12} className="text-white" />}
                       </div>
                     )}
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-black text-lg overflow-hidden border border-white/10 shrink-0 ${chat.id.startsWith('omni_') ? 'bg-black shadow-[0_0_10px_rgba(220,38,38,0.5)]' : 'bg-[#DC2626]'}`}>
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-black text-lg overflow-hidden border border-white/10 shrink-0 ${chat.id.startsWith('omni_') ? 'bg-black shadow-[0_0_15px_rgba(239,68,68,0.6)] border-red-500/20' : 'bg-[#DC2626]'}`}>
                       {chat.id.startsWith('omni_') ? (
-                        <Brain size={24} className="text-red-600 drop-shadow-[0_0_8px_rgba(220,38,38,0.8)]" />
+                        <Brain size={24} className="text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,1)] animate-pulse" />
                       ) : chat.photoURL ? (
                         <img src={chat.photoURL} alt="" className="w-full h-full object-cover" />
                       ) : (
@@ -1598,9 +2083,9 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
               onClick={handleViewUser}
               className="flex items-center gap-3 cursor-pointer hover:bg-white/5 py-1.5 px-3.5 rounded-2xl transition-all"
             >
-              <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white font-black overflow-hidden border border-white/10 ${selectedChat.id.startsWith('omni_') ? 'bg-black shadow-[0_0_8px_rgba(220,38,38,0.4)]' : 'bg-[#DC2626]'}`}>
+              <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white font-black overflow-hidden border border-white/10 ${selectedChat.id.startsWith('omni_') ? 'bg-black shadow-[0_0_12px_rgba(239,68,68,0.6)] border-red-500/20' : 'bg-[#DC2626]'}`}>
                 {selectedChat.id.startsWith('omni_') ? (
-                  <Brain size={18} className="text-red-650 drop-shadow-[0_0_5px_rgba(220,38,38,0.8)]" />
+                  <Brain size={18} className="text-red-500 drop-shadow-[0_0_6px_rgba(239,68,68,1)] animate-pulse" />
                 ) : selectedChat.photoURL ? (
                   <img src={selectedChat.photoURL} alt="" className="w-full h-full object-cover" />
                 ) : (
@@ -1718,9 +2203,125 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
           <div 
             ref={scrollContainerRef}
-            className="flex-1 overflow-y-auto p-4 space-y-4 pb-10"
+            className="flex-1 w-full overflow-y-auto p-4 space-y-4 pb-10 text-left flex flex-col min-h-0"
           >
-            {groupMessagesByDate(messages.filter(m => m.text.toLowerCase().includes(messageSearchQuery.toLowerCase()))).map((group, groupIdx) => (
+            {/* OMNI Special Features (Collaborative Study Tutorials & Sessions Feed) */}
+            {selectedChat?.isOmni && (
+              <div className="shrink-0 space-y-3 mb-4">
+                {/* Visual Header / Dashboard Row */}
+                <div className="flex gap-2 items-center justify-between border-b border-white/5 pb-2">
+                  <div className="flex items-center gap-1.5">
+                    <Brain className="text-red-500 animate-pulse" size={16} />
+                    <span className="text-[10px] font-black uppercase text-white tracking-widest">OMNI INTELLIGENCE SUITE</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 font-sans">
+                    <button 
+                      onClick={() => {
+                        const q = query(
+                          collection(db, 'chats'),
+                          where('isOmni', '==', true),
+                          where('ownerId', '==', user.uid)
+                        );
+                        getDocs(q).then((snap) => {
+                          const list = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Chat[];
+                          setOmniThreads(list);
+                          setShowOmniThreads(!showOmniThreads);
+                        });
+                      }}
+                      className="px-2.5 py-1 bg-red-600/15 hover:bg-red-600/30 border border-red-500/20 text-red-400 hover:text-white rounded-full text-[8px] font-black uppercase tracking-widest transition-all"
+                    >
+                      {showOmniThreads ? 'Hide Sessions' : 'ðŸ“‚ Session History'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Omni Threads Drawer (Slidable Page) */}
+                <AnimatePresence>
+                  {showOmniThreads && (
+                    <motion.div 
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="bg-slate-900/60 border border-white/5 rounded-2xl p-3 space-y-2 max-h-48 overflow-y-auto custom-scrollbar"
+                    >
+                      <div className="flex items-center justify-between">
+                        <p className="text-[8px] font-black uppercase text-white/40 tracking-widest">Saved Multi-turns</p>
+                        <button 
+                          onClick={async () => {
+                            const nextThreadId = `omni_${user.uid}_thread_${Date.now()}`;
+                            const newThreadData = {
+                              name: `Omni Session - ${new Date().toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
+                              type: 'direct',
+                              isOmni: true,
+                              photoURL: selectedChat.photoURL,
+                              ownerId: user.uid,
+                              members: selectedChat.members,
+                              updatedAt: serverTimestamp(),
+                              lastMessage: 'Session started. Type anything to prompt Omni.'
+                            };
+                            await setDoc(doc(db, 'chats', nextThreadId), newThreadData);
+                            setSelectedChat({ id: nextThreadId, ...newThreadData } as any);
+                            setShowOmniThreads(false);
+                            setUserNotification("Started a beautiful clean study session thread.");
+                          }}
+                          className="px-2 py-0.5 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 text-green-500 rounded text-[7.5px] font-black uppercase tracking-wider transition-all"
+                        >
+                          âž• Start New Session
+                        </button>
+                      </div>
+
+                      {omniThreads.length === 0 ? (
+                        <p className="text-[8px] uppercase tracking-widest text-white/20 italic">No saved threads yet</p>
+                      ) : (
+                        <div className="space-y-1">
+                          {omniThreads.map((thread) => (
+                            <div key={thread.id} className="flex items-center justify-between p-1.5 bg-white/5 hover:bg-white/10 rounded-xl transition-all border border-white/5">
+                              <button 
+                                onClick={() => {
+                                  setSelectedChat(thread);
+                                  setShowOmniThreads(false);
+                                }}
+                                className="flex-1 text-left text-[9px] font-bold text-white uppercase tracking-tight truncate hover:text-[#DC2626] transition-colors"
+                              >
+                                {thread.name}
+                              </button>
+                              <button 
+                                onClick={async () => {
+                                  if (thread.id === `omni_${user.uid}`) {
+                                    alert("The primary Omni profile is perpetual and cannot be deleted.");
+                                    return;
+                                  }
+                                  if (confirm("Delete this session record? This action is permanent!")) {
+                                    await deleteDoc(doc(db, 'chats', thread.id));
+                                    setOmniThreads(prev => prev.filter(t => t.id !== thread.id));
+                                    if (selectedChat.id === thread.id) {
+                                      setSelectedChat(chats.find(c => c.id === `omni_${user.uid}`) || chats[0] || null);
+                                    }
+                                  }
+                                }}
+                                className="p-1 hover:bg-red-500/10 rounded text-red-500 transition-colors"
+                              >
+                                <Trash size={10} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+              </div>
+            )}
+            {messages.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
+                <div className="w-16 h-16 rounded-3xl bg-white/5 flex items-center justify-center mb-4 border border-white/10 shadow-[0_0_20px_rgba(220,38,38,0.15)] animate-pulse">
+                  <MessageSquare size={28} className="text-[#DC2626]" />
+                </div>
+                <h4 className={`text-xs font-black uppercase tracking-widest ${theme === 'dark' ? 'text-white/60' : 'text-slate-500'}`}>Type something to begin chat</h4>
+              </div>
+            ) : (
+              groupMessagesByDate(messages.filter(m => m.text.toLowerCase().includes(messageSearchQuery.toLowerCase()))).map((group, groupIdx) => (
               <div key={groupIdx} className="space-y-4">
                 <div className="flex justify-center my-6">
                   <span className="px-3 py-1 bg-white/5 rounded-full text-[9px] font-black uppercase text-white/30 tracking-widest border border-white/5 shadow-sm">
@@ -1792,19 +2393,99 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                         ) : msg.type === 'audio' && msg.mediaUrl ? (
                           <AudioMessage url={msg.mediaUrl} theme={theme} isOwn={msg.senderId === user.uid} />
                         ) : (
-                          <div className="relative">
-                            <div className={`markdown-body ${expandedMessages.includes(msg.id) ? '' : 'max-h-[300px] overflow-hidden'}`}>
-                              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                                {msg.text}
-                              </ReactMarkdown>
-                            </div>
-                            {msg.text.length > 500 && (
-                              <button 
-                                onClick={() => setExpandedMessages(prev => prev.includes(msg.id) ? prev.filter(id => id !== msg.id) : [...prev, msg.id])}
-                                className="mt-2 text-[10px] font-black uppercase text-[#38BDF8] hover:underline"
-                              >
-                                {expandedMessages.includes(msg.id) ? 'Read Less' : 'Read More...'}
-                              </button>
+                          <div className="relative flex flex-col gap-2">
+                            {msg.isSharedNote ? (
+                              <div className="p-4 bg-black/40 border border-white/5 rounded-2xl flex flex-col gap-2 min-w-[210px] shadow-lg">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-9 h-9 bg-[#DC2626]/20 border border-[#DC2626]/30 text-white flex items-center justify-center rounded-xl text-lg animate-pulse shrink-0">
+                                    ðŸ““
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-[7.5px] font-black uppercase text-[#DC2626] tracking-[0.2em]">{msg.sharedAccessType === 'editable' ? 'Collab Workspace' : 'Broadcast Notebook'}</p>
+                                    <h5 className="text-[10.5px] font-black text-white uppercase italic truncate mt-0.5">{msg.noteTitle || msg.text.replace(/^[âœï¸ðŸ““]\s*/, '')}</h5>
+                                  </div>
+                                </div>
+                                {msg.noteContent && (
+                                  <div className="bg-white/[0.02] border border-white/5 text-slate-300 italic px-3 py-2 rounded-xl text-[9px] font-sans line-clamp-3 select-text leading-normal max-w-xs text-left">
+                                    "{msg.noteContent}"
+                                  </div>
+                                )}
+                                <button 
+                                  onClick={() => {
+                                    window.dispatchEvent(new CustomEvent('load_shared_note', {
+                                      detail: { noteId: msg.mediaUrl, access: msg.sharedAccessType }
+                                    }));
+                                  }}
+                                  className="w-full py-2.5 bg-[#DC2626] hover:bg-red-700 text-white rounded-xl text-[8.5px] font-black uppercase tracking-widest text-center transition-all shadow-md active:scale-95 mt-1 border-b-[2.5px] border-red-900"
+                                >
+                                  Open Note Workspace
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                <div className={`markdown-body ${expandedMessages.includes(msg.id) ? '' : 'max-h-[300px] overflow-hidden'}`}>
+                                  <TypewriterText 
+                                    text={msg.text} 
+                                    msgId={msg.id} 
+                                    isOmniReply={selectedChat.isOmni && msg.senderId !== user.uid && msg.id === latestOmniMsgId} 
+                                  />
+                                </div>
+                                {msg.text.length > 500 && (
+                                  <button 
+                                    onClick={() => setExpandedMessages(prev => prev.includes(msg.id) ? prev.filter(id => id !== msg.id) : [...prev, msg.id])}
+                                    className="mt-1 text-[9px] font-black uppercase text-[#38BDF8] hover:underline text-left block"
+                                  >
+                                    {expandedMessages.includes(msg.id) ? 'Read Less' : 'Read More...'}
+                                  </button>
+                                )}
+                                {/* Render parsed YouTube video embeds if this is an AI response and contains YouTube links */}
+                                {msg.senderId !== user.uid && extractYoutubeLinks(msg.text).length > 0 && (
+                                  <div className="mt-3 space-y-2 border-t border-white/5 pt-3">
+                                    <p className="text-[8px] font-black uppercase text-[#DC2626] tracking-[0.2em] flex items-center gap-1 font-sans">
+                                      <span>ðŸ“º</span> RECOMMENDED TUTORIALS DETECTED
+                                    </p>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                      {extractYoutubeLinks(msg.text).map((videoId) => (
+                                        <div key={videoId} className="bg-black/50 border border-white/5 rounded-2xl overflow-hidden shadow-lg flex flex-col h-fit">
+                                          <div className="relative aspect-video w-full">
+                                            <iframe
+                                              src={`https://www.youtube.com/embed/${videoId}`}
+                                              title="YouTube video player"
+                                              frameBorder="0"
+                                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                              allowFullScreen
+                                              className="absolute inset-0 w-full h-full"
+                                            />
+                                          </div>
+                                          <div className="p-2 flex justify-between items-center bg-white/5 text-[7px] font-black tracking-widest uppercase">
+                                            <span className="text-white/40">ID: {videoId}</span>
+                                            <a 
+                                              href={`https://www.youtube.com/watch?v=${videoId}`} 
+                                              target="_blank" 
+                                              referrerPolicy="no-referrer"
+                                              className="text-[#DC2626] hover:underline"
+                                            >
+                                              Open YouTube â†—
+                                            </a>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </>
+                            )}
+
+                            {/* Floating Voice Playback trigger for Companion Omni or peer academic text and translations */}
+                            {selectedChat.isOmni && msg.senderId !== user.uid && !msg.isSharedNote && (
+                              <div className="flex justify-end mt-1 border-t border-white/5 pt-1">
+                                <button 
+                                  onClick={() => speakUtterance(msg.text, msg.id)}
+                                  className="px-2 py-0.5 rounded-full bg-white/5 hover:bg-white/10 text-white/50 hover:text-white text-[8px] font-black uppercase tracking-widest flex items-center gap-1 transition-all"
+                                >
+                                  <span>{activeSpeech && activeSpeech.id === msg.id && !activeSpeech.paused ? 'â¸ï¸ PAUSE VOICE' : 'ðŸ”Š READ ALOUD'}</span>
+                                </button>
+                              </div>
                             )}
                           </div>
                         )}
@@ -1828,7 +2509,16 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                 </div>
               ))}
             </div>
-          ))}
+          ))
+        )}
+            {isOmniThinking && (
+              <div className="flex justify-start relative scroll-mt-2 items-center mb-2">
+                <div className="flex gap-2 items-center max-w-[85%] bg-white/5 border border-white/10 rounded-2xl rounded-tl-none p-3 shadow-md animate-pulse">
+                  <Brain size={14} className="text-red-500 animate-spin" />
+                  <span className="text-[9px] font-black uppercase text-white/50 tracking-widest">Omni is formulating synchronized equation response...</span>
+                </div>
+              </div>
+            )}
             <div ref={messagesEndRef} />
           </div>
 
@@ -1905,10 +2595,11 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                       className="absolute bottom-full left-0 mb-4 w-48 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-[100]"
                     >
                       {[
-                        { label: 'Gallery', icon: ImageIcon, action: () => fileInputRef.current?.click() },
-                        { label: 'Camera', icon: Camera, action: () => setUserNotification("Camera coming soon...") },
-                        { label: 'Document', icon: FileText, action: () => fileInputRef.current?.click() },
-                        { label: 'Add User', icon: UserPlus, action: () => setIsAddingChat(true) }
+                        { label: 'NSG Media Gallery', icon: ImageIcon, action: () => setShowPhotoLibrary(true) },
+                        { label: 'Share Notebook Notes', icon: BookOpen, action: () => setShowNoteShareOverlay(true) },
+                        { label: 'Share Revision Quizzes', icon: Award, action: () => setShowQuizShareOverlay(true) },
+                        { label: 'System Files', icon: FileText, action: () => fileInputRef.current?.click() },
+                        { label: 'Add User to Chat', icon: UserPlus, action: () => setIsAddingChat(true) }
                       ].map((item, i) => (
                         <button 
                           key={i}
@@ -1994,9 +2685,9 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             <div className="flex-1 overflow-y-auto custom-scrollbar">
               {/* Profile Image & Name Section */}
               <div className={`${theme === 'dark' ? 'bg-[#0F172A]' : 'bg-white'} p-8 flex flex-col items-center gap-4 mb-4 border-b border-white/5`}>
-                <div className="w-40 h-40 rounded-full bg-[#DC2626] flex items-center justify-center text-white font-black text-6xl shadow-2xl border-4 border-white/10 overflow-hidden relative group">
+                <div className="w-40 h-40 rounded-full bg-black flex items-center justify-center text-white font-black text-6xl shadow-2xl border-4 border-white/10 overflow-hidden relative group">
                   {viewingUser.isOmni ? (
-                    <Brain size={80} className="text-white" />
+                    <Brain size={80} className="text-red-500 drop-shadow-[0_0_20px_rgba(239,68,68,1)] animate-pulse" />
                   ) : viewingUser.photoURL ? (
                     <img src={viewingUser.photoURL} alt="" className="w-full h-full object-cover" />
                   ) : (
@@ -2133,7 +2824,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                   </button>
                   <button 
                     onClick={handleReportChat}
-                    className="w-full p-5 bg-red-600/10 hover:bg-red-600/20 text-red-600 rounded-3xl font-black text-xs uppercase tracking-widest transition-all text-center flex items-center justify-center gap-3 border border-red-600/20"
+                    className="w-full p-5 bg-red-650/10 hover:bg-red-650/20 text-red-650 rounded-3xl font-black text-xs uppercase tracking-widest transition-all text-center flex items-center justify-center gap-3 border border-red-650/20"
                   >
                     <ShieldAlert size={16} /> Report User
                   </button>
@@ -2144,7 +2835,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         )}
       </AnimatePresence>
 
-      {/* Modals */}
+      {/* Active WebRTC Secure Calling Overlay Screen */}
       <AnimatePresence>
         {activeCall && (
           <motion.div 
@@ -2153,12 +2844,37 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             exit={{ opacity: 0, scale: 0.9 }}
             className="fixed inset-0 z-[500] bg-slate-950 flex flex-col items-center justify-center p-8 text-center"
           >
-            <div className="absolute top-10 left-10 flex items-center gap-2 text-emerald-500 animate-pulse">
+            {/* Live WebRTC Remote Stream Video Frame */}
+            {activeCall.type === 'video' && remoteStream && (
+              <video 
+                ref={(el) => {
+                  if (el) el.srcObject = remoteStream;
+                }}
+                autoPlay 
+                playsInline 
+                className="absolute inset-0 w-full h-full object-cover z-0"
+              />
+            )}
+
+            {/* Live WebRTC Camera Local Self-Video Frame */}
+            {activeCall.type === 'video' && localStream && !isVideoOff && (
+              <video 
+                ref={(el) => {
+                  if (el) el.srcObject = localStream;
+                }}
+                autoPlay 
+                muted 
+                playsInline 
+                className="absolute top-10 right-10 w-28 h-40 bg-zinc-900 border-2 border-white/20 rounded-2xl z-50 object-cover shadow-2xl"
+              />
+            )}
+
+            <div className="absolute top-10 left-10 flex items-center gap-2 text-emerald-500 animate-pulse z-25 bg-black/40 px-3 py-1.5 rounded-full backdrop-blur-md">
               <div className="w-2 h-2 rounded-full bg-emerald-500" />
-              <span className="text-[10px] font-black uppercase tracking-widest">Secure Line</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-white">Secure E2EE handshook</span>
             </div>
 
-            <div className="relative mb-12">
+            <div className="relative mb-12 z-20">
               <div className="w-32 h-32 rounded-full bg-gradient-to-br from-[#DC2626] to-red-900 flex items-center justify-center text-white text-4xl font-black shadow-[0_0_50px_rgba(220,38,38,0.3)]">
                 {activeCall.chatName.charAt(0)}
               </div>
@@ -2166,45 +2882,54 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
               <div className="absolute -inset-8 rounded-full border border-[#DC2626]/10 animate-pulse" />
             </div>
             
-            <h2 className="text-3xl font-black text-white uppercase italic tracking-tighter mb-2">{activeCall.chatName}</h2>
-            <p className="text-[#DC2626] text-sm font-black uppercase tracking-widest mb-20 animate-pulse shadow-sm">
-              {activeCallStatus === 'ringing' ? 'Ringing...' : activeCallStatus === 'connected' ? 'Connected' : 'Connecting Secure Link...'}
+            <h2 className="text-3xl font-black text-white uppercase italic tracking-tighter mb-2 z-20 relative bg-black/20 px-4 py-1.5 rounded-full backdrop-blur-sm inline-block">{activeCall.chatName}</h2>
+            <p className="text-[#DC2626] text-sm font-black uppercase tracking-widest mb-20 animate-pulse shadow-sm z-20 bg-black/30 px-3 py-1 rounded-full backdrop-blur-md">
+              {activeCallStatus === 'ringing' ? 'Ringing...' : activeCallStatus === 'connected' ? 'In Call' : 'Handshaking Secure Route...'}
             </p>
 
-            <div className="flex items-center gap-8">
+            <div className="flex items-center gap-8 z-20 relative">
               <button 
-                onClick={() => setIsMuted(!isMuted)}
-                className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${isMuted ? 'bg-red-500 text-white' : 'bg-white/5 text-white/40 hover:bg-white/10'}`}
+                onClick={() => {
+                  const newState = !isMuted;
+                  setIsMuted(newState);
+                  if (localStreamRef.current) {
+                    localStreamRef.current.getAudioTracks().forEach((track: any) => track.enabled = !newState);
+                  }
+                }}
+                className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${isMuted ? 'bg-red-500 text-white' : 'bg-black/60 text-white/45 hover:bg-black/80'}`}
               >
                 {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
               </button>
               
               <button 
-                onClick={() => {
-                  setActiveCall(null);
-                  setActiveCallStatus(null);
-                }}
-                className="w-20 h-20 rounded-full bg-red-600 flex items-center justify-center text-white shadow-2xl hover:scale-110 active:scale-95 transition-all group"
+                onClick={() => hangUp()}
+                className="w-20 h-20 rounded-full bg-red-650 flex items-center justify-center text-white shadow-2xl hover:scale-110 active:scale-95 transition-all group"
               >
                 <PhoneOff size={32} className="group-hover:animate-bounce" />
               </button>
 
               <button 
-                onClick={() => setIsVideoOff(!isVideoOff)}
-                className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${isVideoOff ? 'bg-red-500 text-white' : 'bg-white/5 text-white/40 hover:bg-white/10'}`}
+                onClick={() => {
+                  const newState = !isVideoOff;
+                  setIsVideoOff(newState);
+                  if (localStreamRef.current) {
+                    localStreamRef.current.getVideoTracks().forEach((track: any) => track.enabled = !newState);
+                  }
+                }}
+                className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${isVideoOff ? 'bg-red-500 text-white' : 'bg-black/60 text-white/45 hover:bg-black/80'}`}
               >
                 {isVideoOff ? <VideoOff size={24} /> : <Video size={24} />}
               </button>
             </div>
             
-            <div className="mt-24 grid grid-cols-2 gap-4 w-full max-w-xs">
-              <div className="p-4 bg-white/5 rounded-2xl border border-white/5">
+            <div className="mt-24 grid grid-cols-2 gap-4 w-full max-w-xs z-20">
+              <div className="p-4 bg-black/40 backdrop-blur-md rounded-2xl border border-white/5">
                 <p className="text-[8px] text-white/20 uppercase font-black mb-1">Signal Quality</p>
                 <div className="h-1 bg-white/10 rounded-full overflow-hidden">
                   <div className="w-[90%] h-full bg-emerald-500" />
                 </div>
               </div>
-              <div className="p-4 bg-white/5 rounded-2xl border border-white/5">
+              <div className="p-4 bg-black/40 backdrop-blur-md rounded-2xl border border-white/5">
                 <p className="text-[8px] text-white/20 uppercase font-black mb-1">Encryption</p>
                 <div className="flex gap-1">
                   {[1,2,3,4,5].map(i => <div key={i} className="w-full h-1 bg-[#DC2626] rounded-full" />)}
@@ -2213,6 +2938,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             </div>
           </motion.div>
         )}
+      </AnimatePresence>
 
         {isAddingChat && (
           <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
@@ -2436,7 +3162,304 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             </motion.div>
           </div>
         )}
+
+      {/* WhatsApp-like Image Gallery Option Overlay */}
+      <AnimatePresence>
+        {showPhotoLibrary && (
+          <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }} 
+              animate={{ scale: 1, opacity: 1 }} 
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-slate-900 border border-white/10 p-6 rounded-3xl w-full max-w-sm space-y-6"
+            >
+              <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">ðŸ–¼ï¸</span>
+                  <div className="text-left">
+                    <h3 className="text-sm font-black text-white uppercase tracking-wider">NSG Academic Media Desk</h3>
+                    <p className="text-[8px] text-white/30 uppercase">WhatsApp-style reference library</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowPhotoLibrary(false)} className="text-white/20 hover:text-white"><X size={20} /></button>
+              </div>
+
+              {/* Standard select input as secondary trigger */}
+              <div className="flex justify-between items-center bg-white/5 p-3 rounded-2xl">
+                <p className="text-[10px] text-white/40 uppercase font-black text-left">Want to select a local device file?</p>
+                <button 
+                  onClick={() => { fileInputRef.current?.click(); setShowPhotoLibrary(false); }}
+                  className="px-3 py-1.5 bg-[#DC2626] hover:bg-red-700 text-white text-[9px] font-black uppercase rounded-xl tracking-wider"
+                >
+                  Local Explorer
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 max-h-72 overflow-y-auto custom-scrollbar">
+                {[
+                  { title: "Human Cardiac Anatomy", url: "https://images.unsplash.com/photo-1530026405186-ed1ea0ac7a63?w=500&auto=format&fit=crop" },
+                  { title: "Organic Molecular Bonds", url: "https://images.unsplash.com/photo-1603126857599-f6e157fa2fe6?w=500&auto=format&fit=crop" },
+                  { title: "Quantum Logic Matrix", url: "https://images.unsplash.com/photo-1507668077129-56e32842fceb?w=500&auto=format&fit=crop" },
+                  { title: "Solar Radiance Mechanics", url: "https://images.unsplash.com/photo-1614730321146-b6fa6a46bcb4?w=500&auto=format&fit=crop" }
+                ].map((item, idx) => (
+                  <button
+                    key={idx}
+                    onClick={async () => {
+                      if (!selectedChat) return;
+                      setShowPhotoLibrary(false);
+                      const msgData = {
+                        senderId: user.uid,
+                        senderHandle: userHandle,
+                        senderName: user.displayName || userHandle,
+                        text: `Template Reference Diagram: ${item.title}`,
+                        timestamp: serverTimestamp(),
+                        type: 'image',
+                        mediaUrl: item.url,
+                        encrypted: true,
+                        seenBy: [user.uid]
+                      };
+                      await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData);
+                      updateDoc(doc(db, 'chats', selectedChat.id), {
+                        lastMessage: `ðŸ“· reference: ${item.title}`,
+                        lastMessageSender: user.displayName || userHandle,
+                        updatedAt: serverTimestamp()
+                      });
+                      setUserNotification(`Sent reference ${item.title} to discussion room!`);
+                    }}
+                    className="relative group rounded-xl overflow-hidden border border-white/5 bg-black/40 hover:border-[#DC2626]/40 transition-all text-left flex flex-col h-28"
+                  >
+                    <img src={item.url} alt="" className="w-full h-16 object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
+                    <div className="p-1.5 flex-[1] flex flex-col justify-between">
+                      <p className="text-[7.5px] font-black text-white/50 uppercase tracking-widest">DIAGRAM</p>
+                      <p className="text-[9px] font-black text-white uppercase italic truncate">{item.title}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </div>
+        )}
       </AnimatePresence>
+
+      {/* Share Note Workspace Overlay */}
+      <AnimatePresence>
+        {showNoteShareOverlay && (
+          <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }} 
+              animate={{ scale: 1, opacity: 1 }} 
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-slate-900 border border-white/10 p-6 rounded-3xl w-full max-w-sm space-y-6"
+            >
+              <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">ðŸ““</span>
+                  <div className="text-left">
+                    <h3 className="text-sm font-black text-white uppercase tracking-wider">Share Revision Notebook</h3>
+                    <p className="text-[8px] text-white/30 uppercase">Broadcast to NSG Contacts</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowNoteShareOverlay(false)} className="text-white/20 hover:text-white"><X size={20} /></button>
+              </div>
+
+              {/* Set permission setting toggler */}
+              <div className="flex gap-2 bg-black/40 p-2.5 rounded-2xl border border-white/5 justify-between items-center">
+                <div className="text-left">
+                  <p className="text-[9px] font-black uppercase text-white tracking-widest">Shared Permission</p>
+                  <p className="text-[7.5px] text-white/40 uppercase">
+                    {noteShareMode === 'editable' ? 'Collab: Recipients can Edit note' : 'Review: Read-only broadcast'}
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setNoteShareMode(noteShareMode === 'editable' ? 'readonly' : 'editable')}
+                  className={`px-3 py-1 text-[8px] font-black uppercase rounded-xl tracking-widest transition-all ${noteShareMode === 'editable' ? 'bg-amber-500/10 text-amber-500 border border-amber-500/30' : 'bg-sky-500/10 text-sky-500 border border-sky-500/30'}`}
+                >
+                  {noteShareMode === 'editable' ? 'ðŸ«± Collab' : 'ðŸ”’ Read-only'}
+                </button>
+              </div>
+
+              <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
+                <p className="text-[8.5px] font-black text-white/30 uppercase px-1 text-left">Choose Notebook to Share:</p>
+                <SharedNotesList 
+                  user={user} 
+                  db={db} 
+                  selectedChat={selectedChat} 
+                  noteShareMode={noteShareMode} 
+                  onClose={() => setShowNoteShareOverlay(false)} 
+                  setUserNotification={setUserNotification}
+                />
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Share Quiz Overlay */}
+      <AnimatePresence>
+        {showQuizShareOverlay && (
+          <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }} 
+              animate={{ scale: 1, opacity: 1 }} 
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-slate-900 border border-white/10 p-6 rounded-3xl w-full max-w-sm space-y-6"
+            >
+              <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">ðŸ†</span>
+                  <div className="text-left">
+                    <h3 className="text-sm font-black text-white uppercase tracking-wider">Share Quiz Series</h3>
+                    <p className="text-[8px] text-white/30 uppercase">Test other scholars in NSG</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowQuizShareOverlay(false)} className="text-white/20 hover:text-white"><X size={20} /></button>
+              </div>
+
+              <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
+                {[
+                  { title: "Neuroscience Anatomy Quiz - Tier 1", questionsCount: 15 },
+                  { title: "Advanced Quantum Mechanics - Test B", questionsCount: 10 },
+                  { title: "Biochemistry Catalyst Series", questionsCount: 8 }
+                ].map((quiz, idx) => (
+                  <button
+                    key={idx}
+                    onClick={async () => {
+                      if (!selectedChat) return;
+                      setShowQuizShareOverlay(false);
+                      const msgData = {
+                        senderId: user.uid,
+                        senderHandle: userHandle,
+                        senderName: user.displayName || userHandle,
+                        text: `ðŸ† Challenge Quiz: ${quiz.title} (${quiz.questionsCount} Questions)`,
+                        timestamp: serverTimestamp(),
+                        type: 'text',
+                        encrypted: true,
+                        seenBy: [user.uid]
+                      };
+                      await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData);
+                      updateDoc(doc(db, 'chats', selectedChat.id), {
+                        lastMessage: `ðŸ† Challenge Quiz: ${quiz.title}`,
+                        lastMessageSender: user.displayName || userHandle,
+                        updatedAt: serverTimestamp()
+                      });
+                      setUserNotification(`Successfully shared the quiz "${quiz.title}"!`);
+                    }}
+                    className="w-full p-3 bg-white/5 hover:bg-white/10 border border-white/5 rounded-2xl text-left flex justify-between items-center transition-all group"
+                  >
+                    <div className="text-left">
+                      <h4 className="text-xs font-black text-white uppercase italic group-hover:text-[#DC2626] transition-colors">{quiz.title}</h4>
+                      <p className="text-[8px] text-white/30 uppercase tracking-widest mt-0.5">{quiz.questionsCount} revision challenges matched</p>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-xl bg-[#DC2626]/20 border border-[#DC2626]/30 text-white text-[8px] font-black uppercase">Share</span>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+interface SharedNotesListProps {
+  user: any;
+  db: any;
+  selectedChat: any;
+  noteShareMode: string;
+  onClose: () => void;
+  setUserNotification: (msg: string) => void;
+}
+
+export const SharedNotesList: React.FC<SharedNotesListProps> = ({ user, db, selectedChat, noteShareMode, onClose, setUserNotification }) => {
+  const [localNotes, setLocalNotes] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+    const q = query(
+      collection(db, 'notes'),
+      where('uid', '==', user.uid),
+      orderBy('updatedAt', 'desc'),
+      limit(20)
+    );
+    getDocs(q).then((snap) => {
+      const items = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setLocalNotes(items);
+      setLoading(false);
+    }).catch(err => {
+      console.error("SharedNotesList error", err);
+      // Fallback notes
+      setLocalNotes([
+        { id: "note_revision_vectors_fall", title: "General Relativity Vectors Notes", content: "Matrix transformations and space curvature vectors." },
+        { id: "note_revision_cellular", title: "Cell Energy Mitochondria Outline", content: "Notes on adenosine triphosphate and synthesis pathways." }
+      ]);
+      setLoading(false);
+    });
+  }, [user, db]);
+
+  const handleShare = async (note: any) => {
+    if (!selectedChat) return;
+    onClose();
+    
+    // Add shared count increment and room members list to notes allowedUsers array!
+    const noteRef = doc(db, 'notes', note.id);
+    const membersList = selectedChat.members || [];
+    
+    await updateDoc(noteRef, {
+      sharedCount: (note.sharedCount || 0) + 1,
+      collaborators: arrayUnion(selectedChat.id),
+      allowedUsers: arrayUnion(...membersList)
+    }).catch((e) => {
+      console.error("Failed to add allowedUsers to note:", e);
+    });
+
+    // Send shared Note card message to conversation with text content preview
+    const msgData = {
+      senderId: user.uid,
+      senderHandle: user.uid,
+      senderName: user.displayName || "NSG Student",
+      text: `ðŸ““ Note: ${note.title}`,
+      noteTitle: note.title,
+      noteContent: note.content || 'Notes content preview is empty.',
+      timestamp: serverTimestamp(),
+      type: 'text',
+      isSharedNote: true,
+      sharedAccessType: noteShareMode,
+      mediaUrl: note.id,
+      encrypted: true,
+      seenBy: [user.uid]
+    };
+
+    await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData);
+    
+    // Update chat room details
+    await updateDoc(doc(db, 'chats', selectedChat.id), {
+      lastMessage: `ðŸ““ Shared: ${note.title}`,
+      lastMessageSender: user.displayName || "NSG Student",
+      updatedAt: serverTimestamp()
+    });
+
+    setUserNotification(`Shared "${note.title}" notes workspace!`);
+  };
+
+  if (loading) return <p className="text-[10px] text-white/30 uppercase tracking-widest text-center py-4">Loading user notebooks...</p>;
+
+  return (
+    <div className="space-y-1">
+      {localNotes.map((note) => (
+        <button
+          key={note.id}
+          onClick={() => handleShare(note)}
+          className="w-full p-3 bg-white/5 hover:bg-white/10 border border-white/5 rounded-xl text-left flex justify-between items-center transition-all group lg:min-w-[300px]"
+        >
+          <div className="min-w-0 flex-1 text-left">
+            <h4 className="text-[11px] font-black text-white uppercase italic group-hover:text-[#DC2626] transition-colors truncate">{note.title}</h4>
+            <p className="text-[7.5px] text-white/40 uppercase tracking-tight truncate">{note.content || 'Blank notebook content'}</p>
+          </div>
+          <span className="shrink-0 px-2 py-0.5 rounded-lg bg-[#DC2626]/20 border border-[#DC2626]/30 text-white text-[7.5px] font-black uppercase ml-2">Share Note</span>
+        </button>
+      ))}
     </div>
   );
 };
