@@ -3,20 +3,49 @@ import {
   Globe, Activity, Sparkles, Trophy, User, Users, Calendar, X, Edit3, ShieldCheck
 } from 'lucide-react';
 import { motion } from 'motion/react';
+// @ts-ignore
+import twemoji from 'twemoji';
+
+export const Emoji: React.FC<{ text: string; className?: string }> = ({ text, className = '' }) => {
+  const parsed = twemoji.parse(text, {
+    folder: 'svg',
+    ext: '.svg',
+    base: 'https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/'
+  });
+
+  return (
+    <span 
+      className={`inline-flex items-center justify-center [&>img]:w-[1.2em] [&>img]:h-[1.2em] [&>img]:inline-block [&>img]:align-middle [&>img]:mx-[0.05em] [&>img]:cursor-default ${className}`}
+      dangerouslySetInnerHTML={{ __html: parsed }}
+    />
+  );
+};
 
 const getUserRank = (points: number) => {
-  if (points >= 1200) return "Diamond Legend";
-  if (points >= 500) return "Gold Champion";
-  if (points >= 100) return "Silver Elite";
-  return "Bronze Scholar";
+  if (points >= 22500) return "Elite League";
+  if (points >= 18000) return "Champion League";
+  if (points >= 14000) return "Obsidian League";
+  if (points >= 10500) return "Ruby League";
+  if (points >= 7500) return "Diamond League";
+  if (points >= 5000) return "Emerald League";
+  if (points >= 3000) return "Sapphire League";
+  if (points >= 1500) return "Gold League";
+  if (points >= 500) return "Silver League";
+  return "Bronze League";
 };
 
 const getScholarTierInfo = (points: number) => {
   const rank = getUserRank(points);
-  if (rank === "Diamond Legend") return { color: "text-cyan-400", bg: "bg-cyan-500/10", border: "border-cyan-500/20", icon: "ðŸ’Ž", badgeStyle: "shadow-[0_0_15px_rgba(34,211,238,0.25)] text-cyan-400 border-cyan-500/30 bg-cyan-950/40" };
-  if (rank === "Gold Champion") return { color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20", icon: "ðŸ†", badgeStyle: "shadow-[0_0_15px_rgba(251,191,36,0.25)] text-amber-400 border-amber-500/30 bg-amber-950/40" };
-  if (rank === "Silver Elite") return { color: "text-slate-300", bg: "bg-slate-300/10", border: "border-slate-300/20", icon: "ðŸ¥ˆ", badgeStyle: "text-slate-300 border-slate-400/30 bg-slate-900/40" };
-  return { color: "text-rose-400", bg: "bg-rose-500/10", border: "border-rose-500/20", icon: "ðŸ¥‰", badgeStyle: "text-rose-400 border-rose-500/30 bg-rose-950/40" };
+  if (rank === "Elite League") return { color: "text-red-500", bg: "bg-red-500/10", border: "border-red-500/20", icon: "ðŸ‘‘", badgeStyle: "shadow-[0_0_15px_rgba(239,68,68,0.25)] text-red-500 border-red-500/30 bg-red-950/40" };
+  if (rank === "Champion League") return { color: "text-purple-400", bg: "bg-purple-500/10", border: "border-purple-500/20", icon: "ðŸ’Ž", badgeStyle: "shadow-[0_0_15px_rgba(168,85,247,0.25)] text-purple-400 border-purple-500/30 bg-purple-950/40" };
+  if (rank === "Obsidian League") return { color: "text-slate-200", bg: "bg-slate-500/10", border: "border-slate-500/20", icon: "ðŸ•¶ï¸", badgeStyle: "text-slate-100 border-slate-700/30 bg-slate-950/50" };
+  if (rank === "Ruby League") return { color: "text-rose-500", bg: "bg-rose-500/10", border: "border-rose-500/20", icon: "ðŸŒ¹", badgeStyle: "shadow-[0_0_12px_rgba(244,63,94,0.2)] text-rose-500 border-rose-500/30 bg-rose-950/40" };
+  if (rank === "Diamond League") return { color: "text-cyan-400", bg: "bg-cyan-500/10", border: "border-cyan-500/20", icon: "ðŸ”®", badgeStyle: "text-cyan-400 border-cyan-500/30 bg-cyan-950/40" };
+  if (rank === "Emerald League") return { color: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/20", icon: "ðŸ€", badgeStyle: "text-emerald-400 border-emerald-500/30 bg-emerald-950/40" };
+  if (rank === "Sapphire League") return { color: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/20", icon: "ðŸ³", badgeStyle: "text-blue-400 border-blue-500/30 bg-blue-950/40" };
+  if (rank === "Gold League") return { color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20", icon: "ðŸ†", badgeStyle: "shadow-[0_0_15px_rgba(251,191,36,0.25)] text-amber-400 border-amber-500/30 bg-amber-950/40" };
+  if (rank === "Silver League") return { color: "text-slate-350", bg: "bg-slate-300/10", border: "border-slate-300/20", icon: "ðŸ¥ˆ", badgeStyle: "text-slate-300 border-slate-400/30 bg-slate-900/40" };
+  return { color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20", icon: "â­ï¸", badgeStyle: "text-orange-400 border-orange-500/30 bg-orange-950/40" };
 };
 
 interface CommunityPageProps {
@@ -38,6 +67,7 @@ interface CommunityPageProps {
   setToolsSubTab: (subtab: any) => void;
   setShowInviteModal: (show: boolean) => void;
   theme: string;
+  quests?: any[];
 }
 
 export const CommunityPage: React.FC<CommunityPageProps> = ({
@@ -58,15 +88,45 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
   setActiveTab,
   setToolsSubTab,
   setShowInviteModal,
-  theme
+  theme,
+  quests = []
 }) => {
   const [communitySubTab, setCommunitySubTab] = useState<'quests' | 'rankings'>('quests');
+
+  // Swipe gesture handlers
+  const touchStartX = React.useRef<number | null>(null);
+  const touchEndX = React.useRef<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.targetTouches[0].clientX;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    touchEndX.current = e.targetTouches[0].clientX;
+  };
+
+  const handleTouchEnd = () => {
+    if (!touchStartX.current || !touchEndX.current) return;
+    const diffX = touchStartX.current - touchEndX.current;
+    if (Math.abs(diffX) > 60) {
+      if (diffX > 0) {
+        setCommunitySubTab('rankings');
+      } else {
+        setCommunitySubTab('quests');
+      }
+    }
+    touchStartX.current = null;
+    touchEndX.current = null;
+  };
 
   return (
     <motion.div 
       initial={{ opacity: 0, scale: 0.98 }} 
       animate={{ opacity: 1, scale: 1 }} 
-      className="flex-1 flex flex-col px-2 sm:px-0 relative mb-12 text-left"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      className="flex-1 flex flex-col px-2 sm:px-0 relative mb-12 text-left select-none"
     >
       {/* Community Tab Selector */}
       <div className="flex items-center gap-2 bg-[#1E1B2E] p-1.5 rounded-[2rem] mb-8 max-w-md mx-auto w-full shadow-2xl relative border border-white/5">
@@ -75,14 +135,14 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
           onClick={() => setCommunitySubTab('quests')}
           className={`flex-1 py-3 px-4 rounded-[1.5rem] text-[10px] font-black uppercase tracking-widest transition-all ${communitySubTab === 'quests' ? 'bg-gradient-to-r from-red-600 to-rose-500 text-white shadow-xl shadow-red-500/15 scale-102' : 'text-white/40 hover:text-white/60'}`}
         >
-          ðŸ† Quests Map
+          <Emoji text="ðŸ†" /> Quests Map
         </button>
         <button 
           type="button"
           onClick={() => setCommunitySubTab('rankings')}
           className={`flex-1 py-3 px-4 rounded-[1.5rem] text-[10px] font-black uppercase tracking-widest transition-all ${communitySubTab === 'rankings' ? 'bg-gradient-to-r from-red-600 to-rose-500 text-white shadow-xl shadow-red-500/15 scale-102' : 'text-white/40 hover:text-white/60'}`}
         >
-          ðŸŒ World Rankings
+          <Emoji text="ðŸŒ" /> World Rankings
         </button>
       </div>
 
@@ -93,14 +153,14 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
             <div className="bg-gradient-to-br from-[#1E1B2E] to-[#120F1F] p-6 rounded-[2.5rem] shadow-2xl space-y-6 text-left border border-white/5">
               {/* Active Month Challenge Ribbon */}
               <div className="bg-gradient-to-r from-[#FF007F] via-[#FF1493] to-[#8A2BE2] rounded-3xl p-6 text-white shadow-xl relative overflow-hidden">
-                <div className="absolute right-4 top-4 text-5xl opacity-20 select-none animate-pulse">ðŸ…</div>
+                <div className="absolute right-4 top-4 text-5xl opacity-20 select-none animate-pulse"><Emoji text="ðŸ…" /></div>
                 <h4 className="text-sm font-black uppercase tracking-wider mb-0.5 flex items-center gap-1">
-                  âœ¨ Smart Study Quest Dashboard
+                  <Emoji text="âœ¨" /> Smart Study Quest Dashboard
                 </h4>
                 <div className="flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-widest text-white/70">
-                  <span>ðŸ“… CURRENT MONTH CHALLENGE</span>
+                  <span><Emoji text="ðŸ“…" /> CURRENT MONTH CHALLENGE</span>
                   <span>â€¢</span>
-                  <span className="text-yellow-300 animate-pulse">â²ï¸ 10 DAYS REMAINING</span>
+                  <span className="text-yellow-300 animate-pulse"><Emoji text="â²ï¸" /> 10 DAYS REMAINING</span>
                 </div>
 
                 {/* Quest Points Subcard */}
@@ -133,52 +193,19 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                 <h5 className="text-[10px] font-black text-white/40 uppercase tracking-[0.25em]">DAILY STUDY QUESTS</h5>
                 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {[
-                    {
-                      id: "study_session",
-                      title: "Launch a study session",
-                      desc: "Unite with Omni AI and review",
-                      progress: (sessions || []).length > 0 ? "1/1" : "0/1",
-                      isDone: (sessions || []).length > 0,
-                      chest: "ðŸ§°",
-                      buttonLabel: "BOOST NOW",
-                      targetTab: "tools",
-                      targetSubTab: "notebook"
-                    },
-                    {
-                      id: "smart_quiz",
-                      title: "Evaluate Smart Quiz",
-                      desc: "Score solid points in an activity",
-                      progress: finishedHistory.filter(h => h.type === 'quiz').length > 0 ? "1/1" : "0/1",
-                      isDone: finishedHistory.filter(h => h.type === 'quiz').length > 0,
-                      chest: "ðŸ’ŽðŸ§°",
-                      buttonLabel: "TEST RETENTION",
-                      targetTab: "tools",
-                      targetSubTab: "quiz"
-                    },
-                    {
-                      id: "maintain_streak",
-                      title: "Maintain study streak",
-                      desc: "Avoid slipping from elite tier",
-                      progress: (currentUserData?.streak || 0) >= 1 ? "1/1" : "0/1",
-                      isDone: (currentUserData?.streak || 0) >= 1,
-                      chest: "ðŸ‘‘ðŸ§°",
-                      buttonLabel: "FIRE UP",
-                      targetTab: "tools",
-                      targetSubTab: "notebook"
-                    }
-                  ].map((qst, idx) => {
+                  {quests.map((qst, idx) => {
                     const isClaimed = currentUserData?.claimedQuests?.includes(qst.id);
                     const canClaim = qst.isDone && !isClaimed;
 
                     const handleQuestClaim = async () => {
                       if (!user?.uid) return;
                       try {
+                        const pointsChange = qst.reward || 10;
                         await updateDoc(doc(db, 'users', user.uid), {
                           claimedQuests: arrayUnion(qst.id),
-                          points: increment(50)
+                          points: increment(pointsChange)
                         });
-                        setUserNotification(`ðŸŽ QUEST COMPLETED! Claimed 50 XP Points.`);
+                        setUserNotification(`ðŸŽ QUEST COMPLETED! Claimed ${pointsChange} XP Points.`);
                       } catch (e) {
                          setUserNotification("Error claiming quest points. Try again!");
                       }
@@ -209,7 +236,7 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                             <h6 className="font-black text-xs text-white uppercase tracking-tight mt-1">{qst.title}</h6>
                             <p className="text-[9.5px] font-bold text-white/45 uppercase leading-none">{qst.desc}</p>
                           </div>
-                          <div className="text-3xl filter drop-shadow-lg">{qst.chest}</div>
+                          <div className="text-3xl filter drop-shadow-lg"><Emoji text={qst.chest} /></div>
                         </div>
 
                         <button 
@@ -258,12 +285,12 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                             {buddy.username?.slice(0, 2).toUpperCase()}
                           </div>
                           <div className="text-left">
-                            <p className="text-[11px] font-black text-white leading-none uppercase">@{buddy.username}</p>
+                            <p className="text-[11px] font-black text-white whitespace-nowrap leading-none uppercase">@{buddy.username}</p>
                             <p className="text-[7.5px] text-white/40 uppercase tracking-widest mt-1">Multiplied 50 XP Applied</p>
                           </div>
                         </div>
-                        <span className="text-[8px] bg-green-500/10 text-green-400 px-2 py-1 rounded-lg font-black uppercase tracking-widest">
-                          Streak Active ðŸ”¥
+                        <span className="text-[8px] bg-green-500/10 text-green-400 px-2 py-1 rounded-lg font-black uppercase tracking-widest flex items-center gap-1">
+                          Streak Active <Emoji text="ðŸ”¥" />
                         </span>
                       </div>
                     ))}
@@ -283,7 +310,7 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                     { label: "Course Master", emoji: "ðŸ›¡ï¸", condition: "Smart Quiz activity complete", done: finishedHistory.filter(h => h.type === 'quiz').length > 0, style: "from-purple-500/20 text-purple-400" }
                   ].map((badge, bIdx) => (
                     <div key={bIdx} className={`bg-gradient-to-tr ${badge.style} to-[#0E0B1A]/40 p-5 rounded-[2rem] border border-white/5 text-center flex flex-col justify-between h-36 relative overflow-hidden shadow-xl group hover:scale-[1.03] transition-transform`}>
-                      <div className="text-3xl select-none filter drop-shadow-md group-hover:scale-110 transition-transform">{badge.emoji}</div>
+                      <div className="text-3xl select-none filter drop-shadow-md group-hover:scale-110 transition-transform"><Emoji text={badge.emoji} /></div>
                       <div>
                         <p className="text-[9.5px] font-black text-white uppercase truncate tracking-tight">{badge.label}</p>
                         <p className="text-[6.5px] text-white/40 uppercase tracking-widest leading-none mt-1">{badge.condition}</p>
@@ -363,7 +390,7 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                         )}
 
                         <div className="flex items-center gap-3">
-                          <div className="text-3xl filter drop-shadow-md select-none group-hover:scale-110 transition-transform">{ach.badge}</div>
+                          <div className="text-3xl filter drop-shadow-md select-none group-hover:scale-110 transition-transform"><Emoji text={ach.badge} /></div>
                           <div className="space-y-1 text-left">
                             <h6 className="font-black text-xs text-white uppercase tracking-tight leading-none">{ach.title}</h6>
                             <p className="text-[8px] text-white/55 leading-snug">{ach.desc}</p>
@@ -403,7 +430,7 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                   <div className="relative overflow-hidden p-6 rounded-[2.5rem] bg-gradient-to-br from-[#1E1B2E] to-[#120F1F] shadow-3xl border border-white/5">
                     <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[#DC2626] via-pink-500 to-amber-500" />
                     <h3 className="text-center text-xs font-black uppercase tracking-[0.2em] text-yellow-500 mb-8 flex items-center justify-center gap-2">
-                      ðŸ‘‘ TOP NSG SCHOLARS ðŸ‘‘
+                      <Emoji text="ðŸ‘‘" /> TOP NSG SCHOLARS <Emoji text="ðŸ‘‘" />
                     </h3>
                     
                     <div className="grid grid-cols-3 gap-2 items-end pt-4 pb-2 max-w-md mx-auto relative">
@@ -419,8 +446,8 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                               )}
                             </div>
                           </div>
-                          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-slate-300 text-black text-[8px] font-black rounded-full px-2 py-0.5 uppercase tracking-wider shadow">
-                            ðŸ¥ˆ 2nd
+                          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-slate-300 text-black text-[8px] font-black rounded-full px-2 py-0.5 uppercase tracking-wider shadow flex items-center gap-1">
+                            <Emoji text="ðŸ¥ˆ" /> 2nd
                           </div>
                         </div>
                         <p className="text-[10px] font-black text-white truncate w-20 text-center uppercase leading-none mt-1">
@@ -439,7 +466,7 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                       <div className="flex flex-col items-center z-10 scale-110">
                         <div className="relative mb-3">
                           <div className="absolute -top-6 left-1/2 -translate-x-1/2 animate-bounce">
-                            <span className="text-2xl">ðŸ‘‘</span>
+                            <span className="text-2xl"><Emoji text="ðŸ‘‘" /></span>
                           </div>
                           <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-yellow-500 to-amber-300 p-1 overflow-hidden relative shadow-[0_0_20px_rgba(234,179,8,0.4)]">
                             <div className="w-full h-full rounded-full overflow-hidden bg-zinc-950 relative">
@@ -450,8 +477,8 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                               )}
                             </div>
                           </div>
-                          <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-yellow-500 text-black text-[8px] font-black rounded-full px-2 py-0.5 uppercase tracking-wider shadow">
-                            ðŸ¥‡ CHAMP
+                          <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-yellow-500 text-black text-[8px] font-black rounded-full px-2 py-0.5 uppercase tracking-wider shadow flex items-center gap-1">
+                            <Emoji text="ðŸ¥‡" /> CHAMP
                           </div>
                         </div>
                         <p className="text-[11px] font-black text-yellow-500 truncate w-24 text-center uppercase leading-none">
@@ -479,8 +506,8 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                               )}
                             </div>
                           </div>
-                          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-amber-600 text-white text-[8px] font-black rounded-full px-2 py-0.5 uppercase tracking-wider shadow">
-                            ðŸ¥‰ 3rd
+                          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-amber-600 text-white text-[8px] font-black rounded-full px-2 py-0.5 uppercase tracking-wider shadow flex items-center gap-1">
+                            <Emoji text="ðŸ¥‰" /> 3rd
                           </div>
                         </div>
                         <p className="text-[10px] font-black text-white truncate w-20 text-center uppercase leading-none mt-1">
@@ -514,7 +541,7 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                   <div className="bg-gradient-to-r from-[#DC2626]/20 via-blue-500/10 to-transparent p-5 rounded-3xl mb-5 flex items-center justify-between shadow-xl border border-white/5">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-red-500 to-blue-600 flex items-center justify-center text-sm font-bold shadow-lg shadow-black/30">
-                        {getScholarTierInfo(currentUserData?.points || 0).icon || 'â­'}
+                        <Emoji text={getScholarTierInfo(currentUserData?.points || 0).icon || 'â­'} />
                       </div>
                       <div className="text-left">
                         <p className="text-[7px] font-black text-white/30 uppercase tracking-[0.2em] leading-none">Your Rank Level</p>
@@ -555,7 +582,7 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                             </div>
                             {/* CUSTOM TIER BADGE */}
                             <div className="flex items-center gap-1 mt-1 leading-none">
-                              <span className="text-[8px]">{tier.icon}</span>
+                              <span className="text-[8px]"><Emoji text={tier.icon} /></span>
                               <span className={`text-[7px] font-black uppercase tracking-widest ${tier.color}`}>{getUserRank(u.points || 0)}</span>
                             </div>
                           </div>
@@ -596,7 +623,7 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                                   }}
                                   className="w-7 h-7 flex items-center justify-center bg-white/5 hover:bg-yellow-500/30 text-yellow-500 rounded-xl transition-all shadow-md active:scale-90"
                                 >
-                                  <span className="text-xs">âœ‹</span>
+                                  <span className="text-xs flex items-center justify-center"><Emoji text="âœ‹" /></span>
                                 </button>
 
                                 <button 
@@ -619,9 +646,9 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                                       setUserNotification("Failed to challenge user.");
                                     }
                                   }}
-                                  className="w-7 h-7 flex items-center justify-center bg-white/5 text-blue-400 hover:bg-blue-500/30 rounded-xl transition-all shadow-md active:scale-90"
+                                  className="w-7 h-7 flex items-center justify-center bg-white/5 text-blue-400 hover:bg-blue-500/30 rounded-xl transition-all shadow-md active:scale-90 font-sans"
                                 >
-                                  <span className="text-xs">ðŸ”¥</span>
+                                  <span className="text-xs flex items-center justify-center"><Emoji text="ðŸ”¥" /></span>
                                 </button>
                               </div>
                             )}
@@ -629,6 +656,16 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                         </div>
                       );
                     })}
+                  </div>
+
+                  {/* Community Disclaimer Banner */}
+                  <div className="mt-5 p-4 rounded-2xl bg-[#DC2626]/5 border border-[#DC2626]/15 text-center space-y-1">
+                    <p className="text-[7.5px] font-black uppercase tracking-[0.25em] text-[#DC2626] flex items-center justify-center gap-1">
+                      <Emoji text="ðŸ“¡" /> Peer Scholar Notice
+                    </p>
+                    <p className="text-[9.5px] text-white/45 leading-relaxed font-sans font-medium">
+                      Accumulated XP serves solely for community rankings on the peer leaderboard. Strive high to help elevate your study node of fellow scholars!
+                    </p>
                   </div>
                 </div>
               </div>
@@ -651,7 +688,7 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                   </div>
                   
                   <div className="pt-4 border-t border-white/10">
-                    <p className="text-[10px] font-bold italic leading-tight">"Consistency is the secret code to academic evolution."</p>
+                    <p className="text-[10px] font-bold italic leading-tight">"Consistency is the secret code to academic excellence."</p>
                   </div>
                 </div>
 
@@ -666,7 +703,7 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                       <div className="h-full bg-gradient-to-r from-[#DC2626] to-pink-500" style={{ width: `${Math.min(100, ((currentUserData?.points || 0) % 500) / 5)}%` }} />
                     </div>
                   </div>
-                  <p className="text-[7px] text-white/20 text-center uppercase tracking-widest leading-relaxed pt-2 font-sans">Complete 7-day streak to gain +100 bonus XP points for your monthly rank evolution.</p>
+                  <p className="text-[7px] text-white/20 text-center uppercase tracking-widest leading-relaxed pt-2 font-sans">Complete 7-day streak to gain +100 bonus XP points for your monthly rank.</p>
                 </div>
               </div>
             </div>
