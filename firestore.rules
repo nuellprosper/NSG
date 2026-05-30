@@ -63,6 +63,7 @@ service cloud.firestore {
              (!('matricNumber' in data) || isValString(data.matricNumber, 128)) &&
              (!('isPremium' in data) || data.isPremium is bool) &&
              (!('points' in data) || data.points is int) &&
+             (!('claimedQuests' in data) || data.claimedQuests is list) &&
              (!('streak' in data) || data.streak is int) &&
              (!('rank' in data) || data.rank is string) &&
              (!('lastActive' in data) || (data.lastActive is string || data.lastActive is timestamp)) &&
@@ -70,6 +71,7 @@ service cloud.firestore {
              (!('bypassHostingPayment' in data) || data.bypassHostingPayment is bool) &&
              (!('bypassTakingPayment' in data) || data.bypassTakingPayment is bool) &&
              (!('lastSeen' in data) || (data.lastSeen is string || data.lastSeen is timestamp)) &&
+             (!('pointResetCompleted' in data) || data.pointResetCompleted is bool) &&
              (!('updatedAt' in data) || (data.updatedAt is string || data.updatedAt is timestamp));
     }
 
@@ -113,7 +115,7 @@ service cloud.firestore {
       allow create: if (isOwner(uid) || (request.auth == null && uid != null)) && isValidUser(incoming());
       allow update: if (isOwner(uid) || isAdmin()) && isValidUser(incoming()) && (
         // Action: Profile Update
-        (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'username', 'university', 'level', 'department', 'faculty', 'dob', 'matric', 'matricNumber', 'updatedAt', 'fullName', 'status', 'premiumUntil', 'bypassHostingPayment', 'bypassTakingPayment', 'bypassAllPayments', 'isPremium', 'about', 'lastSeen', 'email', 'points', 'streak', 'lastActive', 'rank'])) ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'username', 'university', 'level', 'department', 'faculty', 'dob', 'matric', 'matricNumber', 'updatedAt', 'fullName', 'status', 'premiumUntil', 'bypassHostingPayment', 'bypassTakingPayment', 'bypassAllPayments', 'isPremium', 'about', 'lastSeen', 'email', 'points', 'streak', 'lastActive', 'rank', 'claimedQuests', 'invitedUsers', 'pointResetCompleted'])) ||
         // Action: Presence Heartbeat
         (incoming().diff(existing()).affectedKeys().hasOnly(['lastSeen', 'status'])) ||
         // Action: Admin Role Update
@@ -123,8 +125,8 @@ service cloud.firestore {
 
     // Notes Collection
     match /notes/{noteId} {
-      allow get: if isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
-      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow get: if isSignedIn() && (existing().uid == request.auth.uid || (existing().get('allowedUsers', []) is list && request.auth.uid in existing().get('allowedUsers', [])) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || (resource.data.get('allowedUsers', []) is list && request.auth.uid in resource.data.get('allowedUsers', [])) || isAdmin());
       allow create: if isSignedIn() && isValidNote(incoming());
       allow update: if isSignedIn() && existing().uid == request.auth.uid && isValidNote(incoming()) &&
                    incoming().uid == existing().uid;
@@ -157,7 +159,7 @@ service cloud.firestore {
     match /notifications/{notifId} {
       allow read, list: if isSignedIn();
       allow create: if isSignedIn() && (
-        (incoming().type in ['highfive', 'streak_request', 'streak_accept'] && incoming().from == request.auth.uid) || 
+        (incoming().type in ['highfive', 'streak_request', 'streak_accept', 'classroom_invite'] && incoming().from == request.auth.uid) || 
         isAdmin()
       );
       allow update: if isSignedIn() && (resource.data.get('to', '') == request.auth.uid || isAdmin()) && 
