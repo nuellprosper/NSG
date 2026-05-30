@@ -1,0 +1,429 @@
+import { GoogleGenAI } from "@google/genai";
+import { HfInference } from "@huggingface/inference";
+import axios from 'axios';
+
+export const getUserRank = (points: number) => {
+  if (points >= 22500) return "Elite League";
+  if (points >= 18000) return "Champion League";
+  if (points >= 14000) return "Obsidian League";
+  if (points >= 10500) return "Ruby League";
+  if (points >= 7500) return "Diamond League";
+  if (points >= 5000) return "Emerald League";
+  if (points >= 3000) return "Sapphire League";
+  if (points >= 1500) return "Gold League";
+  if (points >= 500) return "Silver League";
+  return "Bronze League";
+};
+
+export const getScholarTierInfo = (points: number) => {
+  const rank = getUserRank(points);
+  if (rank === "Elite League") return { color: "text-red-500", bg: "bg-red-500/10", border: "border-red-500/20", icon: "👑", badgeStyle: "shadow-[0_0_15px_rgba(239,68,68,0.25)] text-red-500 border-red-500/30 bg-red-950/40" };
+  if (rank === "Champion League") return { color: "text-purple-400", bg: "bg-purple-500/10", border: "border-purple-500/20", icon: "💎", badgeStyle: "shadow-[0_0_15px_rgba(168,85,247,0.25)] text-purple-400 border-purple-500/30 bg-purple-950/40" };
+  if (rank === "Obsidian League") return { color: "text-slate-200", bg: "bg-slate-500/10", border: "border-slate-500/20", icon: "🕶️", badgeStyle: "text-slate-100 border-slate-700/30 bg-slate-950/50" };
+  if (rank === "Ruby League") return { color: "text-rose-500", bg: "bg-rose-500/10", border: "border-rose-500/20", icon: "🌹", badgeStyle: "shadow-[0_0_12px_rgba(244,63,94,0.2)] text-rose-500 border-rose-500/30 bg-rose-950/40" };
+  if (rank === "Diamond League") return { color: "text-cyan-400", bg: "bg-cyan-500/10", border: "border-cyan-500/20", icon: "🔮", badgeStyle: "text-cyan-400 border-cyan-500/30 bg-cyan-950/40" };
+  if (rank === "Emerald League") return { color: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/20", icon: "🍀", badgeStyle: "text-emerald-400 border-emerald-500/30 bg-emerald-950/40" };
+  if (rank === "Sapphire League") return { color: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/20", icon: "🐳", badgeStyle: "text-blue-400 border-blue-500/30 bg-blue-950/40" };
+  if (rank === "Gold League") return { color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20", icon: "🏆", badgeStyle: "shadow-[0_0_15px_rgba(251,191,36,0.25)] text-amber-400 border-amber-500/30 bg-amber-950/40" };
+  if (rank === "Silver League") return { color: "text-slate-350", bg: "bg-slate-300/10", border: "border-slate-300/20", icon: "🥈", badgeStyle: "text-slate-300 border-slate-400/30 bg-slate-900/40" };
+  return { color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20", icon: "⭐️", badgeStyle: "text-orange-400 border-orange-500/30 bg-orange-950/40" };
+};
+
+export const getScholarLeagueInfo = (points: number) => {
+  const rank = getUserRank(points);
+  if (rank === "Elite League") return { text: "Elite League", emoji: "👑", textColor: "text-red-500", bgClass: "bg-red-500/10" };
+  if (rank === "Champion League") return { text: "Champion League", emoji: "💎", textColor: "text-purple-400", bgClass: "bg-purple-500/10" };
+  if (rank === "Obsidian League") return { text: "Obsidian League", emoji: "🕶️", textColor: "text-slate-200", bgClass: "bg-slate-500/10" };
+  if (rank === "Ruby League") return { text: "Ruby League", emoji: "🌹", textColor: "text-rose-500", bgClass: "bg-rose-500/10" };
+  if (rank === "Diamond League") return { text: "Diamond League", emoji: "🔮", textColor: "text-cyan-400", bgClass: "bg-cyan-500/10" };
+  if (rank === "Emerald League") return { text: "Emerald League", emoji: "🍀", textColor: "text-emerald-400", bgClass: "bg-emerald-500/10" };
+  if (rank === "Sapphire League") return { text: "Sapphire League", emoji: "🐳", textColor: "text-blue-400", bgClass: "bg-blue-400/10" };
+  if (rank === "Gold League") return { text: "Gold League", emoji: "🏆", textColor: "text-amber-400", bgClass: "bg-amber-500/10" };
+  if (rank === "Silver League") return { text: "Silver League", emoji: "🥈", textColor: "text-slate-350", bgClass: "bg-slate-300/10" };
+  return { text: "Bronze League", emoji: "⭐️", textColor: "text-orange-400", bgClass: "bg-orange-500/10" };
+};
+
+export const getApiKey = () => {
+  const key = process.env.GEMINI_API_KEY;
+  const finalKey = (key || "").trim();
+  if (!finalKey) {
+    console.warn("Gemini API Key is missing. Ensure GEMINI_API_KEY is set in your environment.");
+  }
+  return finalKey;
+};
+
+export const getHfKey = () => {
+  const key = import.meta.env.VITE_HUGGINGFACE_API_KEY;
+  const finalKey = (key || "").trim();
+  if (!finalKey) {
+    console.warn("HuggingFace API Key is missing. Ensure VITE_HUGGINGFACE_API_KEY is set in your environment.");
+  }
+  return finalKey;
+};
+
+export let isHfDepletedGlobal = false;
+export const handleHfErrorGlobal = (error: any, label: string) => {
+  const errorMsg = error instanceof Error ? error.message : String(error);
+  
+  const isDepleted = 
+    errorMsg.includes("credits") || 
+    errorMsg.includes("depleted") || 
+    errorMsg.includes("limit") || 
+    errorMsg.includes("429") ||
+    errorMsg.includes("Inference Providers");
+
+  if (isDepleted) {
+    if (!isHfDepletedGlobal) {
+      console.warn(`[AI] HF Info in ${label}: Credits depleted or rate limited. Fallback to Gemini/Together is now primary.`);
+      isHfDepletedGlobal = true;
+    }
+  } else {
+    console.error(`[AI] HF error in ${label}:`, errorMsg);
+  }
+};
+
+export const getAiInstance = () => {
+  const key = getApiKey();
+  if (!key) throw new Error("Gemini API Key is missing. Please set GEMINI_API_KEY in your environment.");
+  return new GoogleGenAI({ apiKey: key });
+};
+
+export const getHfInstance = () => {
+  const key = getHfKey();
+  if (!key) throw new Error("HuggingFace API Key is missing. Please set VITE_HUGGINGFACE_API_KEY in your environment.");
+  return new HfInference(key);
+};
+
+export const MODEL_NAME = "gemini-3-flash-preview";
+export const FLASH_MODEL = "gemini-3.1-flash-lite";
+
+export const formatAiError = (error: any) => {
+  const message = error.message || "Unknown error";
+  if (message.toLowerCase().includes("model") || message.includes("404") || message.includes("not found")) {
+    return `Model Error: The selected AI model (${MODEL_NAME}) might be unavailable or retired. Please check the configuration. Original error: ${message}`;
+  }
+  return `AI Error: ${message}`;
+};
+
+export const robustJSONParse = (text: string) => {
+  if (!text) return null;
+  let cleaned = text.trim();
+  
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json)?\n?|```$/g, '').trim();
+  }
+
+  const fixControlCharacters = (str: string) => {
+    let output = '';
+    let inString = false;
+    let escape = false;
+    for (let i = 0; i < str.length; i++) {
+      const char = str[i];
+      if (char === '"' && !escape) {
+        inString = !inString;
+      }
+      if (char === '\\' && !escape) {
+        escape = true;
+      } else {
+        escape = false;
+      }
+      
+      if (inString) {
+        if (char === '\n') {
+          output += '\\n';
+        } else if (char === '\r') {
+          output += '\\r';
+        } else if (char === '\t') {
+          output += '\\t';
+        } else {
+          output += char;
+        }
+      } else {
+        output += char;
+      }
+    }
+    return output;
+  };
+
+  const fixEscaping = (str: string) => {
+    return str.replace(/\\(?![/"\\bfnrtu])/g, '\\\\');
+  };
+
+  try {
+    const fixedText = fixControlCharacters(cleaned);
+    return JSON.parse(fixedText);
+  } catch (err) {
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const jsonStr = jsonMatch[0];
+      try {
+        const fixedMatch = fixControlCharacters(jsonStr);
+        return JSON.parse(fixedMatch);
+      } catch (err2) {
+        try {
+          const fixedEscapingStr = fixControlCharacters(fixEscaping(jsonStr));
+          return JSON.parse(fixedEscapingStr);
+        } catch (err3) {
+          console.error("Robust JSON parse failed:", { original: err, second: err2, final: err3 });
+          throw err;
+        }
+      }
+    }
+    throw err;
+  }
+};
+
+export const HF_MODELS = {
+  TEXT: "meta-llama/Llama-3.1-8B-Instruct",
+  VISION: "meta-llama/Llama-3.2-11B-Vision-Instruct",
+  IMAGE: "black-forest-labs/FLUX.1-schnell",
+  AUDIO: "openai/whisper-large-v3-turbo"
+};
+
+export const GROQ_MODEL = "llama-3.3-70b-versatile";
+export const GROQ_AUDIO_MODEL = "distil-whisper-large-v3-en";
+
+export const OPENROUTER_MODELS = {
+  TEXT_FAST: "google/gemma-2-9b-it:free",
+  TEXT_PRO: "google/gemma-4-31b-it:free",
+  TEXT_ALT: "nvidia/nemotron-3-super:free",
+  IMAGE: "black-forest-labs/flux-1-schnell:free",
+  AUDIO: "openai/whisper-large-v3-turbo",
+  MULTIMODAL: "google/lyria-3-clip-preview:free"
+};
+
+export const TOGETHER_MODEL = "google/gemma-4-31b-it";
+
+export let isOpenRouterDepletedGlobal = false;
+export let isTogetherDepletedGlobal = false;
+
+export const handleOpenRouterErrorGlobal = (error: any, label: string) => {
+  const errorMsg = error instanceof Error ? error.message : String(error);
+  console.error(`[AI] OpenRouter error in ${label}:`, errorMsg);
+  if (errorMsg.includes("429") || errorMsg.includes("credit") || errorMsg.includes("balance")) {
+    console.warn("[AI] OpenRouter credits may be depleted.");
+    isOpenRouterDepletedGlobal = true;
+  }
+};
+
+export const callOpenRouter = async (prompt: string, model: string = OPENROUTER_MODELS.TEXT_PRO, history: any[] = []) => {
+  const key = import.meta.env.VITE_OPENROUTER_API_KEY;
+  if (!key || isOpenRouterDepletedGlobal) return null;
+  try {
+    const messages = history.length > 0 ? history : [{ role: "user", content: prompt }];
+    const res = await axios.post("https://openrouter.ai/api/v1/chat/completions", {
+      model: model,
+      messages: messages,
+    }, {
+      headers: {
+        "Authorization": `Bearer ${key}`,
+        "HTTP-Referer": window.location.origin,
+        "X-Title": "NSG Applet",
+      }
+    });
+    return res.data.choices[0].message.content || null;
+  } catch (e) {
+    handleOpenRouterErrorGlobal(e, "OpenRouterChat");
+    return null;
+  }
+};
+
+export const callTogetherAI = async (prompt: string, history: any[] = []) => {
+  const key = import.meta.env.VITE_TOGETHER_API_KEY;
+  if (!key || isTogetherDepletedGlobal) return null;
+  try {
+    const messages = history.length > 0 ? history : [{ role: "user", content: prompt }];
+    const res = await axios.post("https://api.together.xyz/v1/chat/completions", {
+      model: TOGETHER_MODEL,
+      messages: messages,
+    }, {
+      headers: {
+        "Authorization": `Bearer ${key}`
+      }
+    });
+    return res.data.choices[0].message.content || null;
+  } catch (e: any) {
+    console.error("[TOGETHER ERROR]", e.message);
+    if (e.message.includes("429") || e.message.includes("credit")) isTogetherDepletedGlobal = true;
+    return null;
+  }
+};
+
+export const LIMITS = {
+  ASSIGNMENT: {
+    NORMAL: { IMAGES: 1, DAILY: 3 },
+    PREMIUM: { IMAGES: 3, DAILY: 7 }
+  },
+  QUIZ: {
+    NORMAL: { WORDS: 30, DAILY: 4, IMAGES: 1 },
+    PREMIUM: { WORDS: 150, DAILY: 15, IMAGES: 3 }
+  },
+  RECORD: {
+    NORMAL: { DURATION: 30 * 60, DAILY: 3 },
+    PREMIUM: { DURATION: 120 * 60, DAILY: 30 }
+  },
+  LIVE_TUTOR: {
+    NORMAL: { DURATION: 5 * 60, DAILY: 3 },
+    PREMIUM: { DURATION: 20 * 60, DAILY: 20 }
+  }
+};
+
+export const PAYSTACK_PUBLIC_KEY = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || "pk_test_14a5b8ee0a06e063a8b0e46fc7e0e76ed66f2746";
+
+export interface MediaFile {
+  id: string;
+  file: File;
+  preview?: string;
+  type: 'image' | 'audio';
+}
+
+export interface ChatMessage {
+  role: 'user' | 'model';
+  text: string;
+  timestamp: string;
+  image?: string;
+}
+
+export interface ChatSession {
+  id: string;
+  title: string;
+  history: ChatMessage[];
+  timestamp: string;
+  isPinned?: boolean;
+  uid: string;
+}
+
+export interface LectureSession {
+  id: string;
+  title: string;
+  date: string;
+  duration: string;
+  imageCount: number;
+  summary: string;
+  fullAnalysis: string;
+  refurbishedNote?: string;
+  notes?: string;
+  images: string[]; 
+  audioUrl?: string;
+  audioBase64?: string;
+  isPinned?: boolean;
+  status?: 'pending' | 'analyzed';
+  timestamp?: number;
+  createdAt?: any;
+}
+
+export interface QuizQuestion {
+  question: string;
+  options: string[];
+  correctAnswer: number;
+  explanation?: string;
+}
+
+export interface ExamQuestion extends QuizQuestion {
+  id: string;
+}
+
+export interface StudentResult {
+  uid?: string;
+  matric: string;
+  name: string;
+  score: number;
+  total: number;
+  timestamp: string;
+  hostUid?: string;
+}
+
+export interface RegisteredStudent {
+  matric: string;
+  name: string;
+  paymentEnabled: boolean;
+  isActive?: boolean;
+  lastActive?: number;
+}
+
+export interface ExamConfig {
+  questionCount: number;
+  duration: number; 
+  price: number; 
+  poolCount?: number;
+  warningMessage?: string;
+}
+
+export async function fileToGenerativePart(file: File | Blob) {
+  const base64EncodedDataPromise = new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = reader.result as string;
+      if (result && result.includes(',')) {
+        resolve(result.split(',')[1]);
+      } else {
+        reject(new Error("Failed to parse file data."));
+      }
+    };
+    reader.onerror = () => reject(new Error("File reading failed."));
+    reader.readAsDataURL(file);
+  });
+  
+  let mimeType = file.type;
+  if (!mimeType || mimeType === "") {
+    mimeType = "audio/webm";
+  }
+
+  return {
+    inlineData: { data: await base64EncodedDataPromise, mimeType },
+  };
+}
+
+export const compressImage = async (file: File): Promise<Blob> => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 1024;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > MAX_WIDTH) {
+          height *= MAX_WIDTH / width;
+          width = MAX_WIDTH;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+        canvas.toBlob((blob) => {
+          resolve(blob || file);
+        }, 'image/jpeg', 0.8);
+      };
+    };
+  });
+};
+
+export interface Course {
+  code: string;
+  name: string;
+  description: string;
+  title?: string;
+  level?: string;
+}
+
+export interface HomeHistoryItem {
+  id: string;
+  title: string;
+  type: 'quiz' | 'recording' | 'exam' | 'assignment' | 'faculty' | 'note';
+  progress?: number;
+  date?: string;
+  score?: number;
+  total?: number;
+  timestamp?: number;
+  data?: any; 
+  answers?: any;
+  questions?: any[];
+  topic?: string;
+  difficulty?: string;
+}
