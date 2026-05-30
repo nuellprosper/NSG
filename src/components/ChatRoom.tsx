@@ -351,12 +351,12 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   const lastMessageIdRef = useRef<string | null>(null);
 
   const emojis = useMemo(() => ([
-    { category: 'Smileys', items: ['😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚', '😋', '😛', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🤩', '🥳', '😏', '😒', '😞', '😔', '😟', '😕'] },
-    { category: 'Gestures', items: ['👍', '👎', '👊', '✊', '🤛', '🤜', '🤞', '✌️', '🤟', '🤘', '👌', '🤏', '👈', '👉', '👆', '👇', '✋', '🤚', '🖐️', '🖖', '👋', '🤙', '💪', '🦾'] },
-    { category: 'Hearts', items: ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❣️', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '☮️', '✝️', '☪️', '🕉️', '☸️'] },
-    { category: 'Academic', items: ['📚', '🎓', '📝', '🧠', '💡', '🧪', '🧬', '🔬', '🔭', '📡', '📜', '⚖️', '📐', '📏', '📊', '📈', '📉', '📅', '📝', '🖋️', '🖊️', '🖌️', '🖍️'] },
-    { category: 'Objects', items: ['🔥', '✨', '⚡', '🌈', '☀️', '🌙', '⭐', '🚀', '🛸', '💻', '📱', '📷', '🎥', '📞', '💾', '💿', '📼', '📷', '⏲️', '⏱️', '⏰', '🔋', '🔌', '🕯️', '💡'] },
-    { category: 'Food', items: ['🍎', '🍌', '🍉', '🍇', '🍓', '🍒', '🍑', '🥭', '🍍', '🥥', '🥝', '🍅', '🍆', '🥑', '🥦', '🥬', '🥒', '🌽', '🥕', '🧄', '🧅', '🥔', '🍠', '🥐', '🍞'] }
+    { category: 'Smileys', items: ['ðŸ˜€', 'ðŸ˜ƒ', 'ðŸ˜„', 'ðŸ˜', 'ðŸ˜†', 'ðŸ˜…', 'ðŸ˜‚', 'ðŸ¤£', 'ðŸ˜Š', 'ðŸ˜‡', 'ðŸ™‚', 'ðŸ™ƒ', 'ðŸ˜‰', 'ðŸ˜Œ', 'ðŸ˜', 'ðŸ¥°', 'ðŸ˜˜', 'ðŸ˜—', 'ðŸ˜™', 'ðŸ˜š', 'ðŸ˜‹', 'ðŸ˜›', 'ðŸ˜œ', 'ðŸ¤ª', 'ðŸ¤¨', 'ðŸ§', 'ðŸ¤“', 'ðŸ˜Ž', 'ðŸ¤©', 'ðŸ¥³', 'ðŸ˜', 'ðŸ˜’', 'ðŸ˜ž', 'ðŸ˜”', 'ðŸ˜Ÿ', 'ðŸ˜•'] },
+    { category: 'Gestures', items: ['ðŸ‘', 'ðŸ‘Ž', 'ðŸ‘Š', 'âœŠ', 'ðŸ¤›', 'ðŸ¤œ', 'ðŸ¤ž', 'âœŒï¸', 'ðŸ¤Ÿ', 'ðŸ¤˜', 'ðŸ‘Œ', 'ðŸ¤', 'ðŸ‘ˆ', 'ðŸ‘‰', 'ðŸ‘†', 'ðŸ‘‡', 'âœ‹', 'ðŸ¤š', 'ðŸ–ï¸', 'ðŸ––', 'ðŸ‘‹', 'ðŸ¤™', 'ðŸ’ª', 'ðŸ¦¾'] },
+    { category: 'Hearts', items: ['â¤ï¸', 'ðŸ§¡', 'ðŸ’›', 'ðŸ’š', 'ðŸ’™', 'ðŸ’œ', 'ðŸ–¤', 'ðŸ¤', 'ðŸ¤Ž', 'ðŸ’”', 'â£ï¸', 'ðŸ’•', 'ðŸ’ž', 'ðŸ’“', 'ðŸ’—', 'ðŸ’–', 'ðŸ’˜', 'ðŸ’', 'ðŸ’Ÿ', 'â˜®ï¸', 'âœï¸', 'â˜ªï¸', 'ðŸ•‰ï¸', 'â˜¸ï¸'] },
+    { category: 'Academic', items: ['ðŸ“š', 'ðŸŽ“', 'ðŸ“', 'ðŸ§ ', 'ðŸ’¡', 'ðŸ§ª', 'ðŸ§¬', 'ðŸ”¬', 'ðŸ”­', 'ðŸ“¡', 'ðŸ“œ', 'âš–ï¸', 'ðŸ“', 'ðŸ“', 'ðŸ“Š', 'ðŸ“ˆ', 'ðŸ“‰', 'ðŸ“…', 'ðŸ“', 'ðŸ–‹ï¸', 'ðŸ–Šï¸', 'ðŸ–Œï¸', 'ðŸ–ï¸'] },
+    { category: 'Objects', items: ['ðŸ”¥', 'âœ¨', 'âš¡', 'ðŸŒˆ', 'â˜€ï¸', 'ðŸŒ™', 'â­', 'ðŸš€', 'ðŸ›¸', 'ðŸ’»', 'ðŸ“±', 'ðŸ“·', 'ðŸŽ¥', 'ðŸ“ž', 'ðŸ’¾', 'ðŸ’¿', 'ðŸ“¼', 'ðŸ“·', 'â²ï¸', 'â±ï¸', 'â°', 'ðŸ”‹', 'ðŸ”Œ', 'ðŸ•¯ï¸', 'ðŸ’¡'] },
+    { category: 'Food', items: ['ðŸŽ', 'ðŸŒ', 'ðŸ‰', 'ðŸ‡', 'ðŸ“', 'ðŸ’', 'ðŸ‘', 'ðŸ¥­', 'ðŸ', 'ðŸ¥¥', 'ðŸ¥', 'ðŸ…', 'ðŸ†', 'ðŸ¥‘', 'ðŸ¥¦', 'ðŸ¥¬', 'ðŸ¥’', 'ðŸŒ½', 'ðŸ¥•', 'ðŸ§„', 'ðŸ§…', 'ðŸ¥”', 'ðŸ ', 'ðŸ¥', 'ðŸž'] }
   ]), []);
 
   const [activeEmojiCategory, setActiveEmojiCategory] = useState(emojis[0].category);
@@ -873,7 +873,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         if (memberUid && memberUid !== userHandle && memberUid.length > 5) {
           addDoc(collection(db, 'notifications'), {
             to: memberUid,
-            title: `💬 New Message from ${senderName}`,
+            title: `ðŸ’¬ New Message from ${senderName}`,
             message: text.length > 80 ? `${text.slice(0, 80)}...` : text,
             type: 'chat',
             subtype: 'new_message',
@@ -1001,7 +1001,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
       await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData);
       await updateDoc(doc(db, 'chats', selectedChat.id), {
-        lastMessage: `📎 ${type.toUpperCase()}`,
+        lastMessage: `ðŸ“Ž ${type.toUpperCase()}`,
         updatedAt: serverTimestamp()
       });
     } catch (err) {
@@ -1042,7 +1042,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
         await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData);
         await updateDoc(doc(db, 'chats', selectedChat.id), {
-            lastMessage: `📸 ${caption || 'Image'}`,
+            lastMessage: `ðŸ“¸ ${caption || 'Image'}`,
             lastMessageSender: user.displayName || userHandle,
             updatedAt: serverTimestamp(),
             unreadBy: arrayUnion(...otherMembers)
@@ -1082,7 +1082,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
           };
           await addDoc(collection(db, 'chats', selectedChat!.id, 'messages'), msgData);
           await updateDoc(doc(db, 'chats', selectedChat!.id), {
-            lastMessage: '🎤 Voice Note',
+            lastMessage: 'ðŸŽ¤ Voice Note',
             updatedAt: serverTimestamp()
           });
         } catch (err) {
@@ -1293,7 +1293,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     try {
       if (isOwn && choice) {
         await updateDoc(doc(db, 'chats', selectedChat.id, 'messages', msgId), {
-            text: "🚫 This message was deleted",
+            text: "ðŸš« This message was deleted",
             mediaUrl: null,
             type: 'text',
             deletedForEveryone: true
@@ -2230,7 +2230,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                       }}
                       className="px-2.5 py-1 bg-red-600/15 hover:bg-red-600/30 border border-red-500/20 text-red-400 hover:text-white rounded-full text-[8px] font-black uppercase tracking-widest transition-all"
                     >
-                      {showOmniThreads ? 'Hide Sessions' : '📂 Session History'}
+                      {showOmniThreads ? 'Hide Sessions' : 'ðŸ“‚ Session History'}
                     </button>
                   </div>
                 </div>
@@ -2266,7 +2266,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                           }}
                           className="px-2 py-0.5 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 text-green-500 rounded text-[7.5px] font-black uppercase tracking-wider transition-all"
                         >
-                          ➕ Start New Session
+                          âž• Start New Session
                         </button>
                       </div>
 
@@ -2398,11 +2398,11 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                               <div className="p-4 bg-black/40 border border-white/5 rounded-2xl flex flex-col gap-2 min-w-[210px] shadow-lg">
                                 <div className="flex items-center gap-2">
                                   <div className="w-9 h-9 bg-[#DC2626]/20 border border-[#DC2626]/30 text-white flex items-center justify-center rounded-xl text-lg animate-pulse shrink-0">
-                                    📓
+                                    ðŸ““
                                   </div>
                                   <div className="min-w-0 flex-1">
                                     <p className="text-[7.5px] font-black uppercase text-[#DC2626] tracking-[0.2em]">{msg.sharedAccessType === 'editable' ? 'Collab Workspace' : 'Broadcast Notebook'}</p>
-                                    <h5 className="text-[10.5px] font-black text-white uppercase italic truncate mt-0.5">{msg.noteTitle || msg.text.replace(/^[✏️📓]\s*/, '')}</h5>
+                                    <h5 className="text-[10.5px] font-black text-white uppercase italic truncate mt-0.5">{msg.noteTitle || msg.text.replace(/^[âœï¸ðŸ““]\s*/, '')}</h5>
                                   </div>
                                 </div>
                                 {msg.noteContent && (
@@ -2442,7 +2442,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                                 {msg.senderId !== user.uid && extractYoutubeLinks(msg.text).length > 0 && (
                                   <div className="mt-3 space-y-2 border-t border-white/5 pt-3">
                                     <p className="text-[8px] font-black uppercase text-[#DC2626] tracking-[0.2em] flex items-center gap-1 font-sans">
-                                      <span>📺</span> RECOMMENDED TUTORIALS DETECTED
+                                      <span>ðŸ“º</span> RECOMMENDED TUTORIALS DETECTED
                                     </p>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                       {extractYoutubeLinks(msg.text).map((videoId) => (
@@ -2465,7 +2465,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                                               referrerPolicy="no-referrer"
                                               className="text-[#DC2626] hover:underline"
                                             >
-                                              Open YouTube ↗
+                                              Open YouTube â†—
                                             </a>
                                           </div>
                                         </div>
@@ -2483,7 +2483,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                                   onClick={() => speakUtterance(msg.text, msg.id)}
                                   className="px-2 py-0.5 rounded-full bg-white/5 hover:bg-white/10 text-white/50 hover:text-white text-[8px] font-black uppercase tracking-widest flex items-center gap-1 transition-all"
                                 >
-                                  <span>{activeSpeech && activeSpeech.id === msg.id && !activeSpeech.paused ? '⏸️ PAUSE VOICE' : '🔊 READ ALOUD'}</span>
+                                  <span>{activeSpeech && activeSpeech.id === msg.id && !activeSpeech.paused ? 'â¸ï¸ PAUSE VOICE' : 'ðŸ”Š READ ALOUD'}</span>
                                 </button>
                               </div>
                             )}
@@ -2704,20 +2704,20 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
               {!viewingUser.isOmni && (
                 <div className={`${theme === 'dark' ? 'bg-[#0F172A]' : 'bg-white'} p-6 rounded-3xl shadow-lg space-y-4 border border-white/5 mx-4 mb-4`}>
                   <p className="text-[10px] font-black text-[#DC2626] uppercase tracking-[0.2em] flex items-center gap-2">
-                    🏆 SCHOLAR CREDENTIALS
+                    ðŸ† SCHOLAR CREDENTIALS
                   </p>
                   
                   <div className="grid grid-cols-2 gap-4">
                     {/* XP Points */}
                     <div className={`${theme === 'dark' ? 'bg-white/5' : 'bg-slate-100'} p-4 rounded-2xl flex flex-col items-center justify-center text-center`}>
-                      <span className="text-2xl">💎</span>
+                      <span className="text-2xl">ðŸ’Ž</span>
                       <p className={`text-[8px] font-black ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} uppercase tracking-widest mt-1`}>XP Power</p>
                       <p className={`text-sm font-black ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{viewingUser.points || 0} XP</p>
                     </div>
 
                     {/* Day Streak */}
                     <div className={`${theme === 'dark' ? 'bg-white/5' : 'bg-slate-100'} p-4 rounded-2xl flex flex-col items-center justify-center text-center`}>
-                      <span className="text-2xl">🔥</span>
+                      <span className="text-2xl">ðŸ”¥</span>
                       <p className={`text-[8px] font-black ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} uppercase tracking-widest mt-1`}>Daily Streak</p>
                       <p className={`text-sm font-black ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{viewingUser.streak || 0} Days</p>
                     </div>
@@ -2726,7 +2726,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                   {/* Honor Tier Rank */}
                   <div className="bg-gradient-to-r from-red-650/10 to-amber-655/10 border border-red-500/20 p-4 rounded-2xl flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <span className="text-2xl">⚡</span>
+                      <span className="text-2xl">âš¡</span>
                       <div className="text-left">
                         <p className={`text-[7px] font-black ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} uppercase tracking-widest`}>Scholar Standing</p>
                         <p className={`text-xs font-black uppercase tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-950'}`}>{viewingUser.rank || 'Bronze Scholar'}</p>
@@ -2743,21 +2743,21 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                     <div className="flex flex-wrap gap-2 justify-start">
                       {/* Always unlock at least a default or dynamically based on points */}
                       <div className="px-3 py-1.5 rounded-full bg-pink-505/10 border border-pink-505/20 text-pink-400 text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
-                        🌸 May Synergy
+                        ðŸŒ¸ May Synergy
                       </div>
                       {(viewingUser.points || 0) >= 100 && (
                         <div className="px-3 py-1.5 rounded-full bg-blue-505/10 border border-blue-505/20 text-blue-400 text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
-                          🎓 Exam Victor
+                          ðŸŽ“ Exam Victor
                         </div>
                       )}
                       {(viewingUser.points || 0) >= 500 && (
                         <div className="px-3 py-1.5 rounded-full bg-yellow-505/10 border border-yellow-505/20 text-yellow-500 text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
-                          ⚡ Quiz Prodigy
+                          âš¡ Quiz Prodigy
                         </div>
                       )}
                       {(viewingUser.streak || 0) >= 10 && (
                         <div className="px-3 py-1.5 rounded-full bg-green-550/10 border border-green-550/20 text-green-400 text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
-                          🌾 Wildfire Ace
+                          ðŸŒ¾ Wildfire Ace
                         </div>
                       )}
                     </div>
@@ -3175,7 +3175,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             >
               <div className="flex items-center justify-between border-b border-white/5 pb-3">
                 <div className="flex items-center gap-2">
-                  <span className="text-xl">🖼️</span>
+                  <span className="text-xl">ðŸ–¼ï¸</span>
                   <div className="text-left">
                     <h3 className="text-sm font-black text-white uppercase tracking-wider">NSG Academic Media Desk</h3>
                     <p className="text-[8px] text-white/30 uppercase">WhatsApp-style reference library</p>
@@ -3220,7 +3220,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                       };
                       await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData);
                       updateDoc(doc(db, 'chats', selectedChat.id), {
-                        lastMessage: `📷 reference: ${item.title}`,
+                        lastMessage: `ðŸ“· reference: ${item.title}`,
                         lastMessageSender: user.displayName || userHandle,
                         updatedAt: serverTimestamp()
                       });
@@ -3253,7 +3253,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             >
               <div className="flex items-center justify-between border-b border-white/5 pb-3">
                 <div className="flex items-center gap-2">
-                  <span className="text-xl">📓</span>
+                  <span className="text-xl">ðŸ““</span>
                   <div className="text-left">
                     <h3 className="text-sm font-black text-white uppercase tracking-wider">Share Revision Notebook</h3>
                     <p className="text-[8px] text-white/30 uppercase">Broadcast to NSG Contacts</p>
@@ -3274,7 +3274,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                   onClick={() => setNoteShareMode(noteShareMode === 'editable' ? 'readonly' : 'editable')}
                   className={`px-3 py-1 text-[8px] font-black uppercase rounded-xl tracking-widest transition-all ${noteShareMode === 'editable' ? 'bg-amber-500/10 text-amber-500 border border-amber-500/30' : 'bg-sky-500/10 text-sky-500 border border-sky-500/30'}`}
                 >
-                  {noteShareMode === 'editable' ? '🫱 Collab' : '🔒 Read-only'}
+                  {noteShareMode === 'editable' ? 'ðŸ«± Collab' : 'ðŸ”’ Read-only'}
                 </button>
               </div>
 
@@ -3306,7 +3306,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             >
               <div className="flex items-center justify-between border-b border-white/5 pb-3">
                 <div className="flex items-center gap-2">
-                  <span className="text-xl">🏆</span>
+                  <span className="text-xl">ðŸ†</span>
                   <div className="text-left">
                     <h3 className="text-sm font-black text-white uppercase tracking-wider">Share Quiz Series</h3>
                     <p className="text-[8px] text-white/30 uppercase">Test other scholars in NSG</p>
@@ -3330,7 +3330,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                         senderId: user.uid,
                         senderHandle: userHandle,
                         senderName: user.displayName || userHandle,
-                        text: `🏆 Challenge Quiz: ${quiz.title} (${quiz.questionsCount} Questions)`,
+                        text: `ðŸ† Challenge Quiz: ${quiz.title} (${quiz.questionsCount} Questions)`,
                         timestamp: serverTimestamp(),
                         type: 'text',
                         encrypted: true,
@@ -3338,7 +3338,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                       };
                       await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData);
                       updateDoc(doc(db, 'chats', selectedChat.id), {
-                        lastMessage: `🏆 Challenge Quiz: ${quiz.title}`,
+                        lastMessage: `ðŸ† Challenge Quiz: ${quiz.title}`,
                         lastMessageSender: user.displayName || userHandle,
                         updatedAt: serverTimestamp()
                       });
@@ -3419,7 +3419,7 @@ export const SharedNotesList: React.FC<SharedNotesListProps> = ({ user, db, sele
       senderId: user.uid,
       senderHandle: user.uid,
       senderName: user.displayName || "NSG Student",
-      text: `📓 Note: ${note.title}`,
+      text: `ðŸ““ Note: ${note.title}`,
       noteTitle: note.title,
       noteContent: note.content || 'Notes content preview is empty.',
       timestamp: serverTimestamp(),
@@ -3435,7 +3435,7 @@ export const SharedNotesList: React.FC<SharedNotesListProps> = ({ user, db, sele
     
     // Update chat room details
     await updateDoc(doc(db, 'chats', selectedChat.id), {
-      lastMessage: `📓 Shared: ${note.title}`,
+      lastMessage: `ðŸ““ Shared: ${note.title}`,
       lastMessageSender: user.displayName || "NSG Student",
       updatedAt: serverTimestamp()
     });
