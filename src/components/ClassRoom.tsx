@@ -164,7 +164,7 @@ export const ClassRoom: React.FC<ClassRoomProps> = ({
           to: targetUid,
           from: user.uid,
           fromName: userHandle,
-          title: "🏫 Live Classroom Invitation",
+          title: "ðŸ« Live Classroom Invitation",
           message: `${userHandle} has invited you to join their live active classroom lecture! Join immediately.`,
           type: 'classroom_invite',
           classId: classId,
@@ -173,7 +173,7 @@ export const ClassRoom: React.FC<ClassRoomProps> = ({
           read: false
         });
         
-        setUserNotification(`Live invitation transmitted to @${targetHandle}! 🚀`);
+        setUserNotification(`Live invitation transmitted to @${targetHandle}! ðŸš€`);
         setInviteHandle('');
         setIsInviteOpen(false);
       } else {
@@ -209,7 +209,7 @@ export const ClassRoom: React.FC<ClassRoomProps> = ({
               className="text-[8.5px] font-black text-rose-400 hover:text-white uppercase tracking-widest flex items-center gap-1 mt-0.5 transition-all text-left"
             >
               <span>{classId}</span>
-              <span className="opacity-60 text-[7px] italic font-medium">[📋 Copy]</span>
+              <span className="opacity-60 text-[7px] italic font-medium">[ðŸ“‹ Copy]</span>
             </button>
           </div>
         </div>
@@ -241,7 +241,7 @@ export const ClassRoom: React.FC<ClassRoomProps> = ({
           
           <div className="space-y-4">
             <h3 className="text-[9px] font-black text-rose-500 uppercase tracking-[0.2em] px-1 text-left flex items-center gap-1.5 leading-none">
-              <span>● LIVE BROADCASTERS STREAM</span>
+              <span>â— LIVE BROADCASTERS STREAM</span>
             </h3>
 
             <div className="grid grid-cols-1 gap-4">
@@ -338,7 +338,7 @@ export const ClassRoom: React.FC<ClassRoomProps> = ({
               value={boardText}
               onChange={(e) => handleBoardChange(e.target.value)}
               readOnly={!isHost}
-              placeholder={isHost ? "🚀 Host/Teacher - write core instructions, space equations, metrics, or notes here for everyone to see instantly..." : "Awaiting host notes broadcast..."}
+              placeholder={isHost ? "ðŸš€ Host/Teacher - write core instructions, space equations, metrics, or notes here for everyone to see instantly..." : "Awaiting host notes broadcast..."}
               className="flex-1 mt-14 bg-transparent border-none outline-none text-sm sm:text-base font-bold leading-relaxed resize-none text-white/90 placeholder:text-white/10 font-mono scrollbar-none"
             />
 
@@ -404,7 +404,7 @@ export const ClassRoom: React.FC<ClassRoomProps> = ({
                 ))}
                 {messages.length === 0 && (
                   <div className="flex flex-col items-center justify-center h-full text-center p-8 text-white/20">
-                    <p className="text-3xl">💬</p>
+                    <p className="text-3xl">ðŸ’¬</p>
                     <p className="text-[8px] uppercase tracking-widest mt-2">Class message boards are currently empty.</p>
                   </div>
                 )}
