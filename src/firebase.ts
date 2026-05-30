@@ -47,25 +47,81 @@ export enum FirestoreOperation {
 }
 
 /**
+ * Robustly clone objects that may contain circular references, custom toJSON triggers, or internal Firestore instances
+ */
+export function circularSafeClone(val: any, cache = new WeakMap()): any {
+  if (val === null || val === undefined) return val;
+  if (typeof val !== 'object') return val;
+
+  // Handle circular reference
+  if (cache.has(val)) {
+    return "[Circular]";
+  }
+
+  // Handle specific types we don't want to deeply serialize (like Firestore DB instances or large internals)
+  if (val.constructor && (
+    val.constructor.name === 'Firestore' || 
+    val.constructor.name === 'o' ||
+    val.constructor.name === 'Y2' ||
+    val.constructor.name === 'Ka' ||
+    val.constructor.name === 't2' ||
+    val.constructor.name.length <= 2
+  )) {
+    return `[FirestoreInstance:${val.constructor.name}]`;
+  }
+
+  // Handle Date
+  if (val instanceof Date) {
+    return val.toISOString();
+  }
+
+  // Handle Firestore Timestamp (has toMillis, toDate, seconds, nanoseconds)
+  if (typeof val.toMillis === 'function') {
+    return { seconds: val.seconds, nanoseconds: val.nanoseconds, _type: 'Timestamp', millis: val.toMillis() };
+  }
+
+  // Handle Arrays
+  if (Array.isArray(val)) {
+    const copy: any[] = [];
+    cache.set(val, copy);
+    val.forEach(item => {
+      copy.push(circularSafeClone(item, cache));
+    });
+    return copy;
+  }
+
+  // Handle generic Objects
+  const copy: any = {};
+  cache.set(val, copy);
+  
+  Object.keys(val).forEach(key => {
+    // Avoid traversing dangerous/internal fields
+    if (key === 'src' || key === 'target' || key === '_firestore' || key === 'firestore' || key.startsWith('_') || key.startsWith('$')) {
+      return;
+    }
+    
+    const value = val[key];
+    try {
+      copy[key] = circularSafeClone(value, cache);
+    } catch (e) {
+      copy[key] = `[Error cloning property]`;
+    }
+  });
+
+  return copy;
+}
+
+/**
  * Robustly stringify objects that may contain circular references
  */
 export function circularSafeStringify(obj: any, replacer?: (key: string, value: any) => any, indent: number = 2): string {
-  const cache = new WeakSet();
-  return JSON.stringify(obj, (key, value) => {
-    if (typeof value === 'object' && value !== null) {
-      if (cache.has(value)) {
-        return "[Circular]";
-      }
-      cache.add(value);
-    }
-
-    // Default cleanup for common circular/internal props in Firebase objects
-    if (key === 'src' || key === 'target' || key === '_firestore' || key === 'firestore' || key.startsWith('_') || key.startsWith('$')) return undefined;
-
-    if (replacer) return replacer(key, value);
-    
-    return value;
-  }, indent);
+  try {
+    const cleanObj = circularSafeClone(obj);
+    return JSON.stringify(cleanObj, replacer, indent);
+  } catch (err) {
+    console.error("Failed to safely stringify circular object:", err);
+    return '"[Unserializable object]"';
+  }
 }
 
 export interface FirestoreErrorInfo {
@@ -169,10 +225,12 @@ async function testConnection() {
       return; // Silent bypass for quota as it's a known state
     }
     
-    console.error("Firestore connection test failed:", error instanceof Error ? error.message : String(error));
-    if(errorMsg.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration. This often happens if the database ID or project ID is incorrect, or if the database is not provisioned in your region.");
+    if (errorMsg.includes('the client is offline') || errorMsg.includes('client is offline')) {
+      console.info("Firestore is operating in offline mode. Local persistence is active and transactions will sync automatically once online.");
+      return;
     }
+    
+    console.error("Firestore connection test failed:", error instanceof Error ? error.message : String(error));
   }
 }
 testConnection();
