@@ -11,12 +11,26 @@ import { GoogleGenAI } from "@google/genai";
 import Groq from "groq-sdk";
 import nodemailer from "nodemailer";
 import fs from "fs";
+import webPush from "web-push";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Robust JSON loading
-const firebaseConfig = JSON.parse(fs.readFileSync(path.join(__dirname, "firebase-applet-config.json"), "utf8"));
+// Robust JSON loading with fail-safe fallback for serverless Vercel environments
+let firebaseConfig: any = {};
+try {
+  firebaseConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), "firebase-applet-config.json"), "utf8"));
+} catch (e) {
+  try {
+    firebaseConfig = JSON.parse(fs.readFileSync(path.join(__dirname, "firebase-applet-config.json"), "utf8"));
+  } catch (err) {
+    console.warn("Could not load firebase-applet-config.json. Defaulting to environment variable bindings for Vercel.");
+    firebaseConfig = {
+      projectId: process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || "",
+      firestoreDatabaseId: process.env.FIRESTORE_DATABASE_ID || process.env.VITE_FIRESTORE_DATABASE_ID || ""
+    };
+  }
+}
 
 // Initialize Firebase Admin
 let adminApp;
@@ -41,7 +55,7 @@ if (serviceAccount) {
   }
 } else {
   if (!admin.apps.length) {
-    adminApp = admin.initializeApp({ projectId: firebaseConfig.projectId });
+    adminApp = admin.initializeApp({ projectId: firebaseConfig.projectId || undefined });
   } else {
     adminApp = admin.app();
   }
@@ -76,7 +90,7 @@ app.use((req, res, next) => {
 });
 
 // --- Email Setup ---
-let transporter = nodemailer.createTransport({
+const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
     user: process.env.EMAIL_USER,
@@ -86,13 +100,14 @@ let transporter = nodemailer.createTransport({
 
 async function sendMailSafely(options: any) {
   if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-    throw new Error("EMAIL_USER or EMAIL_PASS environment variables are not set. SMTP configuration missing.");
+    throw new Error("SMTP configuration missing: EMAIL_USER or EMAIL_PASS not set in environment.");
   }
   try {
     return await transporter.sendMail(options);
   } catch (error: any) {
+    console.error("Email send failed:", error);
     if (error.message?.includes('535') || error.message?.includes('Invalid login')) {
-      throw new Error("SMTP Authentication Failed: Your EMAIL_USER or EMAIL_PASS is incorrect. If using Gmail, please use an 'App Password' instead of your regular password.");
+      throw new Error("SMTP Auth Failed: Check your EMAIL_USER/EMAIL_PASS. Use 'App Passwords' for Gmail (2FA req).");
     }
     throw error;
   }
@@ -297,6 +312,41 @@ app.post("/api/verify-payment", async (req, res) => {
       res.json({ status: "success", premiumUntil: newUntil.toISOString() });
     } else { res.json({ status: "failed" }); }
   } catch (error) { res.status(500).json({ error: "Verification failed" }); }
+});
+
+// --- Web Push Setup & Endpoints ---
+let vapidPublicKey = process.env.VITE_VAPID_PUBLIC_KEY || "";
+let vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || "";
+const vapidEmail = process.env.VITE_VAPID_EMAIL || "mailto:nuellkelechi@gmail.com";
+
+if (!vapidPublicKey || !vapidPrivateKey) {
+  console.log("No VAPID keys set in environment. Generating dynamic fallback key-pair for PWA...");
+  const keys = webPush.generateVAPIDKeys();
+  vapidPublicKey = keys.publicKey;
+  vapidPrivateKey = keys.privateKey;
+  console.log(`Dynamic VAPID Public Key: ${vapidPublicKey}`);
+  console.log(`Dynamic VAPID Private Key: ${vapidPrivateKey}`);
+}
+
+webPush.setVapidDetails(vapidEmail, vapidPublicKey, vapidPrivateKey);
+
+app.get("/api/notifications/vapid-public-key", (req, res) => {
+  res.json({ publicKey: vapidPublicKey });
+});
+
+app.post("/api/notifications/send", async (req, res) => {
+  const { subscription, payload } = req.body;
+  if (!subscription) {
+    return res.status(400).json({ error: "PushSubscription object required" });
+  }
+  try {
+    const stringData = typeof payload === "string" ? payload : JSON.stringify(payload);
+    await webPush.sendNotification(subscription, stringData);
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("Web Push sending error:", error);
+    res.status(500).json({ error: error.message || "Failed to dispatch push notification" });
+  }
 });
 
 // User Lookup by Matric (for CBT login)
