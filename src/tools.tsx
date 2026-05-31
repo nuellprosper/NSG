@@ -263,6 +263,34 @@ export const ToolsPage = (props: any) => {
   const [showNoteInsertMenu, setShowNoteInsertMenu] = useState(false);
   const [activeNotebookTab, setActiveNotebookTab] = useState<'write' | 'sources'>('write');
 
+  // Navigation stack for back button tracking
+  const [navigationHistory, setNavigationHistory] = useState<string[]>(['menu']);
+
+  useEffect(() => {
+    setNavigationHistory(prev => {
+      // Don't record same subtab consecutively
+      if (prev[prev.length - 1] === toolsSubTab) return prev;
+      // If we go back to menu, clear the stack to ['menu'] to reset cleanly
+      if (toolsSubTab === 'menu') return ['menu'];
+      return [...prev, toolsSubTab];
+    });
+  }, [toolsSubTab]);
+
+  const handleToolsBack = useCallback(() => {
+    setNavigationHistory(prev => {
+      if (prev.length > 1) {
+        const newHistory = [...prev];
+        newHistory.pop(); // Remove current subtab
+        const previous = newHistory[newHistory.length - 1] || 'menu';
+        setToolsSubTab(previous as any);
+        return newHistory;
+      } else {
+        setToolsSubTab('menu');
+        return ['menu'];
+      }
+    });
+  }, [setToolsSubTab]);
+
   const handleToolClick = useCallback((tool: any) => {
     if (tool.id === 'whatsapp') {
       window.open("https://wa.me/2349064470122", "_blank");
@@ -347,7 +375,7 @@ export const ToolsPage = (props: any) => {
       {toolsSubTab === 'record' && (
         <motion.div key="record" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
           <div className="flex items-center justify-between px-2">
-            <button onClick={() => setToolsSubTab('menu')} className="text-white/40 hover:text-[#DC2626] transition-colors flex items-center gap-1 text-xs font-black uppercase"><ArrowLeft size={14} /> Back</button>
+            <button onClick={handleToolsBack} className="text-white/40 hover:text-[#DC2626] transition-colors flex items-center gap-1.5 text-xs font-black uppercase"><ArrowLeft size={14} /> Back</button>
             <div className="flex items-center gap-2">
               <button onClick={() => setShowHelp(true)} className="p-2 hover:bg-white/5 rounded-xl transition-all"><Info size={18} className="text-white/40 hover:text-white" /></button>
             </div>
@@ -453,7 +481,7 @@ export const ToolsPage = (props: any) => {
                   <div className="flex items-center justify-between">
                     <div>
                       <h3 className={`font-black text-lg ${theme === 'dark' ? 'text-white' : 'text-slate-900'} uppercase tracking-tighter flex items-center gap-2`}>
-                        <span className="text-[#DC2626]">✨</span> Refurbished Note
+                        <span className="text-[#DC2626]">âœ¨</span> Refurbished Note
                       </h3>
                       <p className={`text-[10px] ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'} tracking-wider uppercase font-bold`}>Refined, polished, and expanded study companion</p>
                     </div>
@@ -516,7 +544,7 @@ export const ToolsPage = (props: any) => {
       {toolsSubTab === 'notebook' && (
         <motion.div key="notebook" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
           <div className="flex items-center justify-between px-2 sticky top-0 z-40 bg-transparent py-2">
-            <button onClick={() => { setSelectedNote(null); setToolsSubTab('menu'); }} className="text-white/40 hover:text-[#DC2626] transition-all flex items-center gap-1 text-xs font-black uppercase">
+            <button onClick={() => { setSelectedNote(null); handleToolsBack(); }} className="text-white/40 hover:text-[#DC2626] transition-all flex items-center gap-1.5 text-xs font-black uppercase">
               <ArrowLeft size={14} /> Back
             </button>
             
@@ -643,9 +671,9 @@ export const ToolsPage = (props: any) => {
                         )}
                         {isGeneratingPodcast && (
                           <div className="flex items-center gap-2 text-white/20 ml-2">
-                            <div className="animate-bounce">●</div>
-                            <div className="animate-bounce delay-75">●</div>
-                            <div className="animate-bounce delay-150">●</div>
+                            <div className="animate-bounce">â—</div>
+                            <div className="animate-bounce delay-75">â—</div>
+                            <div className="animate-bounce delay-150">â—</div>
                           </div>
                         )}
                       </div>
@@ -1003,8 +1031,13 @@ export const ToolsPage = (props: any) => {
       {toolsSubTab === 'quiz' && (
         <motion.div key="quiz" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
           <div className="flex items-center justify-between px-2">
-            <h2 className="text-xl font-black uppercase tracking-tighter text-white">Quiz Engine</h2>
-            <Zap size={20} className="text-[#DC2626]" />
+            <button onClick={handleToolsBack} className="text-white/40 hover:text-[#DC2626] transition-colors flex items-center gap-1.5 text-xs font-black uppercase">
+              <ArrowLeft size={14} /> Back to Tools
+            </button>
+            <div className="flex items-center gap-2">
+              <span className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-white/20' : 'text-slate-400'}`}>Quiz Engine</span>
+              <Zap size={20} className="text-[#DC2626]" />
+            </div>
           </div>
 
           {quizState === 'idle' && (
@@ -1345,8 +1378,17 @@ export const ToolsPage = (props: any) => {
       {toolsSubTab === 'exam' && (
         <motion.div key="exam" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
           <div className="flex items-center justify-between px-2">
-            <h2 className="text-xl font-black uppercase tracking-tighter text-white">CBT Examination</h2>
-            <ShieldCheck size={20} className="text-[#DC2626]" />
+            {examLobbyState === 'login' ? (
+              <button onClick={handleToolsBack} className="text-white/40 hover:text-[#DC2626] transition-colors flex items-center gap-1.5 text-xs font-black uppercase">
+                <ArrowLeft size={14} /> Back to Tools
+              </button>
+            ) : (
+              <div />
+            )}
+            <div className="flex items-center gap-2">
+              <span className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-white/20' : 'text-slate-400'}`}>CBT Examination</span>
+              <ShieldCheck size={20} className="text-[#DC2626]" />
+            </div>
           </div>
 
           {examLobbyState === 'login' && (
@@ -1637,7 +1679,16 @@ export const ToolsPage = (props: any) => {
       )}
 
       {toolsSubTab === 'assignment' && (
-        <motion.div key="assignment" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+        <motion.div key="assignment" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
+          <div className="flex items-center justify-between px-2">
+            <button onClick={handleToolsBack} className="text-white/40 hover:text-[#DC2626] transition-colors flex items-center gap-1.5 text-xs font-black uppercase">
+              <ArrowLeft size={14} /> Back to Tools
+            </button>
+            <div className="flex items-center gap-2">
+              <span className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-white/20' : 'text-slate-400'}`}>Assignment Solver</span>
+              <BookOpen size={20} className="text-[#DC2626]" />
+            </div>
+          </div>
           <AssignmentSolver 
             theme={theme} 
             user={user} 
@@ -1658,7 +1709,16 @@ export const ToolsPage = (props: any) => {
       )}
 
       {toolsSubTab === 'courses' && (
-        <motion.div key="courses" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+        <motion.div key="courses" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
+          <div className="flex items-center justify-between px-2">
+            <button onClick={handleToolsBack} className="text-white/40 hover:text-[#DC2626] transition-colors flex items-center gap-1.5 text-xs font-black uppercase">
+              <ArrowLeft size={14} /> Back to Tools
+            </button>
+            <div className="flex items-center gap-2">
+              <span className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-white/20' : 'text-slate-400'}`}>Courses Tool</span>
+              <BookOpen size={20} className="text-[#DC2626]" />
+            </div>
+          </div>
           <CoursesTool 
             theme={theme}
             user={user}
@@ -1677,7 +1737,16 @@ export const ToolsPage = (props: any) => {
       )}
 
       {toolsSubTab === 'faculty' && (
-        <div className="h-full">
+        <div className="h-full space-y-4">
+          <div className="flex items-center justify-between px-2">
+            <button onClick={handleToolsBack} className="text-white/40 hover:text-[#DC2626] transition-colors flex items-center gap-1.5 text-xs font-black uppercase">
+              <ArrowLeft size={14} /> Back to Tools
+            </button>
+            <div className="flex items-center gap-2">
+              <span className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-white/20' : 'text-slate-400'}`}>Faculty Specials</span>
+              <GraduationCap size={20} className="text-[#DC2626]" />
+            </div>
+          </div>
           <AILibrary 
             theme={theme} 
             user={user}
@@ -1868,7 +1937,7 @@ const helpContent = {
         steps: [
           "Located within the Language/Edu section of Faculty Specials.",
           "Conversion: Text to Phonetic Sounds (/IPA/) and vice versa.",
-          "For Sounds to Text: Enter sounds in slashes like /kaɪnd/.",
+          "For Sounds to Text: Enter sounds in slashes like /kaÉªnd/.",
           "Click 'Transcribe to Sound' or 'Decode Sounds' to process.",
           "Results are displayed with full phonetic accuracy."
         ]
