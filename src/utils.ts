@@ -119,26 +119,39 @@ export const robustJSONParse = (text: string) => {
     let escape = false;
     for (let i = 0; i < str.length; i++) {
       const char = str[i];
-      if (char === '"' && !escape) {
-        inString = !inString;
-      }
-      if (char === '\\' && !escape) {
-        escape = true;
-      } else {
-        escape = false;
-      }
-      
       if (inString) {
-        if (char === '\n') {
+        if (escape) {
+          // This character is escaped. Append it and reset escape state.
+          output += char;
+          escape = false;
+        } else if (char === '\\') {
+          // Inner backslash sequences
+          output += char;
+          escape = true;
+        } else if (char === '"') {
+          // Closing quote of string
+          output += char;
+          inString = false;
+        } else if (char === '\n') {
           output += '\\n';
         } else if (char === '\r') {
           output += '\\r';
         } else if (char === '\t') {
           output += '\\t';
         } else {
-          output += char;
+          const code = char.charCodeAt(0);
+          if (code < 32) {
+            if (code === 10) output += '\\n';
+            else if (code === 13) output += '\\r';
+            else if (code === 9) output += '\\t';
+          } else {
+            output += char;
+          }
         }
       } else {
+        if (char === '"') {
+          inString = true;
+        }
         output += char;
       }
     }
