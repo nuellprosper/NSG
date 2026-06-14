@@ -51,7 +51,7 @@ import {
   getApiKey, getHfKey, getAiInstance, getHfInstance, MODEL_NAME, FLASH_MODEL,
   formatAiError, robustJSONParse, isHfDepletedGlobal, handleHfErrorGlobal,
   isOpenRouterDepletedGlobal, isTogetherDepletedGlobal, callOpenRouter, callTogetherAI,
-  LIMITS, PAYSTACK_PUBLIC_KEY, compressImage, fileToGenerativePart,
+  LIMITS, PAYSTACK_PUBLIC_KEY, compressImage as utilsCompressImage, fileToGenerativePart,
   Course, MediaFile, ChatMessage, ChatSession, LectureSession,
   QuizQuestion, ExamQuestion, StudentResult, RegisteredStudent, ExamConfig, HomeHistoryItem,
   HF_MODELS, OPENROUTER_MODELS, GROQ_MODEL, GROQ_AUDIO_MODEL, handleOpenRouterErrorGlobal
@@ -1739,20 +1739,38 @@ export default function App() {
   const [importedQuizNote, setImportedQuizNote] = useState<any | null>(null);
   const [showNoteSelectorForQuiz, setShowNoteSelectorForQuiz] = useState(false);
 
-  const handleQuizImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleQuizImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     const maxImages = isPremium ? LIMITS.QUIZ.PREMIUM.IMAGES : LIMITS.QUIZ.NORMAL.IMAGES;
     if (quizImages.length + files.length > maxImages) {
-      setUserNotification(`Limit reached: ${isPremium ? 'Premium' : 'Free'} users can only upload ${maxImages} image(s) for quiz generation.`);
+      setUserNotification(`Limit reached: ${isPremium ? 'Premium' : 'Free'} users can only upload up to ${maxImages} images for quiz generation.`);
       return;
     }
-    const mapped = files.map(f => ({
-      id: Math.random().toString(36).substr(2, 11),
-      file: f,
-      preview: URL.createObjectURL(f),
-      type: 'image' as const
-    }));
-    setQuizImages(prev => [...prev, ...mapped]);
+    
+    setUserNotification("Optimizing study attachments for quiz compilation...");
+    try {
+      const mapped = await Promise.all(files.map(async f => {
+        let finalFile: File = f;
+        try {
+          // Try to compress the image
+          const compressedBlob = await utilsCompressImage(f);
+          finalFile = new File([compressedBlob], f.name, { type: 'image/jpeg' });
+        } catch (compressionErr) {
+          console.warn("Could not compress file, uploading raw:", compressionErr);
+        }
+        return {
+          id: Math.random().toString(36).substr(2, 11),
+          file: finalFile,
+          preview: URL.createObjectURL(finalFile),
+          type: 'image' as const
+        };
+      }));
+      setQuizImages(prev => [...prev, ...mapped]);
+      setUserNotification("Attachments optimized and embedded successfully!");
+    } catch (err) {
+      console.error("Error embedding quiz images:", err);
+      setUserNotification("Failed to process some attachments.");
+    }
   };
 
   const removeQuizImage = (id: string) => {
@@ -6548,7 +6566,7 @@ Respond professionally, concisely, and use LaTeX for math.` }];
       return;
     }
 
-    const activeTopic = realTopic !== undefined ? realTopic : quizTopic;
+    const activeTopic = (realTopic !== undefined ? realTopic : quizTopic) || "";
     const activeCount = realCount !== undefined ? realCount : quizQuestionCount;
     const activeDifficulty = realDifficulty !== undefined ? realDifficulty : quizDifficulty;
 
@@ -6682,12 +6700,12 @@ Respond professionally, concisely, and use LaTeX for math.` }];
         // Auto Capture: Add to history immediately when generated
         const historyItem: HomeHistoryItem = {
           id: genId,
-          title: activeTopic || 'Generated Quiz',
+          title: activeTopic || data.quizTitle || 'Visual Materials Quiz',
           type: 'quiz',
           timestamp: Date.now(),
           progress: 0,
           questions: data.questions,
-          topic: activeTopic,
+          topic: activeTopic || data.quizTitle || 'Visual Materials Quiz',
           difficulty: activeDifficulty
         };
         addToFinishedHistory(historyItem);
@@ -6797,6 +6815,12 @@ Respond professionally, concisely, and use LaTeX for math.` }];
   };
 
   const handleOptionSelect = (index: number) => {
+    if (!user) {
+      setUserNotification("Quickly log in with Google or sign up to submit answers and track your academic standing!");
+      setAuthMode('signup');
+      setShowAuthModal(true);
+      return;
+    }
     if (quizState === 'finished') return;
     if (userQuizAnswers[currentQuestionIndex] !== undefined) return; // Prevent multiple clicks
     
@@ -6917,9 +6941,7 @@ Respond professionally, concisely, and use LaTeX for math.` }];
         color: 'var(--text-primary)',
       }}
     >
-      <AnimatePresence>
-        {!user && <LoggedOutLanding key="landing" />}
-      </AnimatePresence>
+      {/* LoggedOutLanding global blocker removed to keep pages accessible */}
 
       <PremiumOnboarding />
       <EmailPreviewModal />
@@ -7231,7 +7253,7 @@ Respond professionally, concisely, and use LaTeX for math.` }];
       </AnimatePresence>
 
       <AnimatePresence>
-        {user && (
+        {true && (
           <motion.div 
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} 
             className={`flex h-full overflow-hidden ${isDesktop ? 'flex-row' : 'flex-col'} flex-1`}
@@ -7492,10 +7514,10 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                     </div>
                   ) : (
                     <button
-                      onClick={() => setShowAuthModal(true)}
-                      className="btn-primary"
+                      onClick={() => { setAuthMode('signup'); setShowAuthModal(true); }}
+                      className="px-4 py-2 bg-[#DC2626] hover:bg-red-500 text-white font-black uppercase text-[9px] tracking-widest rounded-xl transition-all shadow-md cursor-pointer active:scale-95"
                     >
-                      Initialize Session
+                      SIGN IN
                     </button>
                   )}
 
@@ -9912,6 +9934,8 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                         solution={activeAssignmentSolution}
                         setSolution={setActiveAssignmentSolution}
                         checkAndIncrementUsage={checkAndIncrementUsage}
+                        generateQuiz={generateQuiz}
+                        setToolsSubTab={setToolsSubTab}
                       />
                     </motion.div>
                   )}
@@ -9961,18 +9985,48 @@ Respond professionally, concisely, and use LaTeX for math.` }];
 
           {/* CHAT ROOM TAB */}
           {activeTab === 'chat' && (
-            <ChatRoom 
-              key="chat"
-              theme={theme}
-              user={user}
-              userHandle={userHandle}
-              userNotes={userNotes}
-              onOpenNote={handleOpenSharedNote}
-              onTagOmni={handleTagOmni}
-              uploadToCloudinary={uploadToCloudinary}
-              setUserNotification={setUserNotification}
-              onChatSelect={(isActive) => setIsChatRoomActive(isActive)}
-            />
+            user ? (
+              <ChatRoom 
+                key="chat"
+                theme={theme}
+                user={user}
+                userHandle={userHandle}
+                userNotes={userNotes}
+                onOpenNote={handleOpenSharedNote}
+                onTagOmni={handleTagOmni}
+                uploadToCloudinary={uploadToCloudinary}
+                setUserNotification={setUserNotification}
+                onChatSelect={(isActive) => setIsChatRoomActive(isActive)}
+              />
+            ) : (
+              <motion.div 
+                key="chat-guest" 
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                className="flex-1 flex flex-col items-center justify-center p-8 text-center max-w-lg mx-auto space-y-6 select-none my-12"
+              >
+                <div className="w-16 h-16 bg-[#DC2626]/10 rounded-2xl flex items-center justify-center text-[#DC2626]">
+                  <MessageSquare size={36} />
+                </div>
+                <h3 className="text-xl font-black text-white uppercase tracking-tighter italic">NSG Relay Chat Workspace</h3>
+                <p className="text-xs text-white/50 leading-relaxed">
+                  Join student chat rooms, converse with our smart academic AI assistant, OMNI, share study notebooks, and connect in real-time. Log in or quickly create your official NSG study account to begin.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3 w-full justify-center pt-2">
+                  <button 
+                    onClick={() => { setAuthMode('signup'); setShowAuthModal(true); }}
+                    className="px-6 py-3.5 bg-[#DC2626] font-black uppercase text-[9px] tracking-widest text-white rounded-xl shadow-xl shadow-[#DC2626]/20 active:scale-95 transition-all cursor-pointer"
+                  >
+                    Register Account
+                  </button>
+                  <button 
+                    onClick={() => { setAuthMode('login'); setShowAuthModal(true); }}
+                    className="px-6 py-3.5 bg-white/5 border border-white/10 hover:bg-white/10 font-black uppercase text-[9px] tracking-widest text-white rounded-xl active:scale-95 transition-all cursor-pointer"
+                  >
+                    Log In with Google / Email
+                  </button>
+                </div>
+              </motion.div>
+            )
           )}
 
           {/* CLASS ROOM TAB */}
@@ -10852,8 +10906,39 @@ Respond professionally, concisely, and use LaTeX for math.` }];
             />
           )}
 
+          {/* PROFILE TAB (GUEST FALLBACK) */}
+          {activeTab === 'profile' && !user && (
+            <motion.div 
+              key="profile-guest" 
+              initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+              className="flex-1 flex flex-col items-center justify-center p-8 text-center max-w-lg mx-auto space-y-6 select-none my-12"
+            >
+              <div className="w-16 h-16 bg-[#DC2626]/10 rounded-2xl flex items-center justify-center text-[#DC2626]">
+                <User size={36} />
+              </div>
+              <h3 className="text-xl font-black text-white uppercase tracking-tighter italic">NSG Scholar Profile</h3>
+              <p className="text-xs text-white/50 leading-relaxed">
+                Log in or quickly create your official NSG study account to participate on the scholar rankings, track study histories, and save lecture audio analysis logs.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-3 w-full justify-center pt-2">
+                <button 
+                  onClick={() => { setAuthMode('signup'); setShowAuthModal(true); }}
+                  className="px-6 py-3.5 bg-[#DC2626] hover:bg-red-500 text-white font-black uppercase text-[9px] tracking-widest rounded-xl shadow-xl shadow-[#DC2626]/20 active:scale-95 transition-all cursor-pointer"
+                >
+                  Create Account
+                </button>
+                <button 
+                  onClick={() => { setAuthMode('login'); setShowAuthModal(true); }}
+                  className="px-6 py-3.5 bg-white/5 border border-white/10 hover:bg-white/10 font-black uppercase text-[9px] tracking-widest text-white rounded-xl active:scale-95 transition-all cursor-pointer"
+                >
+                  Log In
+                </button>
+              </div>
+            </motion.div>
+          )}
+
           {/* PROFILE TAB */}
-          {activeTab === 'profile' && (
+          {activeTab === 'profile' && user && (
             <motion.div 
               key="profile" 
               initial={{ opacity: 0, x: 20 }} 
@@ -12625,7 +12710,7 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                                      <div className="min-w-0">
                                        <p className="font-black text-white uppercase tracking-tight leading-none mb-1 text-[11px] italic truncate">{u.fullName || u.displayName || 'Anonymous'}</p>
                                        <p className="text-[7px] font-mono opacity-30 uppercase tracking-[0.1em] truncate">{u.email}</p>
-                                       {isOnline && <p className="text-[6px] font-black text-green-500 uppercase tracking-widest mt-0.5">ESTABLISHED_UPLINK</p>}
+                                       {isOnline && <p className="text-[6px] font-black text-green-500 uppercase tracking-widest mt-0.5">ONLINE</p>}
                                      </div>
                                    </div>
                                  </td>

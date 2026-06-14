@@ -1159,7 +1159,7 @@ export interface AssignmentSolution {
   summary: string;
 }
 
-export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, fileToGenerativePart, setUserNotification, setChatHistory, setActiveTab, setActiveChatSessionId, addToFinishedHistory, finishedHistory, solution, setSolution, checkAndIncrementUsage }: any) => {
+export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, fileToGenerativePart, setUserNotification, setChatHistory, setActiveTab, setActiveChatSessionId, addToFinishedHistory, finishedHistory, solution, setSolution, checkAndIncrementUsage, generateQuiz, setToolsSubTab }: any) => {
   const [images, setImages] = useState<MediaFile[]>([]);
   const [assignmentText, setAssignmentText] = useState("");
   const [isSolving, setIsSolving] = useState(false);
@@ -1176,6 +1176,120 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, fileTo
   const [isListening, setIsListening] = useState<number | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const resultsRef = useRef<HTMLDivElement>(null);
+
+  // --- Practice Questions & Quiz States ---
+  const [practiceQuestions, setPracticeQuestions] = useState<any[]>([]);
+  const [isGeneratingPractice, setIsGeneratingPractice] = useState(false);
+  const [userAnswers, setUserAnswers] = useState<{[qIdx: number]: string}>({});
+  const [checkedAnswers, setCheckedAnswers] = useState<{[qIdx: number]: { correct: boolean; feedback: string; solutionSteps: string[] }}>({});
+  const [activeFeedbackModal, setActiveFeedbackModal] = useState<{ qIdx: number; question: string; isCorrect: boolean; feedback: string; solutionSteps: string[] } | null>(null);
+  const [revealedSolutions, setRevealedSolutions] = useState<{[qIdx: number]: boolean}>({});
+
+  const [showQuizPromptModal, setShowQuizPromptModal] = useState(false);
+  const [quizQuestionCountInput, setQuizQuestionCountInput] = useState(10);
+
+  const generatePractice = async (solvedTitle: string, solvedSteps: any[], solvedSummary: string) => {
+    setIsGeneratingPractice(true);
+    try {
+      const ai = getAiInstance();
+      const prompt = `
+        You are an elite academic tutor.
+        The student has solved or is reviewing an assignment titled "${solvedTitle}".
+        Here is the step-by-step solution steps:
+        ${solvedSteps.map((s, i) => `Step ${i + 1}: ${s.step}\nExplanation: ${s.explanation}`).join('\n')}
+        Final Result: ${solvedSummary}
+
+        Generate exactly 4 interactive test questions to assess the student's understanding of this solution:
+        - The first two (2) questions must be highly similar (essentially identical in concepts but with different numbers, variables, or chemical scenarios) to reinforce the basic concept step-by-step.
+        - The next two (2) questions must be more advanced versions of the same problem (covering edge cases, deeper algebraic combinations, or conceptual applications).
+
+        Each question should have a definitive, relatively simple correct answer suitable for a student to type into a small text box (e.g. "$12$" or "$3x - 1$" or a unique keyword/number). Provide 3-5 pre-calculated chronological steps resolving the correct answer, and an encouraging, highly informative tutor feedback.
+
+        CRITICAL: Use LaTeX ($...$) for ALL math notation. Keep questions direct.
+
+        Return ONLY a JSON object that strictly conforms to this schema:
+        {
+          "questions": [
+            {
+              "question": "Clear problem statement using LaTeX",
+              "difficulty": "Identical Basic" | "Advanced Application",
+              "correctAnswer": "Calculated value or formula",
+              "solutionSteps": [
+                "Step 1: Write down the given numbers...",
+                "Step 2: Solve for x...",
+                "Step 3: State the final result"
+              ],
+              "feedback": "Encouraging explanation indicating exactly why the answer works."
+            }
+          ]
+        }
+      `;
+
+      const response = await ai.models.generateContent({
+        model: FLASH_MODEL,
+        contents: { parts: [{ text: prompt }] },
+        config: { responseMimeType: "application/json", thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL } }
+      });
+
+      const parsed = robustJSONParse(response?.text || "{}");
+      if (parsed && parsed.questions && Array.isArray(parsed.questions)) {
+        setPracticeQuestions(parsed.questions);
+      }
+    } catch (err) {
+      console.error("Failed to generate practice", err);
+    } finally {
+      setIsGeneratingPractice(false);
+    }
+  };
+
+  const checkPracticeAnswer = (qIdx: number) => {
+    const userAns = userAnswers[qIdx] || "";
+    const questionData = practiceQuestions[qIdx];
+    if (!questionData) return;
+
+    const correctAns = questionData.correctAnswer;
+    const cleanUser = userAns.replace(/\s+/g, "").replace(/\$/g, "").trim().toLowerCase();
+    const cleanCorrect = correctAns.replace(/\s+/g, "").replace(/\$/g, "").trim().toLowerCase();
+
+    const isCorrect = cleanUser === cleanCorrect || cleanUser.includes(cleanCorrect) || cleanCorrect.includes(cleanUser);
+
+    const checkResult = {
+      correct: isCorrect,
+      feedback: questionData.feedback,
+      solutionSteps: questionData.solutionSteps || []
+    };
+
+    setCheckedAnswers(prev => ({ ...prev, [qIdx]: checkResult }));
+    setActiveFeedbackModal({
+      qIdx,
+      question: questionData.question,
+      isCorrect,
+      feedback: checkResult.feedback,
+      solutionSteps: checkResult.solutionSteps
+    });
+  };
+
+  const handleLaunchQuizFromAssignment = () => {
+    if (!solution) return;
+    setShowQuizPromptModal(false);
+    
+    // Construct rich context topic from the active solution title and steps details
+    const quizTopicContext = `Practice quiz based on the assignment: ${solution.title}. Major Concepts: ${solution.summary}`;
+    
+    setToolsSubTab('quiz');
+    generateQuiz(quizTopicContext, quizQuestionCountInput, 'Medium');
+  };
+
+  useEffect(() => {
+    if (solution) {
+      setPracticeQuestions([]);
+      setUserAnswers({});
+      setCheckedAnswers({});
+      setActiveFeedbackModal(null);
+      setRevealedSolutions({});
+      generatePractice(solution.title || "Assignment", solution.steps || [], solution.summary || "");
+    }
+  }, [solution]);
 
   const limits = isPremium ? LIMITS.ASSIGNMENT.PREMIUM : LIMITS.ASSIGNMENT.NORMAL;
 
@@ -1820,6 +1934,258 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, fileTo
                   <div className="absolute -bottom-2 left-0 w-full h-1 bg-[#DC2626]/20 rounded-full blur-sm" />
                 </div>
               </motion.div>
+
+              {/* --- GENERATE QUIZ BUTTON TRIGGER CARD --- */}
+              <div className={`p-6 rounded-[2rem] border flex flex-col md:flex-row items-center justify-between gap-4 mt-6 ${theme === 'dark' ? 'bg-[#DC2626]/5 border-[#DC2626]/25' : 'bg-red-50/50 border-red-100'}`}>
+                <div className="flex items-center gap-3 text-left w-full md:w-auto">
+                  <div className="w-10 h-10 rounded-xl bg-[#DC2626]/10 flex items-center justify-center text-[#DC2626]">
+                    <Trophy size={20} />
+                  </div>
+                  <div>
+                    <h4 className={`text-xs font-black uppercase tracking-wider ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Interactive Adaptive Quiz</h4>
+                    <p className={`text-[10px] uppercase font-bold tracking-widest ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}>Generate a custom quiz directly from this assignment</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowQuizPromptModal(true)}
+                  className="w-full md:w-auto px-6 py-3.5 bg-[#DC2626] font-black uppercase text-[10px] tracking-widest text-white rounded-xl shadow-lg hover:bg-red-750 transition-all text-center flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Zap size={12} className="fill-white" /> Generate Quiz
+                </button>
+              </div>
+
+              {/* --- INTERACTIVE PRACTICE PROBLEMS PANEL --- */}
+              <div className="space-y-4 pt-4 text-left">
+                <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="text-[#DC2626]" size={18} />
+                    <h3 className={`text-xs font-black uppercase tracking-wider ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                      🎯 Generating Test Questions
+                    </h3>
+                  </div>
+                  {isGeneratingPractice && <span className="text-[9px] uppercase font-black text-[#DC2626] tracking-wider animate-pulse flex items-center gap-1.5"><RefreshCcw size={10} className="animate-spin" /> Forming Questions...</span>}
+                </div>
+
+                {isGeneratingPractice ? (
+                  <div className="py-12 flex flex-col items-center justify-center gap-3 bg-white/[0.01] rounded-2xl border border-white/5 border-dashed">
+                    <Brain size={28} className="text-[#DC2626] animate-pulse" />
+                    <p className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'}`}>Synthesizing relevant academic variants...</p>
+                  </div>
+                ) : practiceQuestions.length === 0 ? (
+                  <div className="py-8 text-center text-xs text-white/30 font-medium bg-white/[0.01] rounded-2xl border border-white/5 border-dashed">No interactive practice available. Try re-solving.</div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {practiceQuestions.map((q, qIdx) => (
+                      <div
+                        key={qIdx}
+                        className={`p-5 rounded-[2rem] border flex flex-col justify-between ${theme === 'dark' ? 'bg-[#181628] border-white/5' : 'bg-slate-50 border-slate-100'} hover:border-[#DC2626]/20 transition-all`}
+                      >
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-center">
+                            <span className="text-[8px] font-black uppercase px-2.5 py-1 rounded bg-[#DC2626]/10 text-[#DC2626] tracking-widest line-clamp-1 italic font-sans scale-90 origin-left">
+                              {q.difficulty || "Practice Variant"}
+                            </span>
+                            <span className={`text-[9.5px] font-mono font-black ${theme === 'dark' ? 'text-white/20' : 'text-slate-400'}`}>
+                              QI-{qIdx + 1}
+                            </span>
+                          </div>
+                          
+                          <div className={`text-xs leading-relaxed font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+                            <MarkdownRenderer content={q.question} />
+                          </div>
+                        </div>
+
+                        <div className="space-y-3 pt-4 border-t border-white/5 mt-4">
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              placeholder="Type final answer..."
+                              value={userAnswers[qIdx] || ""}
+                              onChange={e => setUserAnswers(prev => ({ ...prev, [qIdx]: e.target.value }))}
+                              className={`flex-1 px-3 py-2 text-xs rounded-xl outline-none border ${theme === 'dark' ? 'bg-black/20 border-white/10 text-white focus:border-red-500' : 'bg-white border-slate-200 text-slate-900 focus:border-red-500'} font-bold transition-all min-w-0`}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => checkPracticeAnswer(qIdx)}
+                              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-md shrink-0 cursor-pointer"
+                            >
+                              Grade
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setRevealedSolutions(prev => ({ ...prev, [qIdx]: !prev[qIdx] }))}
+                              className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase border transition-all shrink-0 cursor-pointer ${revealedSolutions[qIdx] ? 'bg-violet-600 border-violet-600 text-white' : 'bg-white/5 border-white/10 text-white/40'}`}
+                              title="Show pre-generated step solution"
+                            >
+                              Steps
+                            </button>
+                          </div>
+
+                          {/* Pre-generated steps available directly */}
+                          <AnimatePresence>
+                            {revealedSolutions[qIdx] && (
+                              <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: 'auto' }}
+                                exit={{ opacity: 0, height: 0 }}
+                                className="overflow-hidden mt-2 p-3.5 bg-violet-600/10 border border-violet-500/20 rounded-xl space-y-2 text-left"
+                              >
+                                <p className="text-[8px] font-black uppercase text-violet-400 tracking-wider">Pre-Generated Academic Steps</p>
+                                {q.solutionSteps?.map((stepStr: string, index: number) => (
+                                  <div key={index} className={`text-[11px] leading-relaxed font-medium ${theme === 'dark' ? 'text-white/80' : 'text-slate-700'}`}>
+                                    <MarkdownRenderer content={stepStr} />
+                                  </div>
+                                ))}
+                                <div className="pt-2 border-t border-violet-500/15">
+                                  <p className="text-[8px] font-black uppercase text-violet-400 tracking-wider">Tutor consensus answer</p>
+                                  <p className="text-[11px] font-black text-white">{q.correctAnswer}</p>
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                          
+                          {/* Checked Status */}
+                          {checkedAnswers[qIdx] && (
+                            <div className={`p-3.5 rounded-xl border flex items-start gap-2 text-left mt-2 ${checkedAnswers[qIdx].correct ? 'bg-emerald-500/15 border-emerald-500/25' : 'bg-red-500/15 border-red-500/25'}`}>
+                              {checkedAnswers[qIdx].correct ? <CheckCircle2 size={14} className="text-emerald-500 shrink-0 mt-0.5" /> : <XCircle size={14} className="text-[#DC2626] shrink-0 mt-0.5" />}
+                              <div className="flex-1 min-w-0">
+                                <p className={`text-[9px] font-black uppercase tracking-wider ${checkedAnswers[qIdx].correct ? 'text-emerald-400' : 'text-red-400'}`}>
+                                  {checkedAnswers[qIdx].correct ? 'Correct Final Answer!' : 'Review logic steps below...'}
+                                </p>
+                                <p className={`text-[10px] font-semibold ${theme === 'dark' ? 'text-white/70' : 'text-slate-600'} leading-normal`}>{checkedAnswers[qIdx].feedback}</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+      {/* Quiz generation configuration pop-up */}
+      <AnimatePresence>
+        {showQuizPromptModal && (
+          <div className="fixed inset-0 z-[5000] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#13111C] border border-white/10 rounded-[2rem] p-6 space-y-6 w-full max-w-sm text-center shadow-2xl relative"
+            >
+              <button
+                type="button"
+                onClick={() => setShowQuizPromptModal(false)}
+                className="absolute top-4 right-4 p-2 hover:bg-white/5 rounded-xl text-white/40 hover:text-white transition-all cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+              <div className="w-12 h-12 bg-[#DC2626]/10 rounded-xl flex items-center justify-center text-[#DC2626] mx-auto">
+                <Trophy size={24} />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-white uppercase tracking-tight">Generate Quiz</h3>
+                <p className="text-[10px] font-bold text-white/30 uppercase tracking-wider mt-1">Specify count to assemble assessment</p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex justify-between items-center bg-white/5 border border-white/10 rounded-xl p-3">
+                  <span className="text-xs text-white/50">Number of Questions:</span>
+                  <input
+                    type="number"
+                    min="5"
+                    max="50"
+                    value={quizQuestionCountInput}
+                    onChange={e => setQuizQuestionCountInput(Math.max(5, Math.min(50, parseInt(e.target.value) || 10)))}
+                    className="w-16 text-center py-1 bg-black/25 text-white border border-white/10 rounded-lg outline-none text-xs font-black focus:border-[#DC2626]"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleLaunchQuizFromAssignment}
+                  className="w-full py-3.5 bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black rounded-xl text-[10px] uppercase tracking-widest shadow-lg shadow-red-900/10 cursor-pointer"
+                >
+                  ⚡ Launch Quiz Engine
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Answer Verification Pop-up Modal */}
+      <AnimatePresence>
+        {activeFeedbackModal && (
+          <div className="fixed inset-0 z-[6000] flex items-center justify-center p-4 bg-black/95 backdrop-blur-md">
+            <motion.div
+              initial={{ y: 50, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 50, opacity: 0 }}
+              className="bg-[#13111C] border border-white/10 rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[85vh] text-left"
+            >
+              <div className={`p-6 border-b border-white/5 flex items-center justify-between ${activeFeedbackModal.isCorrect ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}>
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${activeFeedbackModal.isCorrect ? 'bg-emerald-500/20 text-emerald-400 animate-bounce' : 'bg-[#DC2626]/20 text-[#DC2626]'}`}>
+                    {activeFeedbackModal.isCorrect ? <CheckCircle2 size={20} /> : <XCircle size={20} />}
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-white uppercase tracking-tight">Answer Checked!</h3>
+                    <p className={`text-[9px] uppercase font-bold tracking-widest ${activeFeedbackModal.isCorrect ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {activeFeedbackModal.isCorrect ? 'Fundamentally Correct' : 'Variant Requires Realignment'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveFeedbackModal(null)}
+                  className="p-2.5 bg-white/5 rounded-xl hover:bg-white/10 text-white/40 hover:text-white transition-all cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-6 overflow-y-auto space-y-5 flex-1 custom-scrollbar">
+                <div className="space-y-1 bg-white/5 p-4 rounded-xl border border-white/5">
+                  <p className="text-[8px] font-black text-white/30 uppercase tracking-wider">Practice Problem Checked</p>
+                  <div className="text-xs font-bold text-white"><MarkdownRenderer content={activeFeedbackModal.question} /></div>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-[8px] font-black text-[#DC2626] uppercase tracking-widest">Tutor grading consensus</p>
+                  <p className="text-xs font-semibold text-white/70 leading-normal">{activeFeedbackModal.feedback}</p>
+                </div>
+
+                <div className="space-y-3 pt-4 border-t border-white/5">
+                  <p className="text-[8px] font-black text-emerald-400 uppercase tracking-widest">Step-by-step resolution</p>
+                  <div className="space-y-2 bg-black/20 p-4 rounded-xl border border-white/5">
+                    {activeFeedbackModal.solutionSteps && activeFeedbackModal.solutionSteps.length > 0 ? (
+                      activeFeedbackModal.solutionSteps.map((stepStr, idx) => (
+                        <div key={idx} className="flex gap-2">
+                          <span className="text-[10px] font-mono text-emerald-400 font-extrabold shrink-0">Step {idx + 1}:</span>
+                          <div className="text-[11px] leading-relaxed text-zinc-300 font-medium"><MarkdownRenderer content={stepStr} /></div>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-[10px] text-white/30 italic">No detailed steps were required for this grading rationale.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6 border-t border-white/5 flex bg-white/[0.01]">
+                <button
+                  type="button"
+                  onClick={() => setActiveFeedbackModal(null)}
+                  className="w-full py-4 bg-[#DC2626] text-white font-black rounded-2xl text-[10px] uppercase tracking-widest hover:bg-red-750 active:scale-95 transition-all text-center cursor-pointer shadow-lg shadow-red-950/20"
+                >
+                  Confirm & Resume Review
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
             </div>
             
             <div className="flex justify-center pb-10">
