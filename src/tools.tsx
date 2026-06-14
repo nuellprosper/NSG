@@ -552,7 +552,7 @@ export const ToolsPage = (props: any) => {
                   <div className="flex items-center justify-between">
                     <div>
                       <h3 className={`font-black text-lg ${theme === 'dark' ? 'text-white' : 'text-slate-900'} uppercase tracking-tighter flex items-center gap-2`}>
-                        <span className="text-[#DC2626]">âœ¨</span> Refurbished Note
+                        <span className="text-[#DC2626]">✨</span> Refurbished Note
                       </h3>
                       <p className={`text-[10px] ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'} tracking-wider uppercase font-bold`}>Refined, polished, and expanded study companion</p>
                     </div>
@@ -742,9 +742,9 @@ export const ToolsPage = (props: any) => {
                         )}
                         {isGeneratingPodcast && (
                           <div className="flex items-center gap-2 text-white/20 ml-2">
-                            <div className="animate-bounce">â—</div>
-                            <div className="animate-bounce delay-75">â—</div>
-                            <div className="animate-bounce delay-150">â—</div>
+                            <div className="animate-bounce">●</div>
+                            <div className="animate-bounce delay-75">●</div>
+                            <div className="animate-bounce delay-150">●</div>
                           </div>
                         )}
                       </div>
@@ -2139,7 +2139,7 @@ const helpContent = {
         steps: [
           "Located within the Language/Edu section of Faculty Specials.",
           "Conversion: Text to Phonetic Sounds (/IPA/) and vice versa.",
-          "For Sounds to Text: Enter sounds in slashes like /kaÉªnd/.",
+          "For Sounds to Text: Enter sounds in slashes like /kaɪnd/.",
           "Click 'Transcribe to Sound' or 'Decode Sounds' to process.",
           "Results are displayed with full phonetic accuracy."
         ]

@@ -256,8 +256,21 @@ export const callTogetherAI = async (prompt: string, history: any[] = []) => {
     });
     return res.data.choices[0].message.content || null;
   } catch (e: any) {
-    console.error("[TOGETHER ERROR]", e.message);
-    if (e.message.includes("429") || e.message.includes("credit")) isTogetherDepletedGlobal = true;
+    const msg = String(e?.message || e || "");
+    const status = e?.response?.status;
+    console.warn(`[TOGETHER ERROR] ${msg} (Status: ${status || 'unknown'})`);
+    if (
+      status === 402 || 
+      status === 429 || 
+      msg.includes("402") || 
+      msg.includes("429") || 
+      msg.toLowerCase().includes("credit") || 
+      msg.toLowerCase().includes("payment") || 
+      msg.toLowerCase().includes("quota")
+    ) {
+      console.warn("Together AI credits depleted or rate limit hit. Switching permanently to Gemini fallback.");
+      isTogetherDepletedGlobal = true;
+    }
     return null;
   }
 };
