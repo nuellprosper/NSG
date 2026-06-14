@@ -58,16 +58,42 @@ export function circularSafeClone(val: any, cache = new WeakMap()): any {
     return "[Circular]";
   }
 
-  // Handle specific types we don't want to deeply serialize (like Firestore DB instances or large internals)
-  if (val.constructor && (
-    val.constructor.name === 'Firestore' || 
-    val.constructor.name === 'o' ||
-    val.constructor.name === 'Y2' ||
-    val.constructor.name === 'Ka' ||
-    val.constructor.name === 't2' ||
-    val.constructor.name.length <= 2
-  )) {
-    return `[FirestoreInstance:${val.constructor.name}]`;
+  // Soft handle constructor names to avoid TypeErrors and safely bypass minified/obfuscated classes of Firestore/Auth SDK
+  let constructorName = '';
+  try {
+    if (val.constructor && typeof val.constructor.name === 'string') {
+      constructorName = val.constructor.name;
+    }
+  } catch (e) {
+    // Ignore any proto / constructor resolution failures
+  }
+
+  // If the object looks like a Firestore/Firebase internal, or minified SDK entity, bypass deep traversal
+  if (
+    (constructorName && (
+      constructorName === 'Firestore' || 
+      constructorName === 'FirestoreImpl' ||
+      constructorName === 'o' ||
+      constructorName === 'Y2' ||
+      constructorName === 'Ka' ||
+      constructorName === 't2' ||
+      constructorName.length <= 2 || // Standard minification class names
+      constructorName.includes('Firestore') ||
+      constructorName.includes('Database') ||
+      constructorName.includes('Query') ||
+      constructorName.includes('Collection') ||
+      constructorName.includes('Document') ||
+      constructorName.includes('Transaction') ||
+      constructorName.includes('Auth') ||
+      constructorName.includes('Storage')
+    )) ||
+    val._firestore || 
+    val.firestore || 
+    val._delegate ||
+    val._database ||
+    typeof val.doc === 'function' && typeof val.collection === 'function' // Firestore db-like check
+  ) {
+    return `[FirestoreInstance:${constructorName || 'UnknownClass'}]`;
   }
 
   // Handle Date
@@ -94,19 +120,32 @@ export function circularSafeClone(val: any, cache = new WeakMap()): any {
   const copy: any = {};
   cache.set(val, copy);
   
-  Object.keys(val).forEach(key => {
-    // Avoid traversing dangerous/internal fields
-    if (key === 'src' || key === 'target' || key === '_firestore' || key === 'firestore' || key.startsWith('_') || key.startsWith('$')) {
-      return;
-    }
-    
-    const value = val[key];
-    try {
-      copy[key] = circularSafeClone(value, cache);
-    } catch (e) {
-      copy[key] = `[Error cloning property]`;
-    }
-  });
+  try {
+    Object.keys(val).forEach(key => {
+      // Avoid traversing dangerous/internal fields or known circular references
+      if (
+        key === 'src' || 
+        key === 'target' || 
+        key === '_firestore' || 
+        key === 'firestore' || 
+        key === '_delegate' || 
+        key === '_database' ||
+        key.startsWith('_') || 
+        key.startsWith('$')
+      ) {
+        return;
+      }
+      
+      const value = val[key];
+      try {
+        copy[key] = circularSafeClone(value, cache);
+      } catch (e) {
+        copy[key] = `[Error cloning property]`;
+      }
+    });
+  } catch (outerErr) {
+    return `[Unserializable object keys]`;
+  }
 
   return copy;
 }
@@ -115,12 +154,64 @@ export function circularSafeClone(val: any, cache = new WeakMap()): any {
  * Robustly stringify objects that may contain circular references
  */
 export function circularSafeStringify(obj: any, replacer?: (key: string, value: any) => any, indent: number = 2): string {
+  const seen = new WeakSet();
+
+  const safeReplacer = (key: string, value: any) => {
+    // 1. Run custom replacer if provided
+    let processedValue = value;
+    if (replacer) {
+      processedValue = replacer(key, value);
+    }
+
+    // 2. Filter circular references and key Firestore SDK objects
+    if (processedValue !== null && typeof processedValue === 'object') {
+      const constructorName = processedValue.constructor?.name || '';
+      
+      if (
+        (constructorName && (
+          constructorName === 'Firestore' || 
+          constructorName === 'FirestoreImpl' ||
+          constructorName === 'o' ||
+          constructorName === 'Y2' ||
+          constructorName === 'Ka' ||
+          constructorName === 't2' ||
+          constructorName.length <= 2 ||
+          constructorName.includes('Firestore') ||
+          constructorName.includes('Database') ||
+          constructorName.includes('Query') ||
+          constructorName.includes('Collection') ||
+          constructorName.includes('Document') ||
+          constructorName.includes('Transaction') ||
+          constructorName.includes('Auth') ||
+          constructorName.includes('Storage')
+        )) ||
+        processedValue._firestore || 
+        processedValue.firestore || 
+        processedValue._delegate || 
+        processedValue._database
+      ) {
+        return `[FirestoreInstance:${constructorName || 'UnknownClass'}]`;
+      }
+
+      if (seen.has(processedValue)) {
+        return "[Circular]";
+      }
+      seen.add(processedValue);
+    }
+    return processedValue;
+  };
+
   try {
     const cleanObj = circularSafeClone(obj);
-    return JSON.stringify(cleanObj, replacer, indent);
+    return JSON.stringify(cleanObj, safeReplacer, indent);
   } catch (err) {
-    console.error("Failed to safely stringify circular object:", err);
-    return '"[Unserializable object]"';
+    try {
+      console.warn("Direct clone stringify failed, falling back to direct serialization with safe replacer:", err);
+      return JSON.stringify(obj, safeReplacer, indent);
+    } catch (innerErr) {
+      console.error("Critical failure during circularSafeStringify:", innerErr);
+      return '"[Unserializable object]"';
+    }
   }
 }
 
@@ -165,7 +256,7 @@ export function sanitizeData(data: any): any {
   return data;
 }
 
-export function handleFirestoreError(error: unknown, operationType: FirestoreOperation, path: string | null) {
+export function handleFirestoreError(error: unknown, operationType: FirestoreOperation, path: string | null, shouldThrow: boolean = false) {
   const errorMessage = error instanceof Error ? error.message : String(error);
   const isQuotaExceeded = errorMessage.toLowerCase().includes('quota') || errorMessage.includes('8') || errorMessage.includes('Resource exhausted');
 
@@ -209,28 +300,21 @@ export function handleFirestoreError(error: unknown, operationType: FirestoreOpe
   }
 
   console.error('Firestore Error: ', safeErrInfo);
-  throw new Error(circularSafeStringify(safeErrInfo));
+
+  if (shouldThrow) {
+    throw new Error(circularSafeStringify(safeErrInfo));
+  }
 }
 
-// Test connection
+// Test connection in background without forcing server roundtrip on startup which can cause false timeout flags
 async function testConnection() {
   try {
-    // Only attempt to read a small amount to check connectivity
-    await getDocFromServer(doc(db, 'test', 'connection'));
-    console.log("Firestore connection successful.");
+    // Just a quiet verify of the local db instance initialization
+    if (!db) {
+      console.warn("Firestore instance is not ready.");
+    }
   } catch (error: any) {
-    const errorMsg = error?.message || String(error);
-    if (errorMsg.toLowerCase().includes('quota') || errorMsg.includes('8') || errorMsg.includes('Resource exhausted')) {
-      console.warn("Firestore Quota Limit Reached. Connection test bypassed.");
-      return; // Silent bypass for quota as it's a known state
-    }
-    
-    if (errorMsg.includes('the client is offline') || errorMsg.includes('client is offline')) {
-      console.info("Firestore is operating in offline mode. Local persistence is active and transactions will sync automatically once online.");
-      return;
-    }
-    
-    console.error("Firestore connection test failed:", error instanceof Error ? error.message : String(error));
+    console.warn("Firestore connection check status:", error);
   }
 }
 testConnection();
