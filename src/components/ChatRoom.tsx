@@ -1901,8 +1901,8 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="bg-[#13111C] border border-white/10 rounded-[2.5rem] w-full max-w-lg flex flex-col max-h-[85vh] overflow-hidden shadow-2xl">
               <div className="p-8 border-b border-white/5 flex items-center justify-between bg-white/[0.02]">
                 <div>
-                  <h3 className="text-2xl font-black text-white uppercase italic tracking-tighter">Group Intelligence</h3>
-                  <p className="text-[10px] font-bold text-white/30 uppercase tracking-[0.2em]">Group Hub Control</p>
+                  <h3 className="text-2xl font-black text-white uppercase italic tracking-tighter">Group Chat Info</h3>
+                  <p className="text-[10px] font-bold text-white/30 uppercase tracking-[0.2em]">Group Members & Settings</p>
                 </div>
                 <button onClick={() => setIsViewingGroupSettings(false)} className="p-3 bg-white/5 rounded-2xl text-white/40 hover:text-white transition-all">
                   <X size={24} />
@@ -2145,7 +2145,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
               <Brain size={48} className="text-red-650/40" />
             </div>
             <h3 className="text-md font-black uppercase tracking-widest text-[#DC2626] mb-2 opacity-50 italic">NSG Workspace</h3>
-            <p className="max-w-xs text-[10px] font-black leading-relaxed opacity-20 uppercase tracking-widest">Select an active chat session to begin sharing intelligence</p>
+            <p className="max-w-xs text-[10px] font-black leading-relaxed opacity-20 uppercase tracking-widest">Select a chat to start messaging</p>
           </div>
         ) : null}
       </div>
@@ -2383,7 +2383,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
                   <button 
                     onClick={() => {
-                      setUserNotification("Contact has been placed in secure quarantine blocklist.");
+                      setUserNotification("Contact has been blocked.");
                       setViewingUser(null);
                     }}
                     className="w-full p-4 mt-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-2xl font-black text-[9px] uppercase tracking-widest transition-all text-center flex items-center justify-center gap-3 border border-red-500/20"
@@ -2443,7 +2443,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
             <div className="absolute top-10 left-10 flex items-center gap-2 text-emerald-500 animate-pulse z-25 bg-black/40 px-3 py-1.5 rounded-full backdrop-blur-md">
               <div className="w-2 h-2 rounded-full bg-emerald-500" />
-              <span className="text-[10px] font-black uppercase tracking-widest text-white">Secure E2EE handshook</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-white">Secure Connection Established</span>
             </div>
 
             <div className="relative mb-12 z-20">
@@ -2456,7 +2456,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             
             <h2 className="text-3xl font-black text-white uppercase italic tracking-tighter mb-2 z-20 relative bg-black/20 px-4 py-1.5 rounded-full backdrop-blur-sm inline-block">{activeCall.chatName}</h2>
             <p className="text-[#DC2626] text-sm font-black uppercase tracking-widest mb-20 animate-pulse shadow-sm z-20 bg-black/30 px-3 py-1 rounded-full backdrop-blur-md">
-              {activeCallStatus === 'ringing' ? 'Ringing...' : activeCallStatus === 'connected' ? 'In Call' : 'Handshaking Secure Route...'}
+              {activeCallStatus === 'ringing' ? 'Ringing...' : activeCallStatus === 'connected' ? 'In Call' : 'Connecting...'}
             </p>
 
             <div className="flex items-center gap-8 z-20 relative">

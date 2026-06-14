@@ -347,8 +347,8 @@ export const ChatList: React.FC<ChatListProps> = ({
                   <h3 className={`text-xs font-black uppercase tracking-tight truncate whitespace-nowrap group-hover:text-[#DC2626] transition-colors ${isOmni ? 'text-red-400 font-extrabold tracking-wide drop-shadow-[0_0_4px_rgba(239,68,68,0.2)]' : 'text-white'}`}>
                     {getChatName(chat)}
                     {isOmni && (
-                      <span className="ml-1.5 text-[6.5px] bg-red-500/10 text-[#DC2626] border border-red-500/20 px-1.5 py-0.5 rounded uppercase font-black tracking-widest select-none">
-                        AI COMPANION
+                      <span className="ml-1.5 text-[6.5px] bg-red-500/10 text-[#DC2626] border border-red-500/20 px-1.5 py-0.5 rounded uppercase font-black tracking-widest select-none font-sans">
+                        OMNI
                       </span>
                     )}
                   </h3>

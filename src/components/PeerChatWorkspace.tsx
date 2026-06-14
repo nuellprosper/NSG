@@ -248,7 +248,7 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
       <div className="flex-1 flex flex-col h-full overflow-hidden relative">
         
         {/* Sticky Active WhatsApp Header */}
-        <div className="sticky top-0 z-20 px-4 py-3 bg-[#181628]/95 backdrop-blur-md border-b border-white/5 flex items-center justify-between shrink-0">
+        <div className="px-4 py-3 bg-[#181628]/95 backdrop-blur-md border-b border-white/5 flex items-center justify-between shrink-0 z-10">
           <div className="flex items-center gap-2.5 min-w-0">
             <button
               id="chat_back_navigation_btn"

@@ -273,7 +273,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-[9px] font-black uppercase tracking-widest text-red-400 mb-1 flex items-center gap-2">
-                        OMNI AI companion <span className="text-[7.5px] text-white/20 font-bold">● {msg.timestamp?.toDate ? msg.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}</span>
+                        OMNI <span className="text-[7.5px] text-white/20 font-bold">● {msg.timestamp?.toDate ? msg.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}</span>
                       </p>
                       
                       <div className="text-[14px] leading-relaxed text-slate-200 tracking-normal font-medium prose prose-invert max-w-none">
