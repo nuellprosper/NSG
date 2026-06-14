@@ -4,16 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NSG | Nuell Study Guide</title>
-    
-    <!-- Standard Meta Description (Cleaned up for Search Engines) -->
-    <meta name="description" content="NSG (Nuell Study Guide) is the ultimate AI-powered academic companion built for modern students. Transform your education by recording and transcribing lectures in real time, chatting with interactive AI study tutors, generating and sharing custom quizzes, sitting for realistic CBT exams, converting study notes into audio podcasts, and collaborating seamlessly with classmates—all in one smart ecosystem." />
+    <meta name="description" content="NSG (Nuell Study Guide) - Your ultimate AI-powered academic companion. Transcribe lectures, generate quizzes, and chat with AI tutors." />
     
     <!-- OpenGraph / Social Preview -->
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://nuellstudyguide.name.ng/" />
+    <meta property="og:url" content="https://nsg.studios/" />
     <meta property="og:title" content="NSG | Nuell Study Guide" />
-    <meta property="og:description" content="The ultimate AI academic companion. Record lectures, host classes, generate and share quizzes, take CBT exams, create study podcasts, and chat with peers." />
-    <meta property="og:image" content="https://nuellstudyguide.name.ng/preview-card.png" />
+    <meta property="og:description" content="AI-Powered Study Assistant. Transcribe lectures, generate quizzes, and host professional exams." />
+    <meta property="og:image" content="https://nsg.studios/preview-card.png" />
 
     <!-- Google AdSense -->
     <meta name="google-adsense-account" content="ca-pub-3216169026195971">
@@ -31,9 +29,9 @@
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js', { scope: '/' })
-            .then(reg => console.log('SW registered successfully with scope:', reg.scope))
-            .catch(err => console.error('SW registration failed:', err));
+          navigator.serviceWorker.register('/sw.js')
+            .then(reg => console.log('SW registered:', reg))
+            .catch(err => console.log('SW registration failed:', err));
         });
       }
     </script>
@@ -43,3 +41,4 @@
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
+

@@ -11,6 +11,7 @@
         "fullName": { "type": "string" },
         "dob": { "type": "string" },
         "photoURL": { "type": "string" },
+        "username": { "type": "string", "description": "Unique user handle for chatting and class identification" },
         "role": { "type": "string", "enum": ["admin", "student"] },
         "matric": { "type": "string" },
         "matricNumber": { "type": "string" },
@@ -18,141 +19,237 @@
         "level": { "type": "string" },
         "department": { "type": "string" },
         "faculty": { "type": "string" },
-        "status": { "type": "string", "enum": ["active", "deleted"] },
-        "bypassAllPayments": { "type": "boolean" },
-        "bypassTakingPayment": { "type": "boolean" },
-        "bypassHostingPayment": { "type": "boolean" },
+        "about": { "type": "string", "description": "User bio/about info" },
+        "lastSeen": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["active", "deleted", "online", "offline"] },
         "premiumUntil": { "type": "string", "format": "date-time" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "email", "role"]
     },
-    "ExamQuestion": {
-      "title": "Exam Question",
-      "description": "A single question in the exam pool.",
+    "Note": {
+      "title": "Lecture Note",
+      "description": "Captured notes and transcriptions from lectures.",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "question": { "type": "string" },
-        "options": { "type": "array", "items": { "type": "string" } },
-        "correctAnswer": { "type": "integer" },
-        "explanation": { "type": "string" }
-      },
-      "required": ["question", "options", "correctAnswer"]
-    },
-    "ScoreSheetEntry": {
-      "title": "Score Sheet Entry",
-      "description": "A record of a student's exam result.",
-      "type": "object",
-      "properties": {
-        "matric": { "type": "string" },
-        "name": { "type": "string" },
-        "score": { "type": "integer" },
-        "total": { "type": "integer" },
-        "timestamp": { "type": "string", "format": "date-time" }
-      },
-      "required": ["matric", "name", "score", "total", "timestamp"]
-    },
-    "RegisteredStudent": {
-      "title": "Registered Student",
-      "description": "A student allowed to take the exam.",
-      "type": "object",
-      "properties": {
-        "matric": { "type": "string" },
-        "name": { "type": "string" },
-        "paymentEnabled": { "type": "boolean" },
-        "isActive": { "type": "boolean" },
-        "lastActive": { "type": "integer" }
-      },
-      "required": ["matric", "name"]
-    },
-    "ExamConfig": {
-      "title": "Exam Configuration",
-      "description": "Global settings for the exam.",
-      "type": "object",
-      "properties": {
-        "questionCount": { "type": "integer" },
-        "duration": { "type": "integer" },
-        "price": { "type": "integer" }
-      }
-    },
-    "ChatSession": {
-      "title": "Chat Session",
-      "description": "A single AI chat session.",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
+        "uid": { "type": "string" },
         "title": { "type": "string" },
-        "history": { "type": "array" },
-        "timestamp": { "type": "string" },
-        "isPinned": { "type": "boolean" },
-        "uid": { "type": "string" }
-      }
+        "content": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "content"]
     },
     "BlogPost": {
       "title": "Blog Post",
-      "description": "An article published on the blog.",
+      "description": "Public educational articles.",
       "type": "object",
       "properties": {
         "title": { "type": "string" },
         "content": { "type": "string" },
+        "author": { "type": "string" },
+        "authorId": { "type": "string" },
         "timestamp": { "type": "string", "format": "date-time" },
-        "author": { "type": "string" }
+        "excerpt": { "type": "string" },
+        "category": { "type": "string" },
+        "likes": { "type": "integer" }
       },
       "required": ["title", "content", "timestamp"]
     },
-    "EmailTemplate": {
-      "title": "Email Template",
-      "description": "Customizable marketing email templates.",
+    "Notification": {
+      "title": "System Notification",
+      "description": "Alerts for users.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["info", "success", "warning", "error"] },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "read": { "type": "boolean" }
+      },
+      "required": ["title", "message", "timestamp"]
+    },
+    "Exam": {
+      "title": "Academic Exam",
+      "description": "Hosted exam infrastructure.",
+      "type": "object",
+      "properties": {
+        "hostUid": { "type": "string" },
+        "title": { "type": "string" },
+        "duration": { "type": "integer" },
+        "questions": { "type": "array" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["hostUid", "title", "questions"]
+    },
+    "ExamResult": {
+      "title": "Exam Result",
+      "description": "Recorded score of a student's exam.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "matric": { "type": "string" },
+        "score": { "type": "integer" },
+        "total": { "type": "integer" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "hostUid": { "type": "string" }
+      },
+      "required": ["uid", "score", "total", "timestamp"]
+    },
+    "ChatSession": {
+       "title": "Chat Session",
+       "description": "User specific AI conversation history.",
+       "type": "object",
+       "properties": {
+         "id": { "type": "string" },
+         "title": { "type": "string" },
+         "history": { "type": "array" },
+         "timestamp": { "type": "string" },
+         "isPinned": { "type": "boolean" }
+       }
+    },
+    "LectureSession": {
+      "title": "Lecture Recording Session",
+      "description": "AI transcribed and analyzed lecture data.",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
+        "topic": { "type": "string" },
+        "content": { "type": "string" },
+        "summary": { "type": "string" },
+        "quiz": { "type": "array" },
+        "timestamp": { "type": "string" }
+      }
+    },
+    "HistoryItem": {
+      "title": "Study History Item",
+      "description": "Record of user activity (quiz, analysis, etc).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string" },
+        "title": { "type": "string" },
+        "score": { "type": "integer" },
+        "total": { "type": "integer" },
+        "date": { "type": "string" },
+        "data": { "type": "object" }
+      }
+    },
+    "Report": {
+      "title": "Safety Report",
+      "description": "User reported content or users.",
+      "type": "object",
+      "properties": {
+        "reporterId": { "type": "string" },
+        "suspectId": { "type": "string" },
+        "reporterEmail": { "type": "string" },
+        "timestamp": { "type": "string" }
+      }
+    },
+    "Chat": {
+      "title": "Chat Channel",
+      "description": "Direct or group chat channel.",
+      "type": "object",
+      "properties": {
         "name": { "type": "string" },
-        "subject": { "type": "string" },
-        "body": { "type": "string" },
-        "active": { "type": "boolean" },
-        "updatedAt": { "type": "string", "format": "date-time" }
-      },
-      "required": ["name", "subject", "body"]
+        "type": { "type": "string", "enum": ["direct", "group"] },
+        "members": { "type": "array" },
+        "lastMessage": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "isOmni": { "type": "boolean" },
+        "ownerId": { "type": "string" },
+        "unreadBy": { "type": "array" }
+      }
+    },
+    "Message": {
+      "title": "Chat Message",
+      "description": "Individual message in a chat.",
+      "type": "object",
+      "properties": {
+        "senderId": { "type": "string" },
+        "senderHandle": { "type": "string" },
+        "senderName": { "type": "string" },
+        "text": { "type": "string" },
+        "type": { "type": "string" },
+        "timestamp": { "type": "object" },
+        "seenBy": { "type": "array" },
+        "deletedBy": { "type": "array" },
+        "deletedForEveryone": { "type": "boolean" },
+        "status": { "type": "string" }
+      }
+    },
+    "Class": {
+      "title": "Live Class",
+      "description": "Interactive class session.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "hostId": { "type": "string" },
+        "boardData": { "type": "array" },
+        "participants": { "type": "array" },
+        "isActive": { "type": "boolean" }
+      }
     }
   },
   "firestore": {
     "/users/{uid}": {
       "schema": "User",
-      "description": "User profiles."
+      "description": "User profiles and settings."
     },
-    "/email_templates/{templateId}": {
-      "schema": "EmailTemplate",
-      "description": "Editable email marketing templates."
+    "/reports/{reportId}": {
+      "schema": "Report",
+      "description": "Safety reports filed by users."
+    },
+    "/notes/{noteId}": {
+      "schema": "Note",
+      "description": "User generated study notes."
     },
     "/blogPosts/{postId}": {
       "schema": "BlogPost",
-      "description": "Public blog articles."
+      "description": "Public educational articles."
     },
-    "/examQuestions/{questionId}": {
-      "schema": "ExamQuestion",
-      "description": "The pool of exam questions."
+    "/notifications/{notifId}": {
+      "schema": "Notification",
+      "description": "System-wide and targeted notifications."
     },
-    "/scoreSheet/{resultId}": {
-      "schema": "ScoreSheetEntry",
+    "/exams/{examId}": {
+      "schema": "Exam",
+      "description": "Scheduled exam documentation."
+    },
+    "/exams/{examId}/results/{resultId}": {
+      "schema": "ExamResult",
       "description": "Student exam results."
     },
-    "/registeredStudents/{matric}": {
-      "schema": "RegisteredStudent",
-      "description": "Students allowed to take the exam."
-    },
-    "/config/exam": {
-      "schema": "ExamConfig",
-      "description": "Global exam configuration."
+    "/users/{uid}/lectureSessions/{sessionId}": {
+      "schema": "LectureSession",
+      "description": "User's lecture recording history."
     },
     "/users/{uid}/chatSessions/{sessionId}": {
       "schema": "ChatSession",
-      "description": "User-specific chat history."
+      "description": "User's AI chat history."
     },
-    "/quizzes/{quizId}": {
+    "/users/{uid}/studyHistory/{historyId}": {
+      "schema": "HistoryItem",
+      "description": "User's overall activity ledger."
+    },
+    "/email_templates/{templateId}": {
       "schema": "object",
-      "description": "Shared quiz questions."
+      "description": "Internal marketing templates."
+    },
+    "/chats/{chatId}": {
+      "schema": "Chat",
+      "description": "Chat sessions between users or groups."
+    },
+    "/chats/{chatId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Individual messages within a chat."
+    },
+    "/classes/{classId}": {
+      "schema": "Class",
+      "description": "Live class sessions with board and participants."
     }
   }
 }

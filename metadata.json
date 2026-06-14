@@ -1,5 +1,9 @@
 {
-  "name": "NSG (Nuell Study Guide)",
-  "description": "The ultimate AI-powered study companion for lecture capturing, analysis, and interactive quiz generation.",
-  "requestFramePermissions": ["camera", "microphone", "display-capture"]
+  "name": "NSG (NUELL STUDY GUIDE)",
+  "description": "Premium AI-Powered Academic Companion, Lecture OS & Native Mobile App Hub (Kotlin / React Native / Flutter)",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
 }
