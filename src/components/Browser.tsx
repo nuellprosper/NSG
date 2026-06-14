@@ -86,9 +86,9 @@ const Browser: React.FC<BrowserProps> = ({ onClose, targetUrl = 'https://nuellst
   };
 
   return (
-    <div className="fixed inset-0 z-[9999] bg-black flex flex-col font-sans select-none overflow-hidden">
+    <div className="fixed inset-0 z-[9999] bg-[#13111C] flex flex-col font-sans select-none overflow-hidden">
       {/* Native-like Status Bar (Dummy for aesthetics) */}
-      <div className="h-6 bg-black flex items-center justify-between px-4">
+      <div className="h-6 bg-[#13111C] flex items-center justify-between px-4">
         <div className="flex gap-2 items-center">
           <Shield size={12} className="text-emerald-500" />
           <span className="text-[10px] text-white/60 font-medium tabular-nums tracking-wider uppercase">NSG Encrypted Tunnel</span>

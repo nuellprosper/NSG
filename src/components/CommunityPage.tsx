@@ -664,7 +664,7 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                       <Emoji text="📡" /> Peer Scholar Notice
                     </p>
                     <p className="text-[9.5px] text-white/45 leading-relaxed font-sans font-medium">
-                      Accumulated XP serves solely for community rankings on the peer leaderboard. Strive high to help elevate your study node of fellow scholars!
+                      Accumulated XP serves solely for community rankings on the peer leaderboard. Strive high to help elevate your study circle of fellow scholars!
                     </p>
                   </div>
                 </div>

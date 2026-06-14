@@ -57,7 +57,7 @@ interface LatinWord {
 }
 
 export const AILibrary: React.FC<{ 
-  theme: 'dark'; 
+  theme: 'dark' | 'light'; 
   setUserNotification?: (msg: string) => void;
   onSaveHistory?: (id: string, title: string, type: string, score?: number, data?: any) => void;
   checkAndIncrementUsage: (type: string) => Promise<boolean>;

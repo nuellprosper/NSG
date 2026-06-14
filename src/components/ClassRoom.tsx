@@ -164,7 +164,7 @@ export const ClassRoom: React.FC<ClassRoomProps> = ({
           to: targetUid,
           from: user.uid,
           fromName: userHandle,
-          title: "ðŸ« Live Classroom Invitation",
+          title: "🏫 Live Classroom Invitation",
           message: `${userHandle} has invited you to join their live active classroom lecture! Join immediately.`,
           type: 'classroom_invite',
           classId: classId,
@@ -173,7 +173,7 @@ export const ClassRoom: React.FC<ClassRoomProps> = ({
           read: false
         });
         
-        setUserNotification(`Live invitation transmitted to @${targetHandle}! ðŸš€`);
+        setUserNotification(`Live invitation transmitted to @${targetHandle}! 🚀`);
         setInviteHandle('');
         setIsInviteOpen(false);
       } else {
@@ -199,7 +199,7 @@ export const ClassRoom: React.FC<ClassRoomProps> = ({
           <div>
             <h2 className="text-xs font-black uppercase tracking-tight text-white flex items-center gap-2">
               <span>{classData?.name || `${userHandle}'s Active Lecture`}</span>
-              <span className="text-[7.5px] bg-[#DC2626]/20 text-[#DC2626] border border-[#DC2626]/30 px-2 py-0.5 rounded italic">LIVE NODE</span>
+              <span className="text-[7.5px] bg-[#DC2626]/20 text-[#DC2626] border border-[#DC2626]/30 px-2 py-0.5 rounded italic">LIVE SESSION</span>
             </h2>
             <button 
               onClick={() => {
@@ -209,7 +209,7 @@ export const ClassRoom: React.FC<ClassRoomProps> = ({
               className="text-[8.5px] font-black text-rose-400 hover:text-white uppercase tracking-widest flex items-center gap-1 mt-0.5 transition-all text-left"
             >
               <span>{classId}</span>
-              <span className="opacity-60 text-[7px] italic font-medium">[ðŸ“‹ Copy]</span>
+              <span className="opacity-60 text-[7px] italic font-medium">[📋 Copy]</span>
             </button>
           </div>
         </div>
@@ -241,7 +241,7 @@ export const ClassRoom: React.FC<ClassRoomProps> = ({
           
           <div className="space-y-4">
             <h3 className="text-[9px] font-black text-rose-500 uppercase tracking-[0.2em] px-1 text-left flex items-center gap-1.5 leading-none">
-              <span>â— LIVE BROADCASTERS STREAM</span>
+              <span>● LIVE BROADCASTERS STREAM</span>
             </h3>
 
             <div className="grid grid-cols-1 gap-4">
@@ -273,7 +273,7 @@ export const ClassRoom: React.FC<ClassRoomProps> = ({
               <div className="bg-slate-950/40 rounded-[2rem] border border-white/5 p-4 space-y-3 shadow-inner">
                 <div className="flex items-center justify-between border-b border-white/5 pb-2">
                   <span className="text-[8px] font-black text-white/40 uppercase tracking-widest flex items-center gap-1.5">
-                    <Users size={12} className="text-[#DC2626]" /> Active Node Members ({participants.length})
+                    <Users size={12} className="text-[#DC2626]" /> Active Members ({participants.length})
                   </span>
                 </div>
                 
@@ -338,7 +338,7 @@ export const ClassRoom: React.FC<ClassRoomProps> = ({
               value={boardText}
               onChange={(e) => handleBoardChange(e.target.value)}
               readOnly={!isHost}
-              placeholder={isHost ? "ðŸš€ Host/Teacher - write core instructions, space equations, metrics, or notes here for everyone to see instantly..." : "Awaiting host notes broadcast..."}
+              placeholder={isHost ? "🚀 Host/Teacher - write core instructions, space equations, metrics, or notes here for everyone to see instantly..." : "Awaiting host notes broadcast..."}
               className="flex-1 mt-14 bg-transparent border-none outline-none text-sm sm:text-base font-bold leading-relaxed resize-none text-white/90 placeholder:text-white/10 font-mono scrollbar-none"
             />
 
@@ -404,7 +404,7 @@ export const ClassRoom: React.FC<ClassRoomProps> = ({
                 ))}
                 {messages.length === 0 && (
                   <div className="flex flex-col items-center justify-center h-full text-center p-8 text-white/20">
-                    <p className="text-3xl">ðŸ’¬</p>
+                    <p className="text-3xl">💬</p>
                     <p className="text-[8px] uppercase tracking-widest mt-2">Class message boards are currently empty.</p>
                   </div>
                 )}

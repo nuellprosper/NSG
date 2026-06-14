@@ -14,6 +14,10 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import Peer from 'peerjs';
+import { ChatList } from './ChatList';
+import { OmniChatWorkspace } from './OmniChatWorkspace';
+import { PeerChatWorkspace } from './PeerChatWorkspace';
+import { MessageOverlay } from './MessageOverlay';
 
 const extractYoutubeLinks = (text: string): string[] => {
   if (!text) return [];
@@ -69,7 +73,41 @@ const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniRepl
 
   return (
     <div className="relative">
-      <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+      <ReactMarkdown 
+        remarkPlugins={[remarkMath]} 
+        rehypePlugins={[rehypeKatex]}
+        components={{
+          code({ className, children, ...props }: any) {
+            const match = /language-(\w+)/.exec(className || '');
+            const codeVal = String(children).replace(/\n$/, '');
+            return className && match ? (
+              <div className="relative group/code my-3 rounded-xl overflow-hidden border border-white/5 bg-zinc-950 font-mono">
+                <div className="px-4 py-2 bg-zinc-900 border-b border-white/5 flex items-center justify-between text-white/40 text-[9px] font-black uppercase tracking-widest">
+                  <span>{match[1]}</span>
+                  <button 
+                    onClick={() => {
+                      navigator.clipboard.writeText(codeVal);
+                      try {
+                        const evt = new CustomEvent('show_global_notify', { detail: 'Code copied!' });
+                        window.dispatchEvent(evt);
+                      } catch (e) {}
+                    }}
+                    className="px-2 py-1 hover:bg-white/5 rounded text-[#DC2626] border border-red-500/10 hover:text-red-400 transition-colors active:scale-95 text-[8.5px] font-black uppercase tracking-widest"
+                    title="Copy Code"
+                  >
+                    Copy Block
+                  </button>
+                </div>
+                <pre className="p-4 overflow-x-auto text-[11px] leading-relaxed text-slate-300">
+                  <code {...props} className={className}>{children}</code>
+                </pre>
+              </div>
+            ) : (
+              <code {...props} className={`bg-zinc-900 px-1.5 py-0.5 rounded text-[11px] font-mono text-red-400 ${className || ''}`}>{children}</code>
+            );
+          }
+        }}
+      >
         {displayedText}
       </ReactMarkdown>
       {isTyping && (
@@ -103,11 +141,14 @@ interface Message {
   mediaUrl?: string;
   seenBy?: string[];
   isViewOnce?: boolean;
-  status?: 'sending' | 'sent' | 'error';
+  status?: 'sending' | 'sent' | 'delivered' | 'read' | 'failed' | 'error';
   isSharedNote?: boolean;
   sharedAccessType?: 'readonly' | 'editable';
   noteTitle?: string;
   noteContent?: string;
+  starredBy?: string[];
+  reactions?: { emoji: string; userId: string; username: string; }[];
+  duration?: number;
 }
 
 interface Chat {
@@ -133,12 +174,15 @@ interface ChatRoomProps {
   uploadToCloudinary: (file: File | Blob) => Promise<string>;
   setUserNotification: (msg: string) => void;
   onChatSelect?: (isActive: boolean) => void;
+  userNotes?: any[];
+  onOpenNote?: (noteId: string, noteTitle?: string, noteContent?: string) => void;
 }
 
 export const ChatRoom: React.FC<ChatRoomProps> = ({ 
-  theme, user, userHandle, onTagOmni, uploadToCloudinary, setUserNotification, onChatSelect
+  theme, user, userHandle, onTagOmni, uploadToCloudinary, setUserNotification, onChatSelect, userNotes = [], onOpenNote
 }) => {
   const [activeTab, setActiveTab] = useState<'chats' | 'groups' | 'calls'>('chats');
+  const [subFilter, setSubFilter] = useState<'all' | 'unread' | 'secured' | 'groups' | 'calls'>('all');
   const [chats, setChats] = useState<Chat[]>([]);
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -180,7 +224,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   const [recipientPeerId, setRecipientPeerId] = useState<string | null>(null);
 
   // --- DYNAMIC CONTACT HEADERS TRACKING ---
-  const [memberProfiles, setMemberProfiles] = useState<Record<string, { displayName: string, photoURL: string | null }>>({});
+  const [memberProfiles, setMemberProfiles] = useState<Record<string, { displayName: string, username?: string, photoURL: string | null }>>({});
 
   // --- OMNI NEW ADDITIONS STATES ---
   const [isOmniThinking, setIsOmniThinking] = useState(false);
@@ -202,6 +246,74 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   // --- PWA WEB PUSH SUBSCRIPTIONS ---
   const [pushSubscribed, setPushSubscribed] = useState(false);
 
+  // --- CONTEXT ACTION OVERLAY STATES ---
+  const [overlayMessage, setOverlayMessage] = useState<Message | null>(null);
+  const [overlayPosition, setOverlayPosition] = useState<{ x: number, y: number }>({ x: 0, y: 0 });
+
+  const handleAddReaction = async (messageId: string, emoji: string) => {
+    if (!selectedChat) return;
+    const messageRef = doc(db, 'chats', selectedChat.id, 'messages', messageId);
+    const userReaction = { emoji, userId: user.uid, username: userHandle };
+    
+    setMessages(prev => prev.map(m => {
+      if (m.id === messageId) {
+        const existing = m.reactions || [];
+        const filtered = existing.filter((r: any) => r.userId !== user.uid);
+        return { ...m, reactions: [...filtered, userReaction] };
+      }
+      return m;
+    }));
+
+    try {
+      const msgDoc = await getDoc(messageRef);
+      if (msgDoc.exists()) {
+        const currentReactions: any[] = msgDoc.data().reactions || [];
+        const updated = currentReactions.filter((r: any) => r.userId !== user.uid);
+        updated.push(userReaction);
+        await updateDoc(messageRef, { reactions: updated });
+      }
+    } catch (error) {
+      console.error("Failed to append reaction to firebase", error);
+    }
+  };
+
+  const handleToggleStarMessage = async (messageId: string) => {
+    if (!selectedChat) return;
+    const messageRef = doc(db, 'chats', selectedChat.id, 'messages', messageId);
+    setMessages(prev => prev.map(m => {
+      if (m.id === messageId) {
+        const starred = m.starredBy || [];
+        const isStarred = starred.includes(user.uid);
+        const updated = isStarred ? starred.filter(uid => uid !== user.uid) : [...starred, user.uid];
+        return { ...m, starredBy: updated };
+      }
+      return m;
+    }));
+    try {
+      const msgDoc = await getDoc(messageRef);
+      if (msgDoc.exists()) {
+        const starred: string[] = msgDoc.data().starredBy || [];
+        const updated = starred.includes(user.uid) ? starred.filter(uid => uid !== user.uid) : [...starred, user.uid];
+        await updateDoc(messageRef, { starredBy: updated });
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleDeleteMessageDirect = async (messageId: string, deleteType: 'me' | 'everyone') => {
+    if (!selectedChat) return;
+    if (deleteType === 'everyone') {
+      try {
+        await deleteDoc(doc(db, 'chats', selectedChat.id, 'messages', messageId));
+      } catch (e) {
+        console.error(e);
+      }
+    } else {
+      setMessages(prev => prev.filter(m => m.id !== messageId));
+    }
+  };
+
   // --- WHATSAPP GALLERY AND NOTE SHARING STATES (CUSTOM CONTROLS) ---
   const [showPhotoLibrary, setShowPhotoLibrary] = useState(false);
   const [showNoteShareOverlay, setShowNoteShareOverlay] = useState(false);
@@ -210,24 +322,49 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   const [showQuizShareOverlay, setShowQuizShareOverlay] = useState(false);
 
   // --- UTILS helper functions ---
-  const getChatMetadata = (chat: Chat) => {
-    if (chat.isOmni) {
-      return { name: 'Omni by NSG', photoURL: chat.photoURL || 'https://images.unsplash.com/photo-1675557009875-436f09789900?q=80&w=200&auto=format&fit=crop' };
-    }
-    if (chat.type === 'direct') {
-      const otherId = chat.members.find(m => m !== user?.uid && m !== userHandle);
-      if (otherId && memberProfiles[otherId]) {
-        return {
-          name: memberProfiles[otherId].displayName,
-          photoURL: memberProfiles[otherId].photoURL
-        };
+  const getOtherMemberInfo = (chat: Chat) => {
+    if (!chat || chat.type !== 'direct') return null;
+    const others = chat.members.filter(m => m !== user?.uid && m !== userHandle);
+    for (const other of others) {
+      if (memberProfiles[other]) {
+        return memberProfiles[other];
       }
     }
-    return { name: chat.name, photoURL: chat.photoURL || null };
+    return null;
+  };
+
+  const getChatMetadata = (chat: Chat) => {
+    if (!chat) return { name: '', username: '', photoURL: null };
+    if (chat.isOmni) {
+      return { 
+        name: 'Omni by NSG', 
+        username: 'omni', 
+        photoURL: chat.photoURL || 'https://images.unsplash.com/photo-1675557009875-436f09789900?q=80&w=200&auto=format&fit=crop' 
+      };
+    }
+    if (chat.type === 'direct') {
+      const otherInfo = getOtherMemberInfo(chat);
+      if (otherInfo) {
+        return {
+          name: otherInfo.displayName,
+          username: otherInfo.username || '',
+          photoURL: otherInfo.photoURL
+        };
+      }
+      const others = chat.members.filter(m => m !== user?.uid && m !== userHandle);
+      const possibleUsername = others.find(m => m.length < 20) || '';
+      return { 
+        name: chat.name || possibleUsername || 'User', 
+        username: possibleUsername, 
+        photoURL: chat.photoURL || null 
+      };
+    }
+    return { name: chat.name, username: '', photoURL: chat.photoURL || null };
   };
 
   const getChatName = (chat: Chat) => getChatMetadata(chat).name;
   const getChatPhoto = (chat: Chat) => getChatMetadata(chat).photoURL;
+  const getChatUsername = (chat: Chat) => getChatMetadata(chat).username;
 
   // Track dynamic peer profiles
   useEffect(() => {
@@ -235,8 +372,10 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     const otherMemberIds = new Set<string>();
     chats.forEach(c => {
       if (c.type === 'direct' && !c.isOmni) {
-        const otherId = c.members.find(m => m !== user.uid && m !== userHandle);
-        if (otherId) otherMemberIds.add(otherId);
+        const others = c.members.filter(m => m !== user.uid && m !== userHandle);
+        others.forEach(otherId => {
+          if (otherId) otherMemberIds.add(otherId);
+        });
       }
     });
 
@@ -247,24 +386,28 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         const snap = await getDoc(docRef);
         if (snap.exists()) {
           const uData = snap.data();
+          const profileItem = {
+            displayName: uData.displayName || uData.username || id,
+            username: uData.username || '',
+            photoURL: uData.photoURL || null
+          };
           setMemberProfiles(prev => ({
             ...prev,
-            [id]: {
-              displayName: uData.displayName || uData.username || id,
-              photoURL: uData.photoURL || null
-            }
+            [id]: profileItem
           }));
         } else {
           const q = query(collection(db, 'users'), where('username', '==', id));
           const qSnap = await getDocs(q);
           if (!qSnap.empty) {
             const uData = qSnap.docs[0].data();
+            const profileItem = {
+              displayName: uData.displayName || uData.username || id,
+              username: uData.username || '',
+              photoURL: uData.photoURL || null
+            };
             setMemberProfiles(prev => ({
               ...prev,
-              [id]: {
-                displayName: uData.displayName || uData.username || id,
-                photoURL: uData.photoURL || null
-              }
+              [id]: profileItem
             }));
           }
         }
@@ -276,6 +419,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             ...prev,
             [id]: {
               displayName: `User (${id.slice(0, 5)})`,
+              username: id.length < 20 ? id : '',
               photoURL: null
             }
           }));
@@ -351,12 +495,12 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   const lastMessageIdRef = useRef<string | null>(null);
 
   const emojis = useMemo(() => ([
-    { category: 'Smileys', items: ['ðŸ˜€', 'ðŸ˜ƒ', 'ðŸ˜„', 'ðŸ˜', 'ðŸ˜†', 'ðŸ˜…', 'ðŸ˜‚', 'ðŸ¤£', 'ðŸ˜Š', 'ðŸ˜‡', 'ðŸ™‚', 'ðŸ™ƒ', 'ðŸ˜‰', 'ðŸ˜Œ', 'ðŸ˜', 'ðŸ¥°', 'ðŸ˜˜', 'ðŸ˜—', 'ðŸ˜™', 'ðŸ˜š', 'ðŸ˜‹', 'ðŸ˜›', 'ðŸ˜œ', 'ðŸ¤ª', 'ðŸ¤¨', 'ðŸ§', 'ðŸ¤“', 'ðŸ˜Ž', 'ðŸ¤©', 'ðŸ¥³', 'ðŸ˜', 'ðŸ˜’', 'ðŸ˜ž', 'ðŸ˜”', 'ðŸ˜Ÿ', 'ðŸ˜•'] },
-    { category: 'Gestures', items: ['ðŸ‘', 'ðŸ‘Ž', 'ðŸ‘Š', 'âœŠ', 'ðŸ¤›', 'ðŸ¤œ', 'ðŸ¤ž', 'âœŒï¸', 'ðŸ¤Ÿ', 'ðŸ¤˜', 'ðŸ‘Œ', 'ðŸ¤', 'ðŸ‘ˆ', 'ðŸ‘‰', 'ðŸ‘†', 'ðŸ‘‡', 'âœ‹', 'ðŸ¤š', 'ðŸ–ï¸', 'ðŸ––', 'ðŸ‘‹', 'ðŸ¤™', 'ðŸ’ª', 'ðŸ¦¾'] },
-    { category: 'Hearts', items: ['â¤ï¸', 'ðŸ§¡', 'ðŸ’›', 'ðŸ’š', 'ðŸ’™', 'ðŸ’œ', 'ðŸ–¤', 'ðŸ¤', 'ðŸ¤Ž', 'ðŸ’”', 'â£ï¸', 'ðŸ’•', 'ðŸ’ž', 'ðŸ’“', 'ðŸ’—', 'ðŸ’–', 'ðŸ’˜', 'ðŸ’', 'ðŸ’Ÿ', 'â˜®ï¸', 'âœï¸', 'â˜ªï¸', 'ðŸ•‰ï¸', 'â˜¸ï¸'] },
-    { category: 'Academic', items: ['ðŸ“š', 'ðŸŽ“', 'ðŸ“', 'ðŸ§ ', 'ðŸ’¡', 'ðŸ§ª', 'ðŸ§¬', 'ðŸ”¬', 'ðŸ”­', 'ðŸ“¡', 'ðŸ“œ', 'âš–ï¸', 'ðŸ“', 'ðŸ“', 'ðŸ“Š', 'ðŸ“ˆ', 'ðŸ“‰', 'ðŸ“…', 'ðŸ“', 'ðŸ–‹ï¸', 'ðŸ–Šï¸', 'ðŸ–Œï¸', 'ðŸ–ï¸'] },
-    { category: 'Objects', items: ['ðŸ”¥', 'âœ¨', 'âš¡', 'ðŸŒˆ', 'â˜€ï¸', 'ðŸŒ™', 'â­', 'ðŸš€', 'ðŸ›¸', 'ðŸ’»', 'ðŸ“±', 'ðŸ“·', 'ðŸŽ¥', 'ðŸ“ž', 'ðŸ’¾', 'ðŸ’¿', 'ðŸ“¼', 'ðŸ“·', 'â²ï¸', 'â±ï¸', 'â°', 'ðŸ”‹', 'ðŸ”Œ', 'ðŸ•¯ï¸', 'ðŸ’¡'] },
-    { category: 'Food', items: ['ðŸŽ', 'ðŸŒ', 'ðŸ‰', 'ðŸ‡', 'ðŸ“', 'ðŸ’', 'ðŸ‘', 'ðŸ¥­', 'ðŸ', 'ðŸ¥¥', 'ðŸ¥', 'ðŸ…', 'ðŸ†', 'ðŸ¥‘', 'ðŸ¥¦', 'ðŸ¥¬', 'ðŸ¥’', 'ðŸŒ½', 'ðŸ¥•', 'ðŸ§„', 'ðŸ§…', 'ðŸ¥”', 'ðŸ ', 'ðŸ¥', 'ðŸž'] }
+    { category: 'Smileys', items: ['😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '😊', '😇', '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚', '😋', '😛', '😜', '🤪', '🤨', '🧐', '🤓', '😎', '🤩', '🥳', '😏', '😒', '😞', '😔', '😟', '😕'] },
+    { category: 'Gestures', items: ['👍', '👎', '👊', '✊', '🤛', '🤜', '🤞', '✌️', '🤟', '🤘', '👌', '🤏', '👈', '👉', '👆', '👇', '✋', '🤚', '🖐️', '🖖', '👋', '🤙', '💪', '🦾'] },
+    { category: 'Hearts', items: ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❣️', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '☮️', '✝️', '☪️', '🕉️', '☸️'] },
+    { category: 'Academic', items: ['📚', '🎓', '📝', '🧠', '💡', '🧪', '🧬', '🔬', '🔭', '📡', '📜', '⚖️', '📐', '📏', '📊', '📈', '📉', '📅', '📝', '🖋️', '🖊️', '🖌️', '🖍️'] },
+    { category: 'Objects', items: ['🔥', '✨', '⚡', '🌈', '☀️', '🌙', '⭐', '🚀', '🛸', '💻', '📱', '📷', '🎥', '📞', '💾', '💿', '📼', '📷', '⏲️', '⏱️', '⏰', '🔋', '🔌', '🕯️', '💡'] },
+    { category: 'Food', items: ['🍎', '🍌', '🍉', '🍇', '🍓', '🍒', '🍑', '🥭', '🍍', '🥥', '🥝', '🍅', '🍆', '🥑', '🥦', '🥬', '🥒', '🌽', '🥕', '🧄', '🧅', '🥔', '🍠', '🥐', '🍞'] }
   ]), []);
 
   const [activeEmojiCategory, setActiveEmojiCategory] = useState(emojis[0].category);
@@ -402,12 +546,52 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
           applicationServerKey: urlBase64ToUint8Array(publicKey)
         });
 
-        const subJSON = JSON.parse(JSON.stringify(subscription));
-        await updateDoc(doc(db, 'users', user.uid), {
-          pushSubscription: subJSON
-        });
-        setPushSubscribed(true);
-        console.log("PWA Web Push setup completed successfully!");
+        let subJSON = null;
+        try {
+          if (subscription) {
+            if (typeof subscription.toJSON === 'function') {
+              subJSON = subscription.toJSON();
+            } else {
+              subJSON = JSON.parse(JSON.stringify(subscription));
+            }
+          }
+        } catch (subErr) {
+          console.warn("PushSubscription contains circular reference, building manually", subErr);
+          if (subscription) {
+            let p256dhKey = '';
+            let authKey = '';
+            try {
+              if (typeof subscription.getKey === 'function') {
+                const p256dhBuffer = subscription.getKey('p256dh');
+                const authBuffer = subscription.getKey('auth');
+                if (p256dhBuffer) {
+                  p256dhKey = btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(p256dhBuffer))));
+                }
+                if (authBuffer) {
+                  authKey = btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(authBuffer))));
+                }
+              }
+            } catch (keyErr) {
+              console.warn("Could not retrieve push keys", keyErr);
+            }
+            subJSON = {
+              endpoint: subscription.endpoint || '',
+              expirationTime: subscription.expirationTime || null,
+              keys: {
+                p256dh: p256dhKey,
+                auth: authKey
+              }
+            };
+          }
+        }
+
+        if (subJSON) {
+          await updateDoc(doc(db, 'users', user.uid), {
+            pushSubscription: subJSON
+          });
+          setPushSubscribed(true);
+          console.log("PWA Web Push setup completed successfully!");
+        }
       } catch (err) {
         console.warn("Failed setting up Push notifications subscription:", err);
       }
@@ -548,16 +732,70 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
     setIsSearchingUsers(true);
     try {
-      const q = query(
+      const lowerQuery = queryStr.toLowerCase().trim();
+      const capitalized = queryStr.charAt(0).toUpperCase() + queryStr.slice(1);
+
+      const qUsername = query(
         collection(db, 'users'),
-        where('username', '>=', queryStr.toLowerCase()),
-        where('username', '<=', queryStr.toLowerCase() + '\uf8ff'),
-        limit(5)
+        where('username', '>=', lowerQuery),
+        where('username', '<=', lowerQuery + '\uf8ff'),
+        limit(15)
       );
-      const snap = await getDocs(q);
-      const suggestions = snap.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter((u: any) => u.username !== userHandle);
+
+      const qDisplay = query(
+        collection(db, 'users'),
+        where('displayName', '>=', queryStr),
+        where('displayName', '<=', queryStr + '\uf8ff'),
+        limit(15)
+      );
+
+      const qDisplayCap = query(
+        collection(db, 'users'),
+        where('displayName', '>=', capitalized),
+        where('displayName', '<=', capitalized + '\uf8ff'),
+        limit(15)
+      );
+
+      const qFullNameCap = query(
+        collection(db, 'users'),
+        where('fullName', '>=', capitalized),
+        where('fullName', '<=', capitalized + '\uf8ff'),
+        limit(15)
+      );
+
+      const [snapUsername, snapDisplay, snapDisplayCap, snapFullNameCap] = await Promise.all([
+        getDocs(qUsername),
+        getDocs(qDisplay),
+        getDocs(qDisplayCap),
+        getDocs(qFullNameCap)
+      ]);
+
+      const resultsMap: Record<string, any> = {};
+      
+      const addDocsToMap = (snap: any) => {
+        snap.docs.forEach((docSnap: any) => {
+          resultsMap[docSnap.id] = { id: docSnap.id, ...docSnap.data() };
+        });
+      };
+
+      addDocsToMap(snapUsername);
+      addDocsToMap(snapDisplay);
+      addDocsToMap(snapDisplayCap);
+      addDocsToMap(snapFullNameCap);
+
+      const suggestions = Object.values(resultsMap)
+        .filter((u: any) => u.username !== userHandle && u.id !== user.uid && u.uid !== user.uid)
+        .filter((u: any) => {
+          const s = lowerQuery;
+          const uname = (u.username || '').toLowerCase();
+          const dname = (u.displayName || '').toLowerCase();
+          const fname = (u.fullName || '').toLowerCase();
+          const accName = (u.accountName || u.account_name || '').toLowerCase();
+          const email = (u.email || '').toLowerCase();
+          return uname.includes(s) || dname.includes(s) || fname.includes(s) || accName.includes(s) || email.includes(s);
+        })
+        .slice(0, 10);
+
       setUserSuggestions(suggestions);
     } catch (error) {
       console.error("Search users error:", error);
@@ -873,7 +1111,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         if (memberUid && memberUid !== userHandle && memberUid.length > 5) {
           addDoc(collection(db, 'notifications'), {
             to: memberUid,
-            title: `ðŸ’¬ New Message from ${senderName}`,
+            title: `💬 New Message from ${senderName}`,
             message: text.length > 80 ? `${text.slice(0, 80)}...` : text,
             type: 'chat',
             subtype: 'new_message',
@@ -1001,7 +1239,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
       await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData);
       await updateDoc(doc(db, 'chats', selectedChat.id), {
-        lastMessage: `ðŸ“Ž ${type.toUpperCase()}`,
+        lastMessage: `📎 ${type.toUpperCase()}`,
         updatedAt: serverTimestamp()
       });
     } catch (err) {
@@ -1042,7 +1280,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
         await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData);
         await updateDoc(doc(db, 'chats', selectedChat.id), {
-            lastMessage: `ðŸ“¸ ${caption || 'Image'}`,
+            lastMessage: `📸 ${caption || 'Image'}`,
             lastMessageSender: user.displayName || userHandle,
             updatedAt: serverTimestamp(),
             unreadBy: arrayUnion(...otherMembers)
@@ -1082,7 +1320,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
           };
           await addDoc(collection(db, 'chats', selectedChat!.id, 'messages'), msgData);
           await updateDoc(doc(db, 'chats', selectedChat!.id), {
-            lastMessage: 'ðŸŽ¤ Voice Note',
+            lastMessage: '🎤 Voice Note',
             updatedAt: serverTimestamp()
           });
         } catch (err) {
@@ -1293,7 +1531,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     try {
       if (isOwn && choice) {
         await updateDoc(doc(db, 'chats', selectedChat.id, 'messages', msgId), {
-            text: "ðŸš« This message was deleted",
+            text: "🚫 This message was deleted",
             mediaUrl: null,
             type: 'text',
             deletedForEveryone: true
@@ -1712,7 +1950,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                 <div className="space-y-4 pt-4 border-t border-white/5">
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2 italic">
-                       <Users size={16} className="text-[#DC2626]" /> Hub Nodes ({groupSettingsMembers.length})
+                       <Users size={16} className="text-[#DC2626]" /> Members ({groupSettingsMembers.length})
                     </h4>
                     {(selectedChat as any).admin === user.uid && (
                       <button 
@@ -1736,7 +1974,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                              <div className="w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center font-bold text-[#DC2626] text-xs">@{displayName.charAt(0)}</div>
                              <div>
                                <p className="text-xs font-black text-white uppercase truncate">@{displayName}</p>
-                               {isMe && <p className="text-[7px] font-bold text-[#DC2626] uppercase">Primary Node</p>}
+                               {isMe && <p className="text-[7px] font-bold text-[#DC2626] uppercase">Primary User</p>}
                              </div>
                           </div>
                           {(selectedChat as any).admin === user.uid && !isMe && (
@@ -1774,7 +2012,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
           <div className="fixed inset-0 z-[4000] flex items-center justify-center p-4 bg-black/90">
              <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 20, opacity: 0 }} className="bg-[#0F172A] border border-white/10 rounded-3xl p-8 w-full max-w-sm space-y-6 shadow-2xl">
                 <div className="text-center space-y-2">
-                   <h3 className="text-xl font-black text-white uppercase tracking-tighter italic">Merge Node</h3>
+                    <h3 className="text-xl font-black text-white uppercase tracking-tighter italic">Add Member</h3>
                    <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Connect external user handle</p>
                 </div>
                 <input 
@@ -1795,7 +2033,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                     }}
                     className="flex-1 py-4 bg-[#DC2626] text-white rounded-xl text-[10px] font-black uppercase shadow-lg shadow-red-900/20"
                    >
-                     Merge Node
+                     Add Member
                    </button>
                 </div>
              </motion.div>
@@ -1804,863 +2042,147 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
       </AnimatePresence>
       {/* Left Pane (Chat List) */}
       <div className={`flex flex-col border-r border-[#2C2142]/40 bg-gradient-to-b from-[#181628] to-[#0E0C16] overflow-hidden h-full transition-all duration-300 ${isDesktop ? 'w-[400px] shrink-0' : (selectedChat ? 'hidden' : 'w-full')}`}>
-        {!selectedChat || isDesktop ? (
-          <div className="flex flex-col flex-1 h-full overflow-hidden min-h-0">
-          {/* Header Action Bar for Selection Mode */}
-          <AnimatePresence>
-            {isSelectionMode && (
-              <motion.div 
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                className="bg-[#DC2626] text-white px-4 py-3 flex items-center justify-between"
-              >
-                <div className="flex items-center gap-4">
-                  <button onClick={() => { setIsSelectionMode(false); setSelectedChatIds([]); }} className="p-1 hover:bg-white/10 rounded-lg">
-                    <ArrowLeft size={20} />
-                  </button>
-                  <span className="text-sm font-black uppercase tracking-widest">{selectedChatIds.length} Selected</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={createGroupFromSelected} title="Create Group" className="p-2 hover:bg-white/10 rounded-xl">
-                    <Users size={20} />
-                  </button>
-                  <button onClick={bulkArchiveChats} title="Archive" className="p-2 hover:bg-white/10 rounded-xl">
-                    <History size={20} />
-                  </button>
-                  <button onClick={bulkDeleteChats} title="Delete" className="p-2 hover:bg-white/10 rounded-xl">
-                    <Trash2 size={20} />
-                  </button>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
- 
-          <div className="px-6 pt-6 mb-4">
-            <h2 className="text-2xl font-black bg-gradient-to-r from-red-500 via-pink-500 to-amber-500 bg-clip-text text-transparent uppercase italic tracking-tighter mb-4">NSG</h2>
-            <div className="relative group">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20 group-focus-within:text-[#DC2626] transition-colors" size={16} />
-              <input 
-                placeholder="Search chats, groups or contacts..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-4 py-3.5 text-xs text-white outline-none focus:border-[#DC2626] transition-all"
-              />
-            </div>
-          </div>
- 
-          <div className="flex px-4 gap-1.5 mb-2 items-center">
-            {[
-              {id: 'chats', icon: MessageSquare, label: 'Chats', count: totalUnreadCount, gradient: 'from-blue-600/30 to-cyan-500/15 text-blue-300 border-blue-500/20', activeGrad: 'from-blue-600 to-cyan-400 text-white shadow-blue-500/30 ring-2 ring-blue-500/30'},
-              {id: 'groups', icon: Users, label: 'Groups', gradient: 'from-purple-650/30 to-pink-500/15 text-purple-300 border-purple-500/20', activeGrad: 'from-purple-600 to-pink-500 text-white shadow-purple-500/30 ring-2 ring-purple-500/30'},
-              {id: 'calls', icon: Phone, label: 'Calls', gradient: 'from-[#DC2626]/30 to-amber-500/15 text-red-300 border-[#DC2626]/20', activeGrad: 'from-[#DC2626] to-amber-500 text-white shadow-[#DC2626]/30 ring-2 ring-[#DC2626]/30'}
-            ].map(tab => {
-              const isActive = activeTab === tab.id;
-              return (
-                <button 
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id as any)}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-1 rounded-2xl transition-all relative font-black shadow-md border ${
-                    isActive 
-                    ? `bg-gradient-to-r ${tab.activeGrad} scale-[1.03]` 
-                    : `bg-gradient-to-r ${tab.gradient} hover:brightness-125`
-                  }`}
-                >
-                  <tab.icon size={13} />
-                  <span className="text-[9px] font-black uppercase tracking-wider">{tab.label}</span>
-                  {tab.count ? (
-                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[8px] font-black flex items-center justify-center rounded-full border border-zinc-950 shadow-md animate-pulse">
-                      {tab.count}
-                    </span>
-                  ) : null}
-                </button>
-              );
-            })}
-            <button 
-              onClick={() => setUserNotification("Chat History coming soon!")}
-              className="flex items-center justify-center w-9 h-9 bg-white/5 border border-white/10 text-white/40 rounded-xl hover:text-white transition-all text-xs font-black shrink-0"
-              title="History"
-            >
-              <History size={16} />
-            </button>
-            <button 
-              onClick={() => activeTab === 'groups' ? setIsCreatingGroup(true) : setIsAddingChat(true)}
-              className="flex items-center justify-center w-10 h-10 bg-gradient-to-r from-red-650 to-pink-650 hover:from-red-500 hover:to-pink-500 text-white rounded-xl shadow-lg shadow-pink-900/30 hover:brightness-110 active:scale-95 transition-all shrink-0 font-black border border-white/10"
-            >
-              <Plus size={18} />
-            </button>
-          </div>
-
-          {/* Chat List */}
-          <div className="flex-1 overflow-y-auto px-4 space-y-2 pb-20">
-            {activeTab === 'calls' ? (
-              <div className="space-y-2">
-                {callLogs.length === 0 ? (
-                  <div className="text-center py-20 opacity-30">
-                    <Phone size={48} className="mx-auto mb-4" />
-                    <p className="text-xs font-black uppercase tracking-widest">No call history</p>
-                  </div>
-                ) : (
-                  callLogs.map(log => (
-                    <div key={log.id} className="p-4 bg-white/5 border border-white/5 rounded-2xl flex items-center justify-between">
-                       <div className="flex items-center gap-4">
-                         <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white/40">
-                           {log.type === 'video' ? <Video size={18} /> : <Phone size={18} />}
-                         </div>
-                         <div>
-                            <p className="text-xs font-black text-white uppercase tracking-tight">{log.name}</p>
-                            <div className="flex items-center gap-1 opacity-40">
-                               <ArrowLeft size={10} className={log.direction === 'outgoing' ? 'rotate-[135deg] text-emerald-400' : 'rotate-[-45deg] text-red-400'} />
-                               <p className="text-[8px] font-bold uppercase tracking-widest">{log.direction} | {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleString() : 'Recent'}</p>
-                            </div>
-                         </div>
-                       </div>
-                       <motion.button 
-                         whileTap={{ scale: 0.9 }}
-                         onClick={() => startCall(log.type)} 
-                         className="p-[10px] bg-white/5 rounded-xl text-[#DC2626] hover:bg-[#DC2626] hover:text-white transition-all shadow-lg active:shadow-none"
-                       >
-                          {log.type === 'video' ? <Video size={13} /> : <Phone size={13} />}
-                       </motion.button>
-                    </div>
-                  ))
-                )}
-              </div>
-            ) : (
-              chats.sort((a: any, b: any) => {
-                if (a.isPinned && !b.isPinned) return -1;
-                if (!a.isPinned && b.isPinned) return 1;
-                return (b.updatedAt?.toMillis?.() || 0) - (a.updatedAt?.toMillis?.() || 0);
-              }).filter(c => 
-                (activeTab === 'groups' ? c.type === 'group' : c.type === 'direct') &&
-                c.name.toLowerCase().includes(searchQuery.toLowerCase())
-              ).map(chat => (
-                <div key={chat.id} className="border-b border-white/5 last:border-0 mx-2">
-                  <motion.div 
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    onClick={() => isSelectionMode ? toggleChatSelection(chat.id) : setSelectedChat(chat)}
-                    onContextMenu={(e) => { e.preventDefault(); setIsSelectionMode(true); toggleChatSelection(chat.id); }}
-                    onTouchStart={() => {
-                      (window as any).chatLongPressTimer = setTimeout(() => {
-                        setIsSelectionMode(true);
-                        toggleChatSelection(chat.id);
-                        if (navigator.vibrate) navigator.vibrate(50);
-                      }, 1200);
-                    }}
-                    onTouchEnd={() => clearTimeout((window as any).chatLongPressTimer)}
-                    className={`p-4 flex items-center gap-3 cursor-pointer transition-all group relative ${
-                      selectedChatIds.includes(chat.id) ? 'bg-[#DC2626]/10' : 'bg-transparent hover:bg-white/5'
-                    }`}
-                  >
-                    {isSelectionMode && (
-                      <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all shrink-0 ${selectedChatIds.includes(chat.id) ? 'bg-[#DC2626] border-[#DC2626]' : 'border-white/20'}`}>
-                        {selectedChatIds.includes(chat.id) && <Check size={12} className="text-white" />}
-                      </div>
-                    )}
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-black text-lg overflow-hidden border border-white/10 shrink-0 ${chat.id.startsWith('omni_') ? 'bg-black shadow-[0_0_15px_rgba(239,68,68,0.6)] border-red-500/20' : 'bg-[#DC2626]'}`}>
-                      {chat.id.startsWith('omni_') ? (
-                        <Brain size={24} className="text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,1)] animate-pulse" />
-                      ) : chat.photoURL ? (
-                        <img src={chat.photoURL} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        chat.name.charAt(0)
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex justify-between items-center mb-0.5">
-                        <h3 className="text-sm font-black text-white uppercase tracking-tight truncate whitespace-nowrap group-hover:text-[#DC2626] transition-colors">{chat.name}</h3>
-                        <span className="text-[9px] font-bold text-white/20 uppercase tracking-widest whitespace-nowrap">
-                          {chat.updatedAt?.toDate ? chat.updatedAt.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <p className="text-[11px] text-white/40 truncate font-medium">
-                          {chat.lastMessage}
-                        </p>
-                        <div className="flex items-center gap-1">
-                           {chat.isPinned && <Pin size={10} className="text-[#DC2626] rotate-45" />}
-                           {chat.unreadBy?.includes(user.uid) && (
-                              <div className="min-w-[16px] h-[16px] bg-[#38BDF8] rounded-full flex items-center justify-center text-[8px] font-black text-white">
-                                1
-                              </div>
-                           )}
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
-                </div>
-              ))
-            )}
-            {chats.length === 0 && activeTab !== 'calls' && (
-              <div className="text-center py-20">
-                <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <MessageSquare size={32} className="text-white/20" />
-                </div>
-                <p className="text-white/40 text-sm">No chats yet.</p>
-                <button onClick={() => setIsAddingChat(true)} className="mt-4 text-[#DC2626] text-xs font-black uppercase underline">Start new conversation</button>
-              </div>
-            )}
-          </div>
-          </div>
-        ) : null}
+        <ChatList
+          chats={chats}
+          selectedChat={selectedChat}
+          setSelectedChat={setSelectedChat}
+          user={user}
+          userHandle={userHandle}
+          theme={theme}
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
+          subFilter={subFilter}
+          setSubFilter={setSubFilter}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          getChatName={getChatName}
+          getChatPhoto={getChatPhoto}
+          getChatUsername={getChatUsername}
+          onNewChatTrigger={() => setIsAddingChat(true)}
+          onOpenSettings={() => setViewingUser({ ...user, fullName: user.displayName || 'Me', username: userHandle, about: 'NSG Premium Scholar' })}
+          selectedChatIds={selectedChatIds}
+          isSelectionMode={isSelectionMode}
+          setIsSelectionMode={setIsSelectionMode}
+          toggleChatSelection={toggleChatSelection}
+          onBatchDelete={bulkDeleteChats}
+        />
       </div>
 
       {/* Right Pane (Conversation) */}
       <div className={`flex flex-col flex-1 h-full overflow-hidden ${!isDesktop && !selectedChat ? 'hidden' : 'flex'}`}>
         {selectedChat ? (
-          /* Individual Chat View */
-          <div className="flex flex-col flex-1 h-full overflow-hidden relative min-h-0">
-          {/* Message Selection Header (WhatsApp style) */}
-          <AnimatePresence>
-            {longPressedMessage && (
-              <motion.div 
-                initial={{ y: -50, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: -50, opacity: 0 }}
-                className="absolute top-0 left-0 right-0 z-[110] bg-[#DC2626] px-4 py-3 flex items-center justify-between shadow-2xl"
-              >
-                <div className="flex items-center gap-4">
-                  <button onClick={() => setLongPressedMessage(null)} className="p-2 hover:bg-white/10 rounded-xl transition-all">
-                    <ArrowLeft size={20} className="text-white" />
-                  </button>
-                  <span className="text-sm font-black uppercase text-white tracking-widest">1 Selected</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button 
-                    onClick={() => {
-                        const msg = messages.find(m => m.id === longPressedMessage);
-                        if (msg) { setReplyingTo(msg); setLongPressedMessage(null); }
-                    }} 
-                    className="p-2 hover:bg-white/10 rounded-xl text-white"
-                  >
-                    <Reply size={20} />
-                  </button>
-                  <button 
-                    onClick={() => {
-                        const msg = messages.find(m => m.id === longPressedMessage);
-                        if (msg) {
-                            navigator.clipboard.writeText(msg.text);
-                            setLongPressedMessage(null);
-                            setUserNotification("Copied!");
-                        }
-                    }} 
-                    className="p-2 hover:bg-white/10 rounded-xl text-white"
-                  >
-                    <Copy size={20} />
-                  </button>
-                  <button 
-                    onClick={() => {
-                        const msg = messages.find(m => m.id === longPressedMessage);
-                        if (msg) {
-                            const info = `Sent: ${msg.timestamp?.toDate ? msg.timestamp.toDate().toLocaleString() : 'Just now'}\nStatus: ${msg.seenBy && msg.seenBy.length > 1 ? 'Read' : 'Delivered'}`;
-                            setUserNotification(info);
-                            setLongPressedMessage(null);
-                        }
-                    }} 
-                    className="p-2 hover:bg-white/10 rounded-xl text-white"
-                  >
-                    <Info size={20} />
-                  </button>
-                  <button 
-                    onClick={() => deleteMessage(longPressedMessage)} 
-                    className="p-2 hover:bg-white/10 rounded-xl text-white"
-                  >
-                    <Trash2 size={20} />
-                  </button>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-          
-          <div className="pt-8 pb-1.5 px-3 border-b border-white/5 flex items-center gap-3 bg-black/20 backdrop-blur-md z-20 shrink-0">
-            {!isDesktop && (
-              <button onClick={() => setSelectedChat(null)} className="p-2 hover:bg-white/5 rounded-lg transition-all">
-                <ArrowLeft size={20} className="text-white/60" />
-              </button>
-            )}
-            <div 
-              onClick={handleViewUser}
-              className="flex items-center gap-3 cursor-pointer hover:bg-white/5 py-1.5 px-3.5 rounded-2xl transition-all"
-            >
-              <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white font-black overflow-hidden border border-white/10 ${selectedChat.id.startsWith('omni_') ? 'bg-black shadow-[0_0_12px_rgba(239,68,68,0.6)] border-red-500/20' : 'bg-[#DC2626]'}`}>
-                {selectedChat.id.startsWith('omni_') ? (
-                  <Brain size={18} className="text-red-500 drop-shadow-[0_0_6px_rgba(239,68,68,1)] animate-pulse" />
-                ) : selectedChat.photoURL ? (
-                  <img src={selectedChat.photoURL} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  selectedChat.name.charAt(0)
-                )}
-              </div>
-              <div className="flex-1 min-w-0 text-left">
-                <h3 className="text-sm font-black text-white uppercase tracking-tight italic leading-tight whitespace-nowrap overflow-visible">
-                  {selectedChat.name}
-                </h3>
-                <p className={`text-[7px] font-bold uppercase tracking-[0.2em] ${recipientStatus === 'Online' ? 'text-green-500 animate-pulse' : 'text-white/20'}`}>
-                  {selectedChat.isOmni ? 'Omni by NSG | AI Assistant' : recipientStatus}
-                </p>
-              </div>
-            </div>
-            <div className="flex gap-2 relative">
-              <motion.button 
-                whileTap={{ scale: 0.85 }}
-                onClick={() => setShowSearchInChat(!showSearchInChat)}
-                className={`p-1.5 transition-colors ${showSearchInChat ? 'text-[#DC2626]' : 'text-white/40 hover:text-white'}`}
-              >
-                <Search size={17} />
-              </motion.button>
-              <motion.button 
-                whileTap={{ scale: 0.85 }}
-                onClick={() => startCall('voice')}
-                className="p-1.5 text-white/40 hover:text-white"
-              >
-                <Phone size={17} />
-              </motion.button>
-              <motion.button 
-                whileTap={{ scale: 0.85 }}
-                onClick={() => startCall('video')}
-                className="p-1.5 text-white/40 hover:text-white"
-              >
-                <Video size={17} />
-              </motion.button>
-              <div className="relative">
-                <button 
-                   onClick={() => {
-                     if (selectedChat.type === 'group') {
-                       setGroupSettingsName(selectedChat.name);
-                       setGroupSettingsDesc((selectedChat as any).description || '');
-                       setGroupSettingsPhoto(selectedChat.photoURL || null);
-                       setGroupSettingsMembers(selectedChat.members);
-                       setIsViewingGroupSettings(true);
-                     } else {
-                       setShowMoreMenu(!showMoreMenu);
-                     }
-                   }}
-                   className="p-1.5 text-white/40 hover:text-white"
-                >
-                  <MoreVertical size={17} />
-                </button>
-                <AnimatePresence>
-                  {showMoreMenu && (
-                    <motion.div 
-                      initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                      className="absolute right-0 top-full mt-2 w-48 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-[100]"
-                    >
-                      {[
-                        { label: 'View User', icon: User, action: handleViewUser },
-                        { label: 'Clear Chat', icon: RefreshCw },
-                        { label: 'Search', icon: Search },
-                        { label: 'Block', icon: Lock, color: 'text-red-500' }
-                      ].map((item, i) => (
-                        <button 
-                          key={i}
-                          onClick={() => {
-                            if (item.action) {
-                              item.action();
-                            } else {
-                              setUserNotification(`${item.label} is coming soon.`);
-                              setShowMoreMenu(false);
-                            }
-                          }}
-                          className={`w-full px-4 py-3 flex items-center gap-3 hover:bg-white/5 transition-all text-left text-xs font-black uppercase tracking-widest ${item.color || 'text-white/60'}`}
-                        >
-                          <item.icon size={14} />
-                          {item.label}
-                        </button>
-                      ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            </div>
-          </div>
-
-          {showSearchInChat && (
-            <motion.div 
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              className="px-4 py-2 border-b border-white/5 bg-black/40 shrink-0"
-            >
-              <div className="relative">
-                <Search size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/20" />
-                <input 
-                  autoFocus
-                  placeholder="Search in conversation..."
-                  value={messageSearchQuery}
-                  onChange={(e) => setMessageSearchQuery(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-8 pr-4 py-1.5 text-[10px] text-white outline-none focus:border-[#DC2626]/50"
-                />
-                {messageSearchQuery && (
-                  <button onClick={() => setMessageSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/20 hover:text-white">
-                    <X size={10} />
-                  </button>
-                )}
-              </div>
-            </motion.div>
-          )}
-
-          <div 
-            ref={scrollContainerRef}
-            className="flex-1 w-full overflow-y-auto p-4 space-y-4 pb-10 text-left flex flex-col min-h-0"
-          >
-            {/* OMNI Special Features (Collaborative Study Tutorials & Sessions Feed) */}
-            {selectedChat?.isOmni && (
-              <div className="shrink-0 space-y-3 mb-4">
-                {/* Visual Header / Dashboard Row */}
-                <div className="flex gap-2 items-center justify-between border-b border-white/5 pb-2">
-                  <div className="flex items-center gap-1.5">
-                    <Brain className="text-red-500 animate-pulse" size={16} />
-                    <span className="text-[10px] font-black uppercase text-white tracking-widest">OMNI INTELLIGENCE SUITE</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 font-sans">
-                    <button 
-                      onClick={() => {
-                        const q = query(
-                          collection(db, 'chats'),
-                          where('isOmni', '==', true),
-                          where('ownerId', '==', user.uid)
-                        );
-                        getDocs(q).then((snap) => {
-                          const list = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Chat[];
-                          setOmniThreads(list);
-                          setShowOmniThreads(!showOmniThreads);
-                        });
-                      }}
-                      className="px-2.5 py-1 bg-red-600/15 hover:bg-red-600/30 border border-red-500/20 text-red-400 hover:text-white rounded-full text-[8px] font-black uppercase tracking-widest transition-all"
-                    >
-                      {showOmniThreads ? 'Hide Sessions' : 'ðŸ“‚ Session History'}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Omni Threads Drawer (Slidable Page) */}
-                <AnimatePresence>
-                  {showOmniThreads && (
-                    <motion.div 
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: 'auto' }}
-                      exit={{ opacity: 0, height: 0 }}
-                      className="bg-slate-900/60 border border-white/5 rounded-2xl p-3 space-y-2 max-h-48 overflow-y-auto custom-scrollbar"
-                    >
-                      <div className="flex items-center justify-between">
-                        <p className="text-[8px] font-black uppercase text-white/40 tracking-widest">Saved Multi-turns</p>
-                        <button 
-                          onClick={async () => {
-                            const nextThreadId = `omni_${user.uid}_thread_${Date.now()}`;
-                            const newThreadData = {
-                              name: `Omni Session - ${new Date().toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`,
-                              type: 'direct',
-                              isOmni: true,
-                              photoURL: selectedChat.photoURL,
-                              ownerId: user.uid,
-                              members: selectedChat.members,
-                              updatedAt: serverTimestamp(),
-                              lastMessage: 'Session started. Type anything to prompt Omni.'
-                            };
-                            await setDoc(doc(db, 'chats', nextThreadId), newThreadData);
-                            setSelectedChat({ id: nextThreadId, ...newThreadData } as any);
-                            setShowOmniThreads(false);
-                            setUserNotification("Started a beautiful clean study session thread.");
-                          }}
-                          className="px-2 py-0.5 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 text-green-500 rounded text-[7.5px] font-black uppercase tracking-wider transition-all"
-                        >
-                          âž• Start New Session
-                        </button>
-                      </div>
-
-                      {omniThreads.length === 0 ? (
-                        <p className="text-[8px] uppercase tracking-widest text-white/20 italic">No saved threads yet</p>
-                      ) : (
-                        <div className="space-y-1">
-                          {omniThreads.map((thread) => (
-                            <div key={thread.id} className="flex items-center justify-between p-1.5 bg-white/5 hover:bg-white/10 rounded-xl transition-all border border-white/5">
-                              <button 
-                                onClick={() => {
-                                  setSelectedChat(thread);
-                                  setShowOmniThreads(false);
-                                }}
-                                className="flex-1 text-left text-[9px] font-bold text-white uppercase tracking-tight truncate hover:text-[#DC2626] transition-colors"
-                              >
-                                {thread.name}
-                              </button>
-                              <button 
-                                onClick={async () => {
-                                  if (thread.id === `omni_${user.uid}`) {
-                                    alert("The primary Omni profile is perpetual and cannot be deleted.");
-                                    return;
-                                  }
-                                  if (confirm("Delete this session record? This action is permanent!")) {
-                                    await deleteDoc(doc(db, 'chats', thread.id));
-                                    setOmniThreads(prev => prev.filter(t => t.id !== thread.id));
-                                    if (selectedChat.id === thread.id) {
-                                      setSelectedChat(chats.find(c => c.id === `omni_${user.uid}`) || chats[0] || null);
-                                    }
-                                  }
-                                }}
-                                className="p-1 hover:bg-red-500/10 rounded text-red-500 transition-colors"
-                              >
-                                <Trash size={10} />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-              </div>
-            )}
-            {messages.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
-                <div className="w-16 h-16 rounded-3xl bg-white/5 flex items-center justify-center mb-4 border border-white/10 shadow-[0_0_20px_rgba(220,38,38,0.15)] animate-pulse">
-                  <MessageSquare size={28} className="text-[#DC2626]" />
-                </div>
-                <h4 className={`text-xs font-black uppercase tracking-widest ${theme === 'dark' ? 'text-white/60' : 'text-slate-500'}`}>Type something to begin chat</h4>
-              </div>
-            ) : (
-              groupMessagesByDate(messages.filter(m => m.text.toLowerCase().includes(messageSearchQuery.toLowerCase()))).map((group, groupIdx) => (
-              <div key={groupIdx} className="space-y-4">
-                <div className="flex justify-center my-6">
-                  <span className="px-3 py-1 bg-white/5 rounded-full text-[9px] font-black uppercase text-white/30 tracking-widest border border-white/5 shadow-sm">
-                    {group.date}
-                  </span>
-                </div>
-                {group.messages.map((msg) => (
-                  <div key={msg.id} className="relative group overflow-hidden">
-                    {/* Swipe Reveal Icon (Behind message) */}
-                    <div className="absolute inset-y-0 left-0 flex items-center pl-6 -z-10 opacity-0 group-active:opacity-100 transition-opacity">
-                      <Reply size={22} className="text-[#DC2626] animate-pulse" />
-                    </div>
-
-                    <motion.div 
-                      key={msg.id} 
-                      drag="x"
-                      dragConstraints={{ left: 0, right: 0 }}
-                      dragElastic={0.4}
-                      animate={{ x: 0 }}
-                      transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-                      onDragEnd={(_, info) => {
-                        if (info.offset.x > 80) {
-                          setReplyingTo(msg);
-                          if (navigator.vibrate) navigator.vibrate(50);
-                        }
-                      }}
-                      className={`flex ${msg.senderId === user.uid ? 'justify-end' : 'justify-start'} relative scroll-mt-2 overflow-visible`}
-                      onContextMenu={(e) => { e.preventDefault(); setLongPressedMessage(msg.id); }}
-                      onTouchStart={() => handleLongPressStart(msg.id)}
-                      onTouchEnd={handleLongPressEnd}
-                    >
-                    <div className={`max-w-[80%] space-y-1 ${msg.senderId === user.uid ? 'items-end' : 'items-start'}`}>
-                      {(selectedChat.type === 'group' || msg.senderId !== user.uid) && (
-                        <span className="text-[8px] font-black text-[#DC2626] ml-2 opacity-60 uppercase tracking-widest">
-                          {msg.senderName || `@${msg.senderHandle}`}
-                        </span>
-                      )}
-                      <div 
-                        className={`p-3 rounded-2xl text-sm leading-relaxed shadow-sm transition-all relative ${
-                          longPressedMessage === msg.id ? ' ring-2 ring-[#DC2626] ring-offset-2 ring-offset-black' : ''
-                        } ${
-                          msg.senderId === user.uid 
-                            ? 'bg-[#DC2626] text-white rounded-tr-none' 
-                            : 'bg-white/5 text-white/90 border border-white/10 rounded-tl-none'
-                        }`}
-                      >
-                        {msg.replyTo && (
-                          <div className={`mb-2 p-2 rounded-xl text-[10px] border-l-4 ${
-                            msg.senderId === user.uid ? 'bg-black/20 border-white/30 text-white/70' : 'bg-white/5 border-[#DC2626] text-white/50'
-                          }`}>
-                            <p className="font-black uppercase tracking-widest mb-1 truncate">{msg.replyTo.senderName}</p>
-                            <p className="line-clamp-2 italic">{msg.replyTo.text}</p>
-                          </div>
-                        )}
-                        {msg.type === 'image' && msg.mediaUrl ? (
-                          <div className="relative group/msgimg cursor-pointer max-w-full overflow-hidden rounded-xl">
-                            <img 
-                                src={msg.mediaUrl} 
-                                onClick={() => setFullscreenImage(msg.mediaUrl!)}
-                                className={`h-auto w-full mb-2 shadow-2xl transition-all duration-500 scale-100 active:scale-[0.98] ${msg.isViewOnce && msg.seenBy && msg.seenBy.includes(user.uid) && msg.senderId !== user.uid ? 'blur-2xl grayscale' : ''}`} 
-                            />
-                            {msg.isViewOnce && (
-                                <div className="absolute top-2 right-2 px-2 py-1 bg-black/60 backdrop-blur-md rounded-full flex items-center gap-1.5 border border-white/10">
-                                    <div className="w-3 h-3 rounded-full border border-white flex items-center justify-center text-[7px] font-bold">1</div>
-                                    <span className="text-[7px] font-black uppercase tracking-widest text-white">View Once</span>
-                                </div>
-                            )}
-                          </div>
-                        ) : msg.type === 'audio' && msg.mediaUrl ? (
-                          <AudioMessage url={msg.mediaUrl} theme={theme} isOwn={msg.senderId === user.uid} />
-                        ) : (
-                          <div className="relative flex flex-col gap-2">
-                            {msg.isSharedNote ? (
-                              <div className="p-4 bg-black/40 border border-white/5 rounded-2xl flex flex-col gap-2 min-w-[210px] shadow-lg">
-                                <div className="flex items-center gap-2">
-                                  <div className="w-9 h-9 bg-[#DC2626]/20 border border-[#DC2626]/30 text-white flex items-center justify-center rounded-xl text-lg animate-pulse shrink-0">
-                                    ðŸ““
-                                  </div>
-                                  <div className="min-w-0 flex-1">
-                                    <p className="text-[7.5px] font-black uppercase text-[#DC2626] tracking-[0.2em]">{msg.sharedAccessType === 'editable' ? 'Collab Workspace' : 'Broadcast Notebook'}</p>
-                                    <h5 className="text-[10.5px] font-black text-white uppercase italic truncate mt-0.5">{msg.noteTitle || msg.text.replace(/^[âœï¸ðŸ““]\s*/, '')}</h5>
-                                  </div>
-                                </div>
-                                {msg.noteContent && (
-                                  <div className="bg-white/[0.02] border border-white/5 text-slate-300 italic px-3 py-2 rounded-xl text-[9px] font-sans line-clamp-3 select-text leading-normal max-w-xs text-left">
-                                    "{msg.noteContent}"
-                                  </div>
-                                )}
-                                <button 
-                                  onClick={() => {
-                                    window.dispatchEvent(new CustomEvent('load_shared_note', {
-                                      detail: { noteId: msg.mediaUrl, access: msg.sharedAccessType }
-                                    }));
-                                  }}
-                                  className="w-full py-2.5 bg-[#DC2626] hover:bg-red-700 text-white rounded-xl text-[8.5px] font-black uppercase tracking-widest text-center transition-all shadow-md active:scale-95 mt-1 border-b-[2.5px] border-red-900"
-                                >
-                                  Open Note Workspace
-                                </button>
-                              </div>
-                            ) : (
-                              <>
-                                <div className={`markdown-body ${expandedMessages.includes(msg.id) ? '' : 'max-h-[300px] overflow-hidden'}`}>
-                                  <TypewriterText 
-                                    text={msg.text} 
-                                    msgId={msg.id} 
-                                    isOmniReply={selectedChat.isOmni && msg.senderId !== user.uid && msg.id === latestOmniMsgId} 
-                                  />
-                                </div>
-                                {msg.text.length > 500 && (
-                                  <button 
-                                    onClick={() => setExpandedMessages(prev => prev.includes(msg.id) ? prev.filter(id => id !== msg.id) : [...prev, msg.id])}
-                                    className="mt-1 text-[9px] font-black uppercase text-[#38BDF8] hover:underline text-left block"
-                                  >
-                                    {expandedMessages.includes(msg.id) ? 'Read Less' : 'Read More...'}
-                                  </button>
-                                )}
-                                {/* Render parsed YouTube video embeds if this is an AI response and contains YouTube links */}
-                                {msg.senderId !== user.uid && extractYoutubeLinks(msg.text).length > 0 && (
-                                  <div className="mt-3 space-y-2 border-t border-white/5 pt-3">
-                                    <p className="text-[8px] font-black uppercase text-[#DC2626] tracking-[0.2em] flex items-center gap-1 font-sans">
-                                      <span>ðŸ“º</span> RECOMMENDED TUTORIALS DETECTED
-                                    </p>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                      {extractYoutubeLinks(msg.text).map((videoId) => (
-                                        <div key={videoId} className="bg-black/50 border border-white/5 rounded-2xl overflow-hidden shadow-lg flex flex-col h-fit">
-                                          <div className="relative aspect-video w-full">
-                                            <iframe
-                                              src={`https://www.youtube.com/embed/${videoId}`}
-                                              title="YouTube video player"
-                                              frameBorder="0"
-                                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                                              allowFullScreen
-                                              className="absolute inset-0 w-full h-full"
-                                            />
-                                          </div>
-                                          <div className="p-2 flex justify-between items-center bg-white/5 text-[7px] font-black tracking-widest uppercase">
-                                            <span className="text-white/40">ID: {videoId}</span>
-                                            <a 
-                                              href={`https://www.youtube.com/watch?v=${videoId}`} 
-                                              target="_blank" 
-                                              referrerPolicy="no-referrer"
-                                              className="text-[#DC2626] hover:underline"
-                                            >
-                                              Open YouTube â†—
-                                            </a>
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                              </>
-                            )}
-
-                            {/* Floating Voice Playback trigger for Companion Omni or peer academic text and translations */}
-                            {selectedChat.isOmni && msg.senderId !== user.uid && !msg.isSharedNote && (
-                              <div className="flex justify-end mt-1 border-t border-white/5 pt-1">
-                                <button 
-                                  onClick={() => speakUtterance(msg.text, msg.id)}
-                                  className="px-2 py-0.5 rounded-full bg-white/5 hover:bg-white/10 text-white/50 hover:text-white text-[8px] font-black uppercase tracking-widest flex items-center gap-1 transition-all"
-                                >
-                                  <span>{activeSpeech && activeSpeech.id === msg.id && !activeSpeech.paused ? 'â¸ï¸ PAUSE VOICE' : 'ðŸ”Š READ ALOUD'}</span>
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1.5 px-1">
-                        <span className="text-[8px] text-white/20 uppercase">
-                          {msg.timestamp?.toDate ? msg.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                        </span>
-                        {msg.senderId === user.uid && (
-                          !msg.timestamp || msg.status === 'sending' ? (
-                             <RefreshCw size={8} className="text-white/20 animate-spin" />
-                          ) : msg.seenBy && msg.seenBy.length > 1 ? (
-                             <CheckCheck size={10} className="text-[#38BDF8]" />
-                          ) : (
-                             <Check size={10} className="text-white/30" />
-                          )
-                        )}
-                      </div>
-                    </div>
-                  </motion.div>
-                </div>
-              ))}
-            </div>
-          ))
-        )}
-            {isOmniThinking && (
-              <div className="flex justify-start relative scroll-mt-2 items-center mb-2">
-                <div className="flex gap-2 items-center max-w-[85%] bg-white/5 border border-white/10 rounded-2xl rounded-tl-none p-3 shadow-md animate-pulse">
-                  <Brain size={14} className="text-red-500 animate-spin" />
-                  <span className="text-[9px] font-black uppercase text-white/50 tracking-widest">Omni is formulating synchronized equation response...</span>
-                </div>
-              </div>
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-
-          <div className="p-1.5 sm:p-2 bg-black/40 border-t border-white/5 relative mb-1 sm:mb-0 shrink-0">
-            <AnimatePresence>
-              {replyingTo && (
-                <motion.div 
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="mb-2 bg-white/5 border-l-4 border-[#DC2626] p-3 rounded-tr-2xl rounded-br-2xl flex items-center justify-between group"
-                >
-                  <div className="min-w-0">
-                    <p className="text-[10px] font-black text-[#DC2626] uppercase tracking-[0.2em] mb-1">Replying to {replyingTo.senderName || replyingTo.senderHandle}</p>
-                    <p className="text-xs text-white/60 truncate italic">{replyingTo.text}</p>
-                  </div>
-                  <button onClick={() => setReplyingTo(null)} className="p-2 text-white/20 hover:text-white transition-colors">
-                    <X size={16} />
-                  </button>
-                </motion.div>
-              )}
-              {showEmojiPicker && (
-                <motion.div 
-                  initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}
-                  className="absolute bottom-full left-4 mb-4 w-64 bg-slate-900 border border-white/10 rounded-3xl shadow-2xl z-[100] overflow-hidden"
-                >
-                  <div className="flex border-b border-white/5 overflow-x-auto custom-scrollbar">
-                    {emojis.map(cat => (
-                      <button 
-                        key={cat.category}
-                        onClick={() => setActiveEmojiCategory(cat.category)}
-                        className={`px-4 py-3 text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all ${activeEmojiCategory === cat.category ? 'text-[#DC2626] border-b-2 border-[#DC2626]' : 'text-white/40'}`}
-                      >
-                        {cat.category}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="p-4 grid grid-cols-6 gap-2 max-h-48 overflow-y-auto custom-scrollbar">
-                    {emojis.find(c => c.category === activeEmojiCategory)?.items.map(e => (
-                      <button 
-                        key={e} 
-                        onClick={() => { setInputText(prev => prev + e); }}
-                        className="text-xl hover:scale-125 transition-transform p-1"
-                      >
-                        {e}
-                      </button>
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-              <div className="flex items-center gap-2 w-full px-2">
-                <button 
-                  onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                  className="p-1.5 text-white/40 hover:text-white transition-colors"
-                >
-                  <Smile size={20} />
-                </button>
-                <div className="relative">
-                  <button 
-                    onClick={() => setShowAttachmentMenu(!showAttachmentMenu)}
-                    disabled={isUploading}
-                    className="p-1.5 text-white/40 hover:text-white transition-colors relative"
-                  >
-                    {isUploading ? <RefreshCw size={20} className="animate-spin text-emerald-400" /> : <Paperclip size={20} />}
-                  </button>
-                <AnimatePresence>
-                  {showAttachmentMenu && (
-                    <motion.div 
-                      initial={{ opacity: 0, scale: 0.9, y: 10 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.9, y: 10 }}
-                      className="absolute bottom-full left-0 mb-4 w-48 bg-slate-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-[100]"
-                    >
-                      {[
-                        { label: 'NSG Media Gallery', icon: ImageIcon, action: () => setShowPhotoLibrary(true) },
-                        { label: 'Share Notebook Notes', icon: BookOpen, action: () => setShowNoteShareOverlay(true) },
-                        { label: 'Share Revision Quizzes', icon: Award, action: () => setShowQuizShareOverlay(true) },
-                        { label: 'System Files', icon: FileText, action: () => fileInputRef.current?.click() },
-                        { label: 'Add User to Chat', icon: UserPlus, action: () => setIsAddingChat(true) }
-                      ].map((item, i) => (
-                        <button 
-                          key={i}
-                          onClick={() => { item.action(); setShowAttachmentMenu(false); }}
-                          className="w-full px-4 py-3 flex items-center gap-3 hover:bg-white/5 transition-all text-left text-[10px] font-black uppercase tracking-widest text-white/60"
-                        >
-                          <item.icon size={14} />
-                          {item.label}
-                        </button>
-                      ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-                <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} />
-              </div>
-              <div className="flex-1 relative flex items-center gap-2">
-                {isRecording ? (
-                  <div className="flex-1 bg-[#DC2626]/10 border border-[#DC2626]/20 rounded-2xl px-4 py-3 flex items-center justify-between text-[#DC2626]">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                      <span className="text-xs font-black uppercase tracking-widest">Recording... {recordingTime}s</span>
-                    </div>
-                  </div>
-                ) : (
-                  <input 
-                    type="text" 
-                    value={inputText}
-                    onChange={(e) => setInputText(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-                    placeholder="Type a message..."
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-[#DC2626]/50 transition-all"
-                  />
-                )}
-              </div>
-              <button 
-                onClick={inputText.trim() ? handleSendMessage : isRecording ? stopRecording : startRecording}
-                disabled={isUploading}
-                className={`p-3 rounded-2xl shadow-lg transition-all ${
-                  inputText.trim() || isRecording
-                  ? 'bg-[#DC2626] text-white shadow-[#DC2626]/20' 
-                  : 'bg-white/5 text-white/40 hover:text-white'
-                }`}
-              >
-                {inputText.trim() ? <Send size={20} /> : isRecording ? <StopCircle size={20} /> : <Mic size={20} />}
-              </button>
-            </div>
-            <p className="text-[8px] text-center mt-2 text-white/10 flex items-center justify-center gap-1 uppercase tracking-[0.2em]">
-              <Lock size={8} /> End-to-end encrypted
-            </p>
-          </div>
-        </div>
-      ) : isDesktop ? (
+          selectedChat.isOmni || selectedChat.id.startsWith('omni_') ? (
+            <OmniChatWorkspace
+              messages={messages as any[]}
+              inputText={inputText}
+              setInputText={setInputText}
+              isThinking={isOmniThinking}
+              isRecording={isRecording}
+              onSendMessage={handleSendMessage}
+              onStopGeneration={() => setIsOmniThinking(false)}
+              onStartVoiceRecord={startRecording}
+              onStopVoiceRecord={stopRecording}
+              onFileUpload={handleFileUpload}
+              onClose={() => setSelectedChat(null)}
+              user={user}
+              userHandle={userHandle}
+              theme={theme}
+              userNotes={userNotes}
+              onOpenNote={onOpenNote}
+            />
+          ) : (
+            <PeerChatWorkspace
+              chat={selectedChat}
+              messages={messages as any[]}
+              inputText={inputText}
+              setInputText={setInputText}
+              onSendMessage={handleSendMessage}
+              onVoiceUpload={(url, duration) => {
+                const msgData = {
+                  senderId: user.uid,
+                  senderHandle: userHandle,
+                  senderName: user.displayName || userHandle,
+                  text: 'Sent audio',
+                  timestamp: new Date(),
+                  type: 'audio',
+                  mediaUrl: url,
+                  duration: duration,
+                  encrypted: true
+                };
+                const { collection, addDoc } = require('firebase/firestore');
+                addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData);
+              }}
+              onFileUpload={handleFileUpload}
+              onClose={() => setSelectedChat(null)}
+              user={user}
+              userHandle={userHandle}
+              theme={theme}
+              userNotes={userNotes}
+              onOpenNote={onOpenNote}
+              targetUserData={getOtherMemberInfo(selectedChat) ? {
+                displayName: (getOtherMemberInfo(selectedChat) as any)?.displayName || 'Scholar',
+                fullName: (getOtherMemberInfo(selectedChat) as any)?.fullName || (getOtherMemberInfo(selectedChat) as any)?.displayName || 'NSG Scholar',
+                photoURL: (getOtherMemberInfo(selectedChat) as any)?.photoURL || undefined,
+                email: (getOtherMemberInfo(selectedChat) as any)?.email || undefined,
+                about: (getOtherMemberInfo(selectedChat) as any)?.about || 'Verified NSG Peer',
+                university: (getOtherMemberInfo(selectedChat) as any)?.university || 'University of Benin',
+                department: (getOtherMemberInfo(selectedChat) as any)?.department || 'Computer Engineering',
+                faculty: (getOtherMemberInfo(selectedChat) as any)?.faculty || 'Engineering',
+                level: (getOtherMemberInfo(selectedChat) as any)?.level || '300 Level',
+                points: (getOtherMemberInfo(selectedChat) as any)?.points || 250,
+                streak: (getOtherMemberInfo(selectedChat) as any)?.streak || 14
+              } : undefined}
+              onMessageContextMenu={(e, msg) => {
+                e.preventDefault();
+                setOverlayMessage(msg as any);
+                setOverlayPosition({ x: e.clientX, y: e.clientY });
+              }}
+            />
+          )
+        ) : isDesktop ? (
           <div className="flex-1 flex flex-col items-center justify-center text-white/5 p-12 text-center bg-black/40">
-            <div className="w-24 h-24 rounded-full bg-white/5 flex items-center justify-center mb-6 shadow-[0_0_50px_rgba(220,38,38,0.1)] border border-white/5">
-              <Brain size={48} className="text-red-600/20" />
+            <div className="w-24 h-24 rounded-full bg-white/5 flex items-center justify-center mb-6 shadow-[0_0_50px_rgba(220,38,38,0.1)] border border-white/5 animate-pulse">
+              <Brain size={48} className="text-red-650/40" />
             </div>
-            <h3 className="text-xl font-black uppercase tracking-[0.3em] mb-2 opacity-30 italic">Omni by NSG</h3>
-            <p className="max-w-xs text-[10px] font-bold leading-relaxed opacity-20 uppercase tracking-[0.2em]">Select an active node to begin synchronized intelligence transfer</p>
+            <h3 className="text-md font-black uppercase tracking-widest text-[#DC2626] mb-2 opacity-50 italic">NSG Workspace</h3>
+            <p className="max-w-xs text-[10px] font-black leading-relaxed opacity-20 uppercase tracking-widest">Select an active chat session to begin sharing intelligence</p>
           </div>
-        ) : (null) }
+        ) : null}
       </div>
+
+      {/* Floating Rich Context Actions Pop-up Menu */}
+      <AnimatePresence>
+        {overlayMessage && (
+          <MessageOverlay
+            message={overlayMessage as any}
+            triggerPosition={overlayPosition}
+            onClose={() => setOverlayMessage(null)}
+            onReact={(emoji) => handleAddReaction(overlayMessage.id, emoji)}
+            onReplyInline={() => {
+              setReplyingTo(overlayMessage as any);
+              setOverlayMessage(null);
+            }}
+            onCopyText={() => {
+              navigator.clipboard.writeText(overlayMessage.text);
+              setUserNotification("Copied!");
+            }}
+            onForward={() => {
+              setUserNotification("Marked for forwarding!");
+              setOverlayMessage(null);
+            }}
+            onStarMessage={() => {
+              handleToggleStarMessage(overlayMessage.id);
+              setOverlayMessage(null);
+              setUserNotification("Updated Starred Status!");
+            }}
+            onDeleteMessage={(type) => {
+              handleDeleteMessageDirect(overlayMessage.id, type);
+              setOverlayMessage(null);
+              setUserNotification("Message Deleted!");
+            }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* User Details Overlay (WhatsApp style) */}
       <AnimatePresence>
@@ -2704,20 +2226,20 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
               {!viewingUser.isOmni && (
                 <div className={`${theme === 'dark' ? 'bg-[#0F172A]' : 'bg-white'} p-6 rounded-3xl shadow-lg space-y-4 border border-white/5 mx-4 mb-4`}>
                   <p className="text-[10px] font-black text-[#DC2626] uppercase tracking-[0.2em] flex items-center gap-2">
-                    ðŸ† SCHOLAR CREDENTIALS
+                    🏆 SCHOLAR CREDENTIALS
                   </p>
                   
                   <div className="grid grid-cols-2 gap-4">
                     {/* XP Points */}
                     <div className={`${theme === 'dark' ? 'bg-white/5' : 'bg-slate-100'} p-4 rounded-2xl flex flex-col items-center justify-center text-center`}>
-                      <span className="text-2xl">ðŸ’Ž</span>
+                      <span className="text-2xl">💎</span>
                       <p className={`text-[8px] font-black ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} uppercase tracking-widest mt-1`}>XP Power</p>
                       <p className={`text-sm font-black ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{viewingUser.points || 0} XP</p>
                     </div>
 
                     {/* Day Streak */}
                     <div className={`${theme === 'dark' ? 'bg-white/5' : 'bg-slate-100'} p-4 rounded-2xl flex flex-col items-center justify-center text-center`}>
-                      <span className="text-2xl">ðŸ”¥</span>
+                      <span className="text-2xl">🔥</span>
                       <p className={`text-[8px] font-black ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} uppercase tracking-widest mt-1`}>Daily Streak</p>
                       <p className={`text-sm font-black ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{viewingUser.streak || 0} Days</p>
                     </div>
@@ -2726,7 +2248,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                   {/* Honor Tier Rank */}
                   <div className="bg-gradient-to-r from-red-650/10 to-amber-655/10 border border-red-500/20 p-4 rounded-2xl flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <span className="text-2xl">âš¡</span>
+                      <span className="text-2xl">⚡</span>
                       <div className="text-left">
                         <p className={`text-[7px] font-black ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} uppercase tracking-widest`}>Scholar Standing</p>
                         <p className={`text-xs font-black uppercase tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-950'}`}>{viewingUser.rank || 'Bronze Scholar'}</p>
@@ -2743,21 +2265,21 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                     <div className="flex flex-wrap gap-2 justify-start">
                       {/* Always unlock at least a default or dynamically based on points */}
                       <div className="px-3 py-1.5 rounded-full bg-pink-505/10 border border-pink-505/20 text-pink-400 text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
-                        ðŸŒ¸ May Synergy
+                        🌸 May Synergy
                       </div>
                       {(viewingUser.points || 0) >= 100 && (
                         <div className="px-3 py-1.5 rounded-full bg-blue-505/10 border border-blue-505/20 text-blue-400 text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
-                          ðŸŽ“ Exam Victor
+                          🎓 Exam Victor
                         </div>
                       )}
                       {(viewingUser.points || 0) >= 500 && (
                         <div className="px-3 py-1.5 rounded-full bg-yellow-505/10 border border-yellow-505/20 text-yellow-500 text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
-                          âš¡ Quiz Prodigy
+                          ⚡ Quiz Prodigy
                         </div>
                       )}
                       {(viewingUser.streak || 0) >= 10 && (
                         <div className="px-3 py-1.5 rounded-full bg-green-550/10 border border-green-550/20 text-green-400 text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
-                          ðŸŒ¾ Wildfire Ace
+                          🌾 Wildfire Ace
                         </div>
                       )}
                     </div>
@@ -2770,11 +2292,15 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                 {/* About Section */}
                 <div className={`${theme === 'dark' ? 'bg-[#0F172A]' : 'bg-white'} p-5 rounded-3xl shadow-lg space-y-2 border border-white/5`}>
                   <p className="text-[10px] font-black text-[#DC2626] uppercase tracking-widest flex items-center gap-2">
-                    <Info size={12} /> About
+                    <Info size={12} /> Contact Information & About
                   </p>
                   <p className={`text-sm leading-relaxed font-medium ${theme === 'dark' ? 'text-white/80' : 'text-slate-700'}`}>
                     {viewingUser.about || "Hey there! I am using NSG."}
                   </p>
+                  <div className="pt-2 border-t border-white/5 flex flex-col gap-1 text-left">
+                    <span className="text-[8px] font-black text-white/30 uppercase tracking-widest">Personal Verified Email</span>
+                    <span className="text-xs font-bold text-white/70">{viewingUser.email || `${viewingUser.username || 'user'}_nsg@academic.edu.ng`}</span>
+                  </div>
                 </div>
 
                 {/* Academic Details (if applicable) */}
@@ -2817,16 +2343,62 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                   </div>
                 </div>
 
-                {/* Actions */}
+                {/* Actions & Instant Shortcuts */}
                 <div className="space-y-2 pt-4">
-                  <button className="w-full p-5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-3xl font-black text-xs uppercase tracking-widest transition-all text-center flex items-center justify-center gap-3 border border-red-500/20">
+                  <h4 className="text-[8.5px] font-black uppercase tracking-widest text-[#DC2626] mb-2 text-left">Secure Action Dashboard</h4>
+                  
+                  <div className="grid grid-cols-2 gap-2">
+                    <button 
+                      onClick={() => {
+                        setViewingUser(null);
+                        startCall('voice');
+                      }}
+                      className="p-4 bg-[#00CCFF]/10 hover:bg-[#00CCFF]/20 border border-[#00CCFF]/20 text-[#00CCFF] rounded-2xl font-black text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-2"
+                    >
+                      <Phone size={14} /> Voice Call
+                    </button>
+                    
+                    <button 
+                      onClick={() => {
+                        setViewingUser(null);
+                        startCall('video');
+                      }}
+                      className="p-4 bg-[#9933FF]/10 hover:bg-[#9933FF]/20 border border-[#9933FF]/20 text-[#9933FF] rounded-2xl font-black text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-2"
+                    >
+                      <Video size={14} /> Video Call
+                    </button>
+                    
+                    <button 
+                      onClick={() => {
+                        if (confirm("Are you sure you want to clean local history cache for this session?")) {
+                          setUserNotification("Local memory cache wiped cleanly!");
+                          setViewingUser(null);
+                        }
+                      }}
+                      className="p-4 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-2xl font-black text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-2 col-span-2"
+                    >
+                      <RefreshCw size={14} /> Clear Chat History
+                    </button>
+                  </div>
+
+                  <button 
+                    onClick={() => {
+                      setUserNotification("Contact has been placed in secure quarantine blocklist.");
+                      setViewingUser(null);
+                    }}
+                    className="w-full p-4 mt-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-2xl font-black text-[9px] uppercase tracking-widest transition-all text-center flex items-center justify-center gap-3 border border-red-500/20"
+                  >
                     <Check size={16} className="rotate-45" /> Block Contact
                   </button>
+                  
                   <button 
-                    onClick={handleReportChat}
-                    className="w-full p-5 bg-red-650/10 hover:bg-red-650/20 text-red-650 rounded-3xl font-black text-xs uppercase tracking-widest transition-all text-center flex items-center justify-center gap-3 border border-red-650/20"
+                    onClick={() => {
+                      handleReportChat();
+                      setViewingUser(null);
+                    }}
+                    className="w-full p-4 bg-red-650/10 hover:bg-red-650/20 text-red-650 rounded-2xl font-black text-[9px] uppercase tracking-widest transition-all text-center flex items-center justify-center gap-3 border border-red-650/20"
                   >
-                    <ShieldAlert size={16} /> Report User
+                    <ShieldAlert size={16} /> Report Contact
                   </button>
                 </div>
               </div>
@@ -3175,7 +2747,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             >
               <div className="flex items-center justify-between border-b border-white/5 pb-3">
                 <div className="flex items-center gap-2">
-                  <span className="text-xl">ðŸ–¼ï¸</span>
+                  <span className="text-xl">🖼️</span>
                   <div className="text-left">
                     <h3 className="text-sm font-black text-white uppercase tracking-wider">NSG Academic Media Desk</h3>
                     <p className="text-[8px] text-white/30 uppercase">WhatsApp-style reference library</p>
@@ -3220,7 +2792,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                       };
                       await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData);
                       updateDoc(doc(db, 'chats', selectedChat.id), {
-                        lastMessage: `ðŸ“· reference: ${item.title}`,
+                        lastMessage: `📷 reference: ${item.title}`,
                         lastMessageSender: user.displayName || userHandle,
                         updatedAt: serverTimestamp()
                       });
@@ -3253,7 +2825,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             >
               <div className="flex items-center justify-between border-b border-white/5 pb-3">
                 <div className="flex items-center gap-2">
-                  <span className="text-xl">ðŸ““</span>
+                  <span className="text-xl">📓</span>
                   <div className="text-left">
                     <h3 className="text-sm font-black text-white uppercase tracking-wider">Share Revision Notebook</h3>
                     <p className="text-[8px] text-white/30 uppercase">Broadcast to NSG Contacts</p>
@@ -3274,7 +2846,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                   onClick={() => setNoteShareMode(noteShareMode === 'editable' ? 'readonly' : 'editable')}
                   className={`px-3 py-1 text-[8px] font-black uppercase rounded-xl tracking-widest transition-all ${noteShareMode === 'editable' ? 'bg-amber-500/10 text-amber-500 border border-amber-500/30' : 'bg-sky-500/10 text-sky-500 border border-sky-500/30'}`}
                 >
-                  {noteShareMode === 'editable' ? 'ðŸ«± Collab' : 'ðŸ”’ Read-only'}
+                  {noteShareMode === 'editable' ? '🫱 Collab' : '🔒 Read-only'}
                 </button>
               </div>
 
@@ -3306,7 +2878,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             >
               <div className="flex items-center justify-between border-b border-white/5 pb-3">
                 <div className="flex items-center gap-2">
-                  <span className="text-xl">ðŸ†</span>
+                  <span className="text-xl">🏆</span>
                   <div className="text-left">
                     <h3 className="text-sm font-black text-white uppercase tracking-wider">Share Quiz Series</h3>
                     <p className="text-[8px] text-white/30 uppercase">Test other scholars in NSG</p>
@@ -3330,7 +2902,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                         senderId: user.uid,
                         senderHandle: userHandle,
                         senderName: user.displayName || userHandle,
-                        text: `ðŸ† Challenge Quiz: ${quiz.title} (${quiz.questionsCount} Questions)`,
+                        text: `🏆 Challenge Quiz: ${quiz.title} (${quiz.questionsCount} Questions)`,
                         timestamp: serverTimestamp(),
                         type: 'text',
                         encrypted: true,
@@ -3338,7 +2910,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                       };
                       await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData);
                       updateDoc(doc(db, 'chats', selectedChat.id), {
-                        lastMessage: `ðŸ† Challenge Quiz: ${quiz.title}`,
+                        lastMessage: `🏆 Challenge Quiz: ${quiz.title}`,
                         lastMessageSender: user.displayName || userHandle,
                         updatedAt: serverTimestamp()
                       });
@@ -3419,7 +2991,7 @@ export const SharedNotesList: React.FC<SharedNotesListProps> = ({ user, db, sele
       senderId: user.uid,
       senderHandle: user.uid,
       senderName: user.displayName || "NSG Student",
-      text: `ðŸ““ Note: ${note.title}`,
+      text: `📓 Note: ${note.title}`,
       noteTitle: note.title,
       noteContent: note.content || 'Notes content preview is empty.',
       timestamp: serverTimestamp(),
@@ -3435,7 +3007,7 @@ export const SharedNotesList: React.FC<SharedNotesListProps> = ({ user, db, sele
     
     // Update chat room details
     await updateDoc(doc(db, 'chats', selectedChat.id), {
-      lastMessage: `ðŸ““ Shared: ${note.title}`,
+      lastMessage: `📓 Shared: ${note.title}`,
       lastMessageSender: user.displayName || "NSG Student",
       updatedAt: serverTimestamp()
     });
