@@ -3,7 +3,8 @@ import {
   ArrowLeft, Video, Phone, MoreVertical, Smile, Paperclip, 
   Camera, Mic, Send, Check, CheckCheck, X, Trash2, ShieldAlert,
   Play, Pause, Info, AtSign, Calendar, MapPin, Award, PhoneOff,
-  VideoOff, Volume2, MicOff, RefreshCw, Paperclip as DocIcon, FileText
+  VideoOff, Volume2, MicOff, RefreshCw, Paperclip as DocIcon, FileText,
+  Plus, Image as ImageIcon, ArrowDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Message, Chat } from '../types/chat';
@@ -127,6 +128,43 @@ const VoiceNotePlayer: React.FC<VoiceNotePlayerProps> = ({ msgId, duration = 12 
   );
 };
 
+const formatLastSeenValue = (lastSeen: any): string => {
+  if (!lastSeen) return 'offline';
+  const lastSeenDate = lastSeen.toDate ? lastSeen.toDate() : new Date(lastSeen);
+  if (isNaN(lastSeenDate.getTime())) return 'offline';
+  
+  const now = new Date();
+  const diffMs = now.getTime() - lastSeenDate.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+
+  if (diffMins < 1) {
+    return 'just now';
+  }
+  if (diffMins < 60) {
+    return `${diffMins} ${diffMins === 1 ? 'min' : 'mins'} ago`;
+  }
+  if (diffHours < 24) {
+    const isSameDay = now.getDate() === lastSeenDate.getDate() && now.getMonth() === lastSeenDate.getMonth() && now.getFullYear() === lastSeenDate.getFullYear();
+    if (isSameDay) {
+      return `${diffHours} ${diffHours === 1 ? 'hour' : 'hours'} ago`;
+    }
+  }
+
+  // Check if yesterday
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const isYesterday = yesterday.getDate() === lastSeenDate.getDate() && yesterday.getMonth() === lastSeenDate.getMonth() && yesterday.getFullYear() === lastSeenDate.getFullYear();
+
+  const timeStr = lastSeenDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).toLowerCase();
+  if (isYesterday) {
+    return `yesterday ${timeStr}`;
+  }
+
+  const dateStr = lastSeenDate.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return `${dateStr} ${timeStr}`;
+};
+
 interface PeerChatWorkspaceProps {
   chat: Chat;
   messages: Message[];
@@ -151,10 +189,12 @@ interface PeerChatWorkspaceProps {
     level?: string;
     points?: number;
     streak?: number;
+    lastSeen?: any;
   };
   onMessageContextMenu: (e: React.MouseEvent, msg: Message) => void;
   userNotes?: any[];
   onOpenNote?: (noteId: string, noteTitle?: string, noteContent?: string) => void;
+  onShareNoteClick?: () => void;
 }
 
 export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
@@ -172,8 +212,16 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
   targetUserData,
   onMessageContextMenu,
   userNotes = [],
-  onOpenNote
+  onOpenNote,
+  onShareNoteClick
 }) => {
+  // Calculate online presence for peer
+  const lastSeenVal = targetUserData?.lastSeen;
+  const lastSeenDate = lastSeenVal 
+    ? (lastSeenVal.toDate ? lastSeenVal.toDate() : new Date(lastSeenVal)) 
+    : null;
+  const isOnline = lastSeenDate && (Date.now() - lastSeenDate.getTime() < 120000); 
+
   const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
   const [optionsMenuOpen, setOptionsMenuOpen] = useState(false);
   const [mediaMenuOpen, setMediaMenuOpen] = useState(false);
@@ -181,17 +229,46 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
   const [isHoldingMic, setIsHoldingMic] = useState(false);
   const [micTimer, setMicTimer] = useState(0);
   const [callActive, setCallActive] = useState<'voice' | 'video' | null>(null);
+  const [showPlusMenu, setShowPlusMenu] = useState(false);
+  
+  const peerGalleryInputRef = useRef<HTMLInputElement>(null);
+  const peerFilesInputRef = useRef<HTMLInputElement>(null);
   const [callDuration, setCallDuration] = useState(0);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const micTimerRef = useRef<number | null>(null);
+  const [showScrollDown, setShowScrollDown] = useState(false);
 
-  // Auto-scroll logic
+  // Auto-scroll logic when new messages arrive
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // Forced scroll-to-bottom on mount (when user goes to/opens the chat page)
+  useEffect(() => {
+    const forceScroll = () => {
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
+    };
+    forceScroll();
+    const t1 = setTimeout(forceScroll, 80);
+    const t2 = setTimeout(forceScroll, 250);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, []);
+
+  const handleScroll = () => {
+    if (scrollRef.current) {
+      const container = scrollRef.current;
+      const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 120;
+      setShowScrollDown(!isAtBottom);
+    }
+  };
 
   // Timer loop for calling screen
   useEffect(() => {
@@ -274,7 +351,7 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
                 )}
               </div>
               {/* Online indicator dot */}
-              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-zinc-900 shadow-md animate-pulse" />
+              <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-zinc-900 shadow-md ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-500'}`} />
             </div>
 
             {/* Pressing target user string name fires slideout drawer trigger */}
@@ -286,8 +363,8 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
               <span className="text-xs font-black uppercase text-white tracking-tight truncate w-36 sm:w-48">
                 {targetUserData?.fullName || chat.name}
               </span>
-              <span className="text-[7.5px] font-black uppercase text-emerald-400 tracking-wider">
-                Peer Certified Online
+              <span className={`text-[7.5px] font-black uppercase tracking-wider ${isOnline ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                {isOnline ? 'online' : formatLastSeenValue(targetUserData?.lastSeen)}
               </span>
             </button>
           </div>
@@ -370,7 +447,8 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
         {/* Message Stream Canvas (WhatsApp Bubble Alignment) */}
         <div 
           ref={scrollRef}
-          className="flex-1 overflow-y-auto px-6 py-4 space-y-4 pb-28 custom-scrollbar bg-[#0E0C16] relative flex flex-col"
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto px-6 py-4 space-y-4 custom-scrollbar bg-[#0E0C16] relative flex flex-col min-h-0"
         >
           {messages.length === 0 ? (
             <div className="my-auto text-center py-20 flex flex-col items-center justify-center gap-3">
@@ -421,7 +499,7 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
                           {msg.noteContent || "No preview information is available."}
                         </p>
                         <button
-                          type="button"
+                           type="button"
                           onClick={() => onOpenNote && onOpenNote(msg.mediaUrl || msg.id, msg.noteTitle, msg.noteContent)}
                           className="w-full py-2 px-3 rounded-lg bg-yellow-500 border border-yellow-600 hover:bg-yellow-400 text-black font-extrabold text-[9px] uppercase tracking-widest transition-all shadow-md cursor-pointer text-center"
                         >
@@ -456,38 +534,116 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
           )}
         </div>
 
-        {/* Whatsapp Input bar bottom layout */}
-        <div className="absolute bottom-0 left-0 w-full bg-[#13111C]/90 backdrop-blur-md border-t border-white/5 py-4 px-4 sm:px-6 shrink-0 z-10 flex flex-col gap-2">
+        {/* Scroll back down button floating just above footer */}
+        <AnimatePresence>
+          {showScrollDown && (
+            <motion.button
+              initial={{ opacity: 0, scale: 0.8, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.8, y: 10 }}
+              onClick={() => {
+                if (scrollRef.current) {
+                  scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+                }
+              }}
+              className="absolute bottom-[92px] right-6 p-2 w-9 h-9 bg-[#DC2626] hover:bg-[#B91C1C] text-white rounded-full shadow-2xl transition-all z-30 cursor-pointer active:scale-95 flex items-center justify-center border border-white/10"
+              title="Latest message"
+            >
+              <ArrowDown size={15} className="animate-bounce" />
+            </motion.button>
+          )}
+        </AnimatePresence>
+
+        {/* Input bar bottom layout as independent sibling */}
+        <div className="bg-[#13111C]/90 backdrop-blur-md border-t border-white/5 py-4 px-4 sm:px-6 shrink-0 z-10 flex flex-col gap-2">
           
           <div className="flex items-center gap-2.5 w-full max-w-4xl mx-auto">
             
-            {/* Input Left: Emoji Picker & Add Media buttons */}
-            <div className="flex items-center gap-1">
+            {/* Left Hand Plus Menu and attachment popover */}
+            <div className="relative">
               <button
-                id="whatsapp_emoji_picker_btn"
-                onClick={() => setShowEmojiTray(!showEmojiTray)}
-                className={`p-2.5 rounded-xl transition-all ${showEmojiTray ? 'bg-red-500/20 text-red-500 animate-bounce' : 'bg-white/5 text-white/40 hover:text-white'}`}
-                title="Expose emoticons panel"
+                type="button"
+                onClick={() => setShowPlusMenu(!showPlusMenu)}
+                className={`p-2.5 w-11 h-11 rounded-2xl transition-all flex items-center justify-center cursor-pointer border ${showPlusMenu ? 'bg-[#DC2626] text-white border-[#DC2626]' : 'bg-white/5 text-white/50 border-white/10 hover:text-white hover:bg-white/10'}`}
+                title="Add Attachment"
               >
-                <Smile size={18} />
+                <Plus size={18} className={`transition-transform duration-200 ${showPlusMenu ? 'rotate-45' : ''}`} />
               </button>
 
-              <button
-                id="whatsapp_add_media_btn"
-                onClick={() => setMediaMenuOpen(!mediaMenuOpen)}
-                className={`p-2.5 rounded-xl transition-all ${mediaMenuOpen ? 'bg-red-500/20 text-red-500' : 'bg-white/5 text-white/40 hover:text-white'}`}
-                title="Expose micro components attachment"
-              >
-                <Paperclip size={18} />
-              </button>
+              <AnimatePresence>
+                {showPlusMenu && (
+                  <>
+                    <div className="fixed inset-0 z-30" onClick={() => setShowPlusMenu(false)} />
+                    <motion.div
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      className="absolute bottom-14 left-0 bg-[#120F1F] border border-white/10 p-2 rounded-2xl min-w-[140px] shadow-2xl z-40 flex flex-col gap-1 text-left"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowPlusMenu(false);
+                          if (onShareNoteClick) onShareNoteClick();
+                        }}
+                        className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/5 text-xs font-bold transition-all text-left w-full"
+                      >
+                        <FileText size={14} className="text-[#DC2626]" /> notes
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowPlusMenu(false);
+                          peerGalleryInputRef.current?.click();
+                        }}
+                        className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/5 text-xs font-bold transition-all text-left w-full"
+                      >
+                        <ImageIcon size={14} className="text-blue-400" /> gallery
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowPlusMenu(false);
+                          peerFilesInputRef.current?.click();
+                        }}
+                        className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/5 text-xs font-bold transition-all text-left w-full"
+                      >
+                        <Paperclip size={14} className="text-emerald-400" /> files
+                      </button>
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
             </div>
 
-            {/* Rounded Text Box Input with built-in whatsapp_camera_capture_btn */}
+            {/* Hidden file inputs */}
+            <input 
+              type="file" 
+              ref={peerGalleryInputRef} 
+              className="hidden" 
+              accept="image/*" 
+              onChange={(e) => {
+                onFileUpload(e);
+                setShowPlusMenu(false);
+              }}
+            />
+            <input 
+              type="file" 
+              ref={peerFilesInputRef} 
+              className="hidden" 
+              accept="*/*" 
+              onChange={(e) => {
+                onFileUpload(e);
+                setShowPlusMenu(false);
+              }}
+            />
+
+            {/* Rounded Text Box Input */}
             <div className="flex-1 bg-[#0A0713]/90 border border-white/10 rounded-2xl flex items-center px-4 relative z-10 py-1 shadow-inner">
               <textarea
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                placeholder="Secure message log..."
+                placeholder="Type a message..."
                 rows={1}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
@@ -497,16 +653,6 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
                 }}
                 className="flex-1 bg-transparent py-2.5 text-xs text-white resize-none outline-none placeholder-white/20 select-text font-medium"
               />
-
-              {/* Camera capture built in on far right of text box */}
-              <button
-                id="whatsapp_camera_capture_btn"
-                onClick={() => alert("Simulating Camera capture... Permission granted.")}
-                className="p-1.5 rounded-lg text-white/30 hover:text-white hover:bg-white/5 transition-all shrink-0 ml-1"
-                title="Trigger camera stream overlay"
-              >
-                <Camera size={15} />
-              </button>
             </div>
 
             {/* Sending Text or Trigger hold mic button outside of text box on far right */}
@@ -514,7 +660,7 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
               <button
                 onClick={onSendMessage}
                 className="p-3 w-11 h-11 bg-red-650 hover:bg-red-500 text-white rounded-2xl flex items-center justify-center transition-all shadow-md active:translate-y-0.5"
-                title="Transmit text payload"
+                title="Send"
               >
                 <Send size={15} />
               </button>
@@ -529,7 +675,7 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
                       ? 'bg-red-600 text-white animate-pulse shadow-lg shadow-red-950/50' 
                       : 'bg-white/5 text-white/40 hover:text-white'
                   }`}
-                  title="Hold voice key"
+                  title="Record"
                 >
                   <Mic size={15} />
                 </button>
@@ -542,10 +688,6 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
               </div>
             )}
           </div>
-
-          <p className="text-[8px] font-black text-white/10 uppercase tracking-widest text-center select-none">
-            Nuell Study Guide WhatsApp Parity Core v1.4 • Certified Peer Verification Active
-          </p>
         </div>
 
         {/* Context Media Menu picker sheet drawer overlay */}

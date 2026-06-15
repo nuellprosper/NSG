@@ -379,55 +379,71 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
       }
     });
 
-    otherMemberIds.forEach(async (id) => {
-      if (memberProfiles[id]) return;
+    const unsubs: (() => void)[] = [];
+
+    otherMemberIds.forEach((id) => {
       try {
         const docRef = doc(db, 'users', id);
-        const snap = await getDoc(docRef);
-        if (snap.exists()) {
-          const uData = snap.data();
-          const profileItem = {
-            displayName: uData.displayName || uData.username || id,
-            username: uData.username || '',
-            photoURL: uData.photoURL || null
-          };
-          setMemberProfiles(prev => ({
-            ...prev,
-            [id]: profileItem
-          }));
-        } else {
-          const q = query(collection(db, 'users'), where('username', '==', id));
-          const qSnap = await getDocs(q);
-          if (!qSnap.empty) {
-            const uData = qSnap.docs[0].data();
+        const unsub = onSnapshot(docRef, (snap) => {
+          if (snap.exists()) {
+            const uData = snap.data();
             const profileItem = {
               displayName: uData.displayName || uData.username || id,
               username: uData.username || '',
-              photoURL: uData.photoURL || null
+              photoURL: uData.photoURL || null,
+              lastSeen: uData.lastSeen || null
             };
             setMemberProfiles(prev => ({
               ...prev,
               [id]: profileItem
             }));
+          } else {
+            const q = query(collection(db, 'users'), where('username', '==', id));
+            const unsubQ = onSnapshot(q, (qSnap) => {
+              if (!qSnap.empty) {
+                const uData = qSnap.docs[0].data();
+                const profileItem = {
+                  displayName: uData.displayName || uData.username || id,
+                  username: uData.username || '',
+                  photoURL: uData.photoURL || null,
+                  lastSeen: uData.lastSeen || null
+                };
+                setMemberProfiles(prev => ({
+                  ...prev,
+                  [id]: profileItem
+                }));
+              }
+            }, (errQ) => {
+              console.error("Error listening to peer username query:", errQ);
+            });
+            unsubs.push(unsubQ);
           }
-        }
-      } catch (err: any) {
-        const errorMsg = err?.message || String(err);
-        if (errorMsg.includes('client is offline') || errorMsg.includes('the client is offline')) {
-          console.debug("Offline persistence: using user ID as placeholder for peer metadata:", id);
-          setMemberProfiles(prev => ({
-            ...prev,
-            [id]: {
-              displayName: `User (${id.slice(0, 5)})`,
-              username: id.length < 20 ? id : '',
-              photoURL: null
-            }
-          }));
-        } else {
-          console.error("Error loading peer metadata:", err);
-        }
+        }, (err) => {
+          const errorMsg = err?.message || String(err);
+          if (errorMsg.includes('client is offline') || errorMsg.includes('the client is offline')) {
+            console.debug("Offline persistence: using user ID as placeholder for peer metadata:", id);
+            setMemberProfiles(prev => ({
+              ...prev,
+              [id]: {
+                displayName: `User (${id.slice(0, 5)})`,
+                username: id.length < 20 ? id : '',
+                photoURL: null,
+                lastSeen: null
+              }
+            }));
+          } else {
+            console.error("Error subscribing to peer metadata:", err);
+          }
+        });
+        unsubs.push(unsub);
+      } catch (ex) {
+        console.error("Exception setting up peer database listener:", ex);
       }
     });
+
+    return () => {
+      unsubs.forEach(unsub => unsub());
+    };
   }, [chats, user, userHandle]);
 
   // Audio setup
@@ -2065,6 +2081,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
           setIsSelectionMode={setIsSelectionMode}
           toggleChatSelection={toggleChatSelection}
           onBatchDelete={bulkDeleteChats}
+          memberProfiles={memberProfiles}
         />
       </div>
 
@@ -2097,6 +2114,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
               inputText={inputText}
               setInputText={setInputText}
               onSendMessage={handleSendMessage}
+              onShareNoteClick={() => setShowNoteShareOverlay(true)}
               onVoiceUpload={(url, duration) => {
                 const msgData = {
                   senderId: user.uid,
@@ -2130,7 +2148,8 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                 faculty: (getOtherMemberInfo(selectedChat) as any)?.faculty || 'Engineering',
                 level: (getOtherMemberInfo(selectedChat) as any)?.level || '300 Level',
                 points: (getOtherMemberInfo(selectedChat) as any)?.points || 250,
-                streak: (getOtherMemberInfo(selectedChat) as any)?.streak || 14
+                streak: (getOtherMemberInfo(selectedChat) as any)?.streak || 14,
+                lastSeen: (getOtherMemberInfo(selectedChat) as any)?.lastSeen || null
               } : undefined}
               onMessageContextMenu={(e, msg) => {
                 e.preventDefault();

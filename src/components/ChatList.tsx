@@ -29,6 +29,7 @@ interface ChatListProps {
   setIsSelectionMode: (mode: boolean) => void;
   toggleChatSelection: (id: string) => void;
   onBatchDelete: () => void;
+  memberProfiles?: Record<string, { displayName: string, username?: string, photoURL: string | null, lastSeen?: any }>;
 }
 
 export const ChatList: React.FC<ChatListProps> = ({
@@ -53,7 +54,8 @@ export const ChatList: React.FC<ChatListProps> = ({
   isSelectionMode,
   setIsSelectionMode,
   toggleChatSelection,
-  onBatchDelete
+  onBatchDelete,
+  memberProfiles = {}
 }) => {
   const [showSearchInput, setShowSearchInput] = useState(false);
   const [showSettingsDropdown, setShowSettingsDropdown] = useState(false);
@@ -275,7 +277,19 @@ export const ChatList: React.FC<ChatListProps> = ({
           const hasUnread = chat.unreadBy?.includes(user?.uid || '');
 
           // Custom presence badges corresponding strictly to spec
-          const presenceStatus = isOmni ? 'Online' : (chat.id.charCodeAt(0) % 3 === 0 ? 'Online' : chat.id.charCodeAt(0) % 3 === 1 ? 'Busy' : 'Offline');
+          let presenceStatus = 'Offline';
+          if (isOmni) {
+            presenceStatus = 'Online';
+          } else if (chat.type === 'direct') {
+            const others = chat.members.filter(m => m !== user?.uid && m !== userHandle);
+            const otherId = others[0];
+            const profile = otherId ? memberProfiles[otherId] : null;
+            if (profile && profile.lastSeen) {
+              const lastSeenDate = profile.lastSeen.toDate ? profile.lastSeen.toDate() : new Date(profile.lastSeen);
+              const isOnline = lastSeenDate && (Date.now() - lastSeenDate.getTime() < 120000); // 2 minutes
+              presenceStatus = isOnline ? 'Online' : 'Offline';
+            }
+          }
 
           // Ensure visual pinning index is properly styled
           return (
@@ -333,7 +347,7 @@ export const ChatList: React.FC<ChatListProps> = ({
                 {/* Status Presence Badge details */}
                 {!isOmni && (
                   <span className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-zinc-950 ${
-                    presenceStatus === 'Online' ? 'bg-emerald-500' : presenceStatus === 'Busy' ? 'bg-amber-500 animate-pulse' : 'bg-zinc-500'
+                    presenceStatus === 'Online' ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-500'
                   }`} />
                 )}
                 {isOmni && (
