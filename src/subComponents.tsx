@@ -1184,6 +1184,11 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, fileTo
   const [checkedAnswers, setCheckedAnswers] = useState<{[qIdx: number]: { correct: boolean; feedback: string; solutionSteps: string[] }}>({});
   const [activeFeedbackModal, setActiveFeedbackModal] = useState<{ qIdx: number; question: string; isCorrect: boolean; feedback: string; solutionSteps: string[] } | null>(null);
   const [revealedSolutions, setRevealedSolutions] = useState<{[qIdx: number]: boolean}>({});
+  const [expandedStepKeys, setExpandedStepKeys] = useState<{[key: string]: boolean}>({});
+
+  const toggleStepExpansion = (key: string) => {
+    setExpandedStepKeys(prev => ({ ...prev, [key]: !prev[key] }));
+  };
 
   const [showQuizPromptModal, setShowQuizPromptModal] = useState(false);
   const [quizQuestionCountInput, setQuizQuestionCountInput] = useState(10);
@@ -1251,7 +1256,29 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, fileTo
     const cleanUser = userAns.replace(/\s+/g, "").replace(/\$/g, "").trim().toLowerCase();
     const cleanCorrect = correctAns.replace(/\s+/g, "").replace(/\$/g, "").trim().toLowerCase();
 
-    const isCorrect = cleanUser === cleanCorrect || cleanUser.includes(cleanCorrect) || cleanCorrect.includes(cleanUser);
+    let isCorrect = cleanUser === cleanCorrect || cleanUser.includes(cleanCorrect) || cleanCorrect.includes(cleanUser);
+
+    // Approximate and fractional numeric tolerance checks
+    const parseArithmeticValue = (val: string): number | null => {
+      if (/^[-+]?\d+\/\d+$/.test(val)) {
+        const [num, den] = val.split('/').map(Number);
+        if (den !== 0) return num / den;
+      }
+      const match = val.match(/[-+]?[0-9]*\.?[0-9]+/);
+      return match ? parseFloat(match[0]) : null;
+    };
+
+    if (!isCorrect) {
+      const numUser = parseArithmeticValue(cleanUser);
+      const numCorrect = parseArithmeticValue(cleanCorrect);
+      if (numUser !== null && numCorrect !== null) {
+        const diff = Math.abs(numUser - numCorrect);
+        // High quality tolerance checks (absolute difference <= 0.025 or relative difference <= 2.5%)
+        if (diff <= 0.025 || (numCorrect !== 0 && (diff / Math.abs(numCorrect)) <= 0.025)) {
+          isCorrect = true;
+        }
+      }
+    }
 
     const checkResult = {
       correct: isCorrect,
@@ -1772,32 +1799,58 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, fileTo
             </div>
 
             <div className="space-y-4">
-              {solution.steps?.map((step, idx) => (
-                <motion.div 
-                  key={idx} 
-                  initial={{ opacity: 0, x: -20 }} 
-                  animate={{ opacity: 1, x: 0 }} 
-                  transition={{ delay: idx * 0.1 }}
-                  className={`p-5 sm:p-6 rounded-[2rem] border relative overflow-hidden group transition-all duration-300 ${theme === 'dark' ? 'bg-[#13111C] border-white/10 hover:border-[#DC2626]/30' : 'bg-white border-slate-100 hover:border-[#DC2626]/30 shadow-md shadow-black/5'}`}
-                >
-                  <div className={`absolute top-0 right-0 p-8 opacity-[0.03] group-hover:opacity-[0.08] transition-opacity ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
-                    <span className="text-9xl font-black italic">{idx + 1}</span>
-                  </div>
-                  <div className="flex gap-5 relative z-10">
-                    <div className="w-12 h-12 rounded-2xl bg-[#DC2626] text-white flex items-center justify-center font-black text-lg shrink-0 shadow-lg shadow-[#DC2626]/20">
-                      {idx + 1}
+              {solution.steps?.map((step, idx) => {
+                const stepKey = `assignment-step-${idx}`;
+                const isExpanded = expandedStepKeys[stepKey] ?? true; // default to expanded
+                return (
+                  <motion.div 
+                    key={idx} 
+                    initial={{ opacity: 0, x: -20 }} 
+                    animate={{ opacity: 1, x: 0 }} 
+                    transition={{ delay: idx * 0.1 }}
+                    className={`p-5 sm:p-6 rounded-[2rem] border relative overflow-hidden group transition-all duration-300 ${theme === 'dark' ? 'bg-[#13111C] border-white/10 hover:border-[#DC2626]/30' : 'bg-white border-slate-100 hover:border-[#DC2626]/30 shadow-md shadow-black/5'}`}
+                  >
+                    <div className={`absolute top-0 right-0 p-8 opacity-[0.03] group-hover:opacity-[0.08] transition-opacity ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                      <span className="text-9xl font-black italic">{idx + 1}</span>
                     </div>
-                    <div className="space-y-4 pt-1 flex-1 min-w-0">
-                      <div>
-                        <p className="text-[10px] font-black text-[#DC2626] uppercase tracking-[0.3em] mb-2 opacity-80">Step Solution</p>
-                        <MarkdownRenderer content={step.step} className={`text-lg font-black leading-snug ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`} />
+                    <div className="flex gap-5 relative z-10">
+                      <div className="w-12 h-12 rounded-2xl bg-[#DC2626] text-white flex items-center justify-center font-black text-lg shrink-0 shadow-lg shadow-[#DC2626]/20 select-none">
+                        {idx + 1}
                       </div>
-                      <div className={`pt-4 border-t ${theme === 'dark' ? 'border-white/5' : 'border-slate-100'}`}>
-                        <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-[#DC2626]">The Logical Why</p>
-                        <MarkdownRenderer content={step.explanation} className={`text-[13px] leading-relaxed font-medium ${theme === 'dark' ? 'text-white/70' : 'text-slate-600'}`} />
-                      </div>
+                      <div className="pt-1 flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[10px] font-black text-[#DC2626] uppercase tracking-[0.3em] mb-2 opacity-80">Step Solution</p>
+                            <MarkdownRenderer content={step.step} className={`text-lg font-black leading-snug ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`} />
+                          </div>
+                          {/* Triangle Action Button */}
+                          <button
+                            type="button"
+                            onClick={() => toggleStepExpansion(stepKey)}
+                            className={`p-2 rounded-xl border transition-all cursor-pointer shrink-0 ${theme === 'dark' ? 'bg-white/5 border-white/5 text-white/50 hover:bg-white/10' : 'bg-slate-50 border-slate-100 text-slate-500 hover:bg-slate-100'}`}
+                            title={isExpanded ? "Collapse logic" : "Expand logic"}
+                          >
+                            <svg 
+                              className={`w-3.5 h-3.5 text-[#DC2626] transform transition-transform duration-200 ${isExpanded ? 'rotate-90' : 'rotate-0'}`} 
+                              viewBox="0 0 24 24" 
+                              fill="none" 
+                              stroke="currentColor" 
+                              strokeWidth="2.5" 
+                              strokeLinecap="round" 
+                              strokeLinejoin="round"
+                            >
+                              <path d="M5 3l14 9-14 9V3z" />
+                            </svg>
+                          </button>
+                        </div>
+                        {isExpanded && (
+                          <div className="space-y-4">
+                            <div className={`pt-4 border-t ${theme === 'dark' ? 'border-white/5' : 'border-slate-100'} mt-4`}>
+                              <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-[#DC2626]">The Logical Why</p>
+                              <MarkdownRenderer content={step.explanation} className={`text-[13px] leading-relaxed font-medium ${theme === 'dark' ? 'text-white/70' : 'text-slate-600'}`} />
+                            </div>
 
-                      <div className="mt-4 pt-4 border-t border-white/5 space-y-3">
+                            <div className="mt-4 pt-4 border-t border-white/5 space-y-3">
                         <div className="flex items-center justify-between">
                           <p className="text-[9px] font-black uppercase tracking-[0.2em] text-blue-500/80">Student Workings</p>
                           <div className="flex gap-2">
@@ -1915,11 +1968,14 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, fileTo
                         {!userWorkings[idx]?.imagePreview && !userWorkings[idx]?.transcript && (
                           <p className="text-[8px] text-white/20 italic">"Ok Student, let me see your solvings for this step..."</p>
                         )}
-                      </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </motion.div>
-              ))}
+              );
+              })}
 
               <motion.div 
                 initial={{ opacity: 0, scale: 0.9 }}
@@ -2031,12 +2087,48 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, fileTo
                                 exit={{ opacity: 0, height: 0 }}
                                 className="overflow-hidden mt-2 p-3.5 bg-violet-600/10 border border-violet-500/20 rounded-xl space-y-2 text-left"
                               >
-                                <p className="text-[8px] font-black uppercase text-violet-400 tracking-wider">Pre-Generated Academic Steps</p>
-                                {q.solutionSteps?.map((stepStr: string, index: number) => (
-                                  <div key={index} className={`text-[11px] leading-relaxed font-medium ${theme === 'dark' ? 'text-white/80' : 'text-slate-700'}`}>
-                                    <MarkdownRenderer content={stepStr} />
-                                  </div>
-                                ))}
+                                <p className="text-[8px] font-black uppercase text-violet-400 tracking-wider mb-2">Pre-Generated Academic Steps</p>
+                                {q.solutionSteps?.map((stepStr: string, index: number) => {
+                                  const stepKey = `test-${qIdx}-step-${index}`;
+                                  const isExpanded = expandedStepKeys[stepKey] ?? false; // default to collapsed
+                                  return (
+                                    <div key={index} className={`border border-violet-500/10 rounded-xl p-2.5 my-1 ${theme === 'dark' ? 'bg-black/10' : 'bg-slate-50'}`}>
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleStepExpansion(stepKey)}
+                                        className="w-full flex items-center justify-between text-left text-xs font-bold text-white/95 hover:text-[#DC2626] transition-all cursor-pointer"
+                                      >
+                                        <span className="flex items-center gap-1.5 shrink-0 select-none">
+                                          <svg 
+                                            className={`w-3.5 h-3.5 text-[#DC2626] transform transition-transform duration-200 ${isExpanded ? 'rotate-90' : 'rotate-0'}`} 
+                                            viewBox="0 0 24 24" 
+                                            fill="none" 
+                                            stroke="currentColor" 
+                                            strokeWidth="2.5" 
+                                            strokeLinecap="round" 
+                                            strokeLinejoin="round"
+                                          >
+                                            <path d="M5 3l14 9-14 9V3z" />
+                                          </svg>
+                                          <span className="text-[10px] font-black uppercase tracking-wider text-violet-400">Step {index + 1}</span>
+                                        </span>
+                                        <span className="text-[8px] text-white/30 uppercase font-black tracking-wider">{isExpanded ? 'Hide' : 'Expand'}</span>
+                                      </button>
+                                      <AnimatePresence>
+                                        {isExpanded && (
+                                          <motion.div
+                                            initial={{ opacity: 0, height: 0 }}
+                                            animate={{ opacity: 1, height: 'auto' }}
+                                            exit={{ opacity: 0, height: 0 }}
+                                            className="overflow-hidden mt-2 pt-2 border-t border-violet-500/10 text-[11px] leading-relaxed font-semibold text-white/80"
+                                          >
+                                            <MarkdownRenderer content={stepStr} />
+                                          </motion.div>
+                                        )}
+                                      </AnimatePresence>
+                                    </div>
+                                  );
+                                })}
                                 <div className="pt-2 border-t border-violet-500/15">
                                   <p className="text-[8px] font-black uppercase text-violet-400 tracking-wider">Tutor consensus answer</p>
                                   <p className="text-[11px] font-black text-white">{q.correctAnswer}</p>

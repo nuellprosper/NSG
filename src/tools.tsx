@@ -1906,6 +1906,8 @@ export const ToolsPage = (props: any) => {
             solution={activeAssignmentSolution}
             setSolution={setActiveAssignmentSolution}
             checkAndIncrementUsage={checkAndIncrementUsage}
+            generateQuiz={generateQuiz}
+            setToolsSubTab={setToolsSubTab}
           />
         </motion.div>
       )}

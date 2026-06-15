@@ -7,7 +7,7 @@ import {
   ChevronUp, ChevronDown, Bold, Italic, List, CornerDownRight,
   Database, Zap, Cpu, CheckCircle2, XCircle, RefreshCcw, ArrowLeft, FileText, AlertCircle, RotateCcw,
   Sun, Moon, ArrowDown, PlusCircle, Copy, User, Users, Clock, Lock, Shield, ShieldCheck, AlertTriangle, FileDown, LayoutDashboard, ListChecks, Bell, GraduationCap, LayoutGrid, Home,
-  Pin, Edit3, Share2, Trophy, LogOut, Plus, Menu, Camera, Monitor, X, Activity, MessageSquare, BookOpen, Calendar, Send, Save, MicOff, Video, AtSign,
+  Pin, Edit3, Share2, Trophy, LogOut, Plus, Menu, Camera, Monitor, X, Activity, MessageSquare, BookOpen, Calendar, Send, Save, MicOff, Video, AtSign, Paperclip,
   Search, Check, CheckCheck, Info, Volume2, Square, Mail, ArrowRight, BoxSelect, Globe, MapPin, Terminal, RefreshCw, Eye, EyeOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -1446,6 +1446,9 @@ export default function App() {
   const [isLiveActive, setIsLiveActive] = useState(false);
   const [aiUsage, setAiUsage] = useState(45); // Mock usage percentage
   const [splitNotepadOpen, setSplitNotepadOpen] = useState(false);
+  const [showAppPlusMenu, setShowAppPlusMenu] = useState(false);
+  const appGalleryInputRef = useRef<HTMLInputElement>(null);
+  const appFilesInputRef = useRef<HTMLInputElement>(null);
   const [notepadContent, setNotepadContent] = useState('Workspace study notes and codes drafted here...');
   const [speechActiveId, setSpeechActiveId] = useState<string | null>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -3120,8 +3123,11 @@ export default function App() {
     questionCount: 15,
     duration: 30,
     price: 200,
-    poolCount: 20,
-    warningMessage: ""
+    poolCount: 15,
+    warningMessage: "",
+    subjects: [
+      { name: "Mathematics", questionsToAnswer: 15 }
+    ]
   };
   const [examConfig, setExamConfig] = useState<ExamConfig>(initialExamConfig);
   const [newStudentMatric, setNewStudentMatric] = useState('');
@@ -10608,61 +10614,146 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                             className="relative flex items-center border rounded-[2rem] p-1.5 backdrop-blur-xl focus-within:border-[#DC2626]/50 transition-all gap-1.5"
                             style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)' }}
                           >
-                            <div className="flex items-center">
-                              {/* Voice Message Recorder (WhatsApp Inspired) */}
-                              <button 
-                                onClick={() => isRecordingChat ? stopChatRecording() : startChatRecording()} 
-                                className={`w-10 h-10 rounded-full transition-all flex items-center justify-center cursor-pointer ${isRecordingChat ? 'bg-[#DC2626] text-white animate-pulse' : 'hover:bg-white/5 text-white/50 hover:text-white'}`}
-                                title={isRecordingChat ? "Stop Recording" : "Speak to Omni"}
+                            {/* Left Hand Plus Menu and attachment popover */}
+                            <div className="relative pl-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setShowAppPlusMenu(!showAppPlusMenu)}
+                                className={`w-10 h-10 rounded-full transition-all flex items-center justify-center cursor-pointer border ${showAppPlusMenu ? 'bg-[#DC2626] text-white border-[#DC2626]' : 'bg-white/5 text-white/50 border-white/10 hover:text-white hover:bg-white/10'}`}
+                                title="Add Attachment"
                               >
-                                {isRecordingChat ? <StopCircle size={18} /> : <Mic size={18} />}
+                                <Plus size={18} className={`transition-transform duration-200 ${showAppPlusMenu ? 'rotate-45' : ''}`} />
                               </button>
 
-                              {/* Upload Image/Document Picker (WhatsApp Inspired) */}
-                              <label className="w-10 h-10 rounded-full cursor-pointer hover:bg-white/5 text-white/50 hover:text-white transition-all flex items-center justify-center">
-                                <Upload size={18} />
-                                <input 
-                                  type="file" 
-                                  multiple 
-                                  className="hidden" 
-                                  onChange={(e) => {
-                                    if (e.target.files) {
-                                      const files = Array.from(e.target.files).map(f => ({
-                                        id: Math.random().toString(36).substr(2, 9),
-                                        file: f,
-                                        preview: URL.createObjectURL(f),
-                                        type: f.type.startsWith('image/') ? 'image' : 'audio'
-                                      }));
-                                      setUploadedImages(prev => [...prev, ...files as any]);
-                                      if (files.some(f => f.type === 'image')) setChatMode('Vision');
-                                    }
-                                  }} 
-                                />
-                              </label>
+                              <AnimatePresence>
+                                {showAppPlusMenu && (
+                                  <>
+                                    <div className="fixed inset-0 z-30" onClick={() => setShowAppPlusMenu(false)} />
+                                    <motion.div
+                                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                                      className="absolute bottom-12 left-0 bg-[#120F1F] border border-white/10 p-2 rounded-2xl min-w-[140px] shadow-2xl z-40 flex flex-col gap-1 text-left"
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setShowAppPlusMenu(false);
+                                          setSplitNotepadOpen(!splitNotepadOpen);
+                                        }}
+                                        className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/5 text-xs font-bold transition-all text-left w-full"
+                                      >
+                                        <BookOpen size={14} className="text-[#DC2626]" /> notes
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setShowAppPlusMenu(false);
+                                          appGalleryInputRef.current?.click();
+                                        }}
+                                        className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/5 text-xs font-bold transition-all text-left w-full"
+                                      >
+                                        <ImageIcon size={14} className="text-blue-400" /> gallery
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setShowAppPlusMenu(false);
+                                          appFilesInputRef.current?.click();
+                                        }}
+                                        className="flex-shrink-0 flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/5 text-xs font-bold transition-all text-left w-full"
+                                      >
+                                        <Paperclip size={14} className="text-emerald-400" /> files
+                                      </button>
+                                    </motion.div>
+                                  </>
+                                )}
+                              </AnimatePresence>
                             </div>
+
+                            {/* Hidden file inputs */}
+                            <input 
+                              type="file" 
+                              ref={appGalleryInputRef} 
+                              className="hidden" 
+                              multiple
+                              accept="image/*" 
+                              onChange={(e) => {
+                                if (e.target.files) {
+                                  const files = Array.from(e.target.files).map(f => ({
+                                    id: Math.random().toString(36).substr(2, 9),
+                                    file: f,
+                                    preview: URL.createObjectURL(f),
+                                    type: 'image' as const
+                                  }));
+                                  setUploadedImages(prev => [...prev, ...files]);
+                                  setChatMode('Vision');
+                                }
+                                setShowAppPlusMenu(false);
+                              }}
+                            />
+                            <input 
+                              type="file" 
+                              ref={appFilesInputRef} 
+                              className="hidden" 
+                              multiple
+                              accept="*/*" 
+                              onChange={(e) => {
+                                if (e.target.files) {
+                                  const files = Array.from(e.target.files).map(f => ({
+                                    id: Math.random().toString(36).substr(2, 9),
+                                    file: f,
+                                    preview: URL.createObjectURL(f),
+                                    type: f.type.startsWith('image/') ? ('image' as const) : ('audio' as const)
+                                  }));
+                                  setUploadedImages(prev => [...prev, ...files]);
+                                  if (files.some(f => f.type === 'image')) setChatMode('Vision');
+                                }
+                                setShowAppPlusMenu(false);
+                              }}
+                            />
 
                             {/* Main Input Textarea */}
                             <textarea 
                               value={chatInput} 
                               onChange={(e) => setChatInput(e.target.value)} 
                               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
-                              placeholder={chatMode === 'Vision' ? "Describe / Ask about these uploaded diagrams..." : chatMode === 'Creative' ? "Detail the custom scene you would like to render..." : "Ask Omni neural intelligence..."} 
+                              placeholder={isRecordingChat ? "Recording audio..." : chatMode === 'Vision' ? "Ask about diagrams..." : "Ask Omni..."} 
                               className="flex-1 bg-transparent border-none outline-none px-2 py-2 text-xs placeholder:text-white/20 resize-none min-h-[38px] max-h-28 self-center custom-scrollbar" 
                               style={{ color: 'var(--text-primary)' }}
                             />
 
-                            {/* Circle Send Icon-button (WhatsApp styled, no text labels) */}
-                            <button 
-                              onClick={() => handleSendMessage()} 
-                              disabled={isTyping}
-                              className="w-10 h-10 rounded-full bg-[#DC2626] hover:bg-[#DC2626]/90 text-white flex items-center justify-center transition-all shadow-md shrink-0 disabled:opacity-40 disabled:cursor-not-allowed hover:scale-105 active:scale-95 cursor-pointer"
-                              title="Submit request"
-                            >
-                              {isTyping ? <RefreshCcw size={16} className="animate-spin" /> : <Zap size={16} />}
-                            </button>
+                            {/* Record or Send button at the right end */}
+                            {isRecordingChat ? (
+                              <button 
+                                onClick={stopChatRecording} 
+                                className="w-10 h-10 rounded-full bg-[#DC2626] text-white animate-pulse flex items-center justify-center cursor-pointer shrink-0"
+                                title="Stop Recording"
+                              >
+                                <StopCircle size={18} />
+                              </button>
+                            ) : chatInput.trim() ? (
+                              <button 
+                                onClick={() => handleSendMessage()} 
+                                disabled={isTyping}
+                                className="w-10 h-10 rounded-full bg-[#DC2626] hover:bg-[#DC2626]/90 text-white flex items-center justify-center transition-all shadow-md shrink-0 disabled:opacity-40 disabled:cursor-not-allowed hover:scale-105 active:scale-95 cursor-pointer"
+                                title="Send"
+                              >
+                                {isTyping ? <RefreshCcw size={16} className="animate-spin" /> : <Zap size={16} />}
+                              </button>
+                            ) : (
+                              <button 
+                                onClick={startChatRecording} 
+                                className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 text-white/50 hover:text-white transition-all flex items-center justify-center cursor-pointer shrink-0 border border-white/5"
+                                title="Record Voice"
+                              >
+                                <Mic size={18} />
+                              </button>
+                            )}
+
                           </div>
                         </div>
-                        <p className="text-[7.5px] text-center mt-3 font-bold uppercase tracking-[0.16em]" style={{ color: 'var(--text-tertiary)', fontFamily: 'var(--font-display)' }}>Omni artificial intelligence is a learning assistant. Double check important metrics.</p>
+                        <p className="text-[7.5px] text-center mt-3 font-semibold uppercase tracking-[0.16em]" style={{ color: 'var(--text-tertiary)', fontFamily: 'var(--font-display)' }}>Omni is a helper. Double-check facts.</p>
                       </div>
                     </div>
 

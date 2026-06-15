@@ -95,7 +95,7 @@ export const getHfInstance = () => {
 };
 
 export const MODEL_NAME = "gemini-3-flash-preview";
-export const FLASH_MODEL = "gemini-3.1-flash-lite";
+export const FLASH_MODEL = "gemini-3.5-flash";
 
 export const formatAiError = (error: any) => {
   const message = error.message || "Unknown error";
@@ -281,8 +281,8 @@ export const LIMITS = {
     PREMIUM: { IMAGES: 3, DAILY: 7 }
   },
   QUIZ: {
-    NORMAL: { WORDS: 30, DAILY: 4, IMAGES: 1 },
-    PREMIUM: { WORDS: 150, DAILY: 15, IMAGES: 3 }
+    NORMAL: { WORDS: 30, DAILY: 4, IMAGES: 2 },
+    PREMIUM: { WORDS: 150, DAILY: 15, IMAGES: 7 }
   },
   RECORD: {
     NORMAL: { DURATION: 30 * 60, DAILY: 3 },
@@ -367,12 +367,18 @@ export interface RegisteredStudent {
   lastActive?: number;
 }
 
+export interface SubjectConfig {
+  name: string;
+  questionsToAnswer: number;
+}
+
 export interface ExamConfig {
   questionCount: number;
   duration: number; 
   price: number; 
   poolCount?: number;
   warningMessage?: string;
+  subjects?: SubjectConfig[];
 }
 
 export async function fileToGenerativePart(file: File | Blob) {
