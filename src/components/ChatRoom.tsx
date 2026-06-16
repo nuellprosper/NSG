@@ -131,7 +131,8 @@ interface Message {
   senderName?: string;
   text: string;
   timestamp: any;
-  type: 'text' | 'image' | 'audio';
+  type: 'text' | 'image' | 'audio' | 'missed_call';
+  callType?: 'voice' | 'video';
   replyTo?: {
     id: string;
     text: string;
@@ -224,7 +225,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   const [recipientPeerId, setRecipientPeerId] = useState<string | null>(null);
 
   // --- DYNAMIC CONTACT HEADERS TRACKING ---
-  const [memberProfiles, setMemberProfiles] = useState<Record<string, { displayName: string, username?: string, photoURL: string | null }>>({});
+  const [memberProfiles, setMemberProfiles] = useState<Record<string, { displayName: string, username?: string, photoURL: string | null, lastSeen?: any }>>({});
 
   // --- OMNI NEW ADDITIONS STATES ---
   const [isOmniThinking, setIsOmniThinking] = useState(false);
@@ -492,7 +493,8 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   const [editingImage, setEditingImage] = useState<{ url: string, file: File } | null>(null);
   const [imageCaption, setImageCaption] = useState('');
   const [isViewOnce, setIsViewOnce] = useState(false);
-  const [activeCallStatus, setActiveCallStatus] = useState<'ringing' | 'connected' | 'ended' | null>(null);
+  const [activeCallStatus, setActiveCallStatus] = useState<'connecting' | 'ringing' | 'connected' | 'ended' | null>(null);
+  const [incomingCallRequest, setIncomingCallRequest] = useState<{ call: any; callerName: string } | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   
@@ -639,38 +641,8 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         }
       }
 
-      setActiveCall({ type: 'video', chatName: callerName });
-      setActiveCallStatus('ringing');
-
-      // Simple click to accept mechanism
-      const acceptCall = confirm(`Incoming call from ${callerName}. Answer video call?`);
-      if (acceptCall) {
-        try {
-          const constraints = { audio: true, video: true };
-          const stream = await navigator.mediaDevices.getUserMedia(constraints);
-          localStreamRef.current = stream;
-          setLocalStreamState(stream);
-
-          incomingCall.answer(stream);
-          setActiveCallStatus('connected');
-
-          incomingCall.on('stream', (rStream) => {
-            remoteStreamRef.current = rStream;
-            setRemoteStreamState(rStream);
-          });
-
-          incomingCall.on('close', () => {
-            hangUp();
-          });
-        } catch (err) {
-          console.error(err);
-          incomingCall.close();
-          hangUp();
-        }
-      } else {
-        incomingCall.close();
-        hangUp();
-      }
+      // Instead of confirm(), show a beautiful custom incoming call pop up
+      setIncomingCallRequest({ call: incomingCall, callerName });
     });
 
     // Ensure Omni constant contact
@@ -708,36 +680,160 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     };
   }, [user, userHandle, chats]);
 
+  // Synthesized calling beeps for caller ('connecting' vs 'ringing' loop)
   useEffect(() => {
-    if (activeCallStatus === 'ringing') {
-      const playBeep = () => {
+    let audioCtx: AudioContext | null = null;
+    let interval: any = null;
+
+    if (activeCallStatus === 'connecting' || activeCallStatus === 'ringing') {
+      try {
+        audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      } catch (e) {
+        console.warn("AudioContext failed to load:", e);
+      }
+
+      const playConnectingBeep = () => {
+        if (!audioCtx || audioCtx.state === 'closed') return;
         try {
-          const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-          const oscillator = audioCtx.createOscillator();
+          const osc = audioCtx.createOscillator();
           const gainNode = audioCtx.createGain();
-
-          oscillator.type = 'sine';
-          oscillator.frequency.setValueAtTime(440, audioCtx.currentTime);
-          gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime);
-
-          oscillator.connect(gainNode);
+          osc.connect(gainNode);
           gainNode.connect(audioCtx.destination);
 
-          oscillator.start();
-          setTimeout(() => {
-            oscillator.stop();
-            audioCtx.close();
-          }, 500); // 0.5s beep
-        } catch (e) {
-          console.error("Audio beep failed", e);
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(425, audioCtx.currentTime); // Standard 425Hz phone beep
+
+          gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+          gainNode.gain.linearRampToValueAtTime(0.08, audioCtx.currentTime + 0.02);
+          gainNode.gain.setValueAtTime(0.08, audioCtx.currentTime + 0.12);
+          gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.15);
+
+          osc.start();
+          osc.stop(audioCtx.currentTime + 0.16);
+        } catch (ex) {
+          console.warn("Audio play error:", ex);
         }
       };
 
-      const interval = setInterval(playBeep, 2000); // Ring every 2s
-      playBeep();
-      return () => clearInterval(interval);
+      const playRingingDoubleBeep = () => {
+        if (!audioCtx || audioCtx.state === 'closed') return;
+        try {
+          const now = audioCtx.currentTime;
+
+          // Beep 1
+          const osc1 = audioCtx.createOscillator();
+          const gainNode1 = audioCtx.createGain();
+          osc1.connect(gainNode1);
+          gainNode1.connect(audioCtx.destination);
+          osc1.type = 'sine';
+          osc1.frequency.setValueAtTime(425, now);
+          gainNode1.gain.setValueAtTime(0, now);
+          gainNode1.gain.linearRampToValueAtTime(0.08, now + 0.02);
+          gainNode1.gain.setValueAtTime(0.08, now + 0.10);
+          gainNode1.gain.linearRampToValueAtTime(0, now + 0.12);
+          osc1.start(now);
+          osc1.stop(now + 0.13);
+
+          // Beep 2 (starting at now + 0.15s)
+          const osc2 = audioCtx.createOscillator();
+          const gainNode2 = audioCtx.createGain();
+          osc2.connect(gainNode2);
+          gainNode2.connect(audioCtx.destination);
+          osc2.type = 'sine';
+          osc2.frequency.setValueAtTime(425, now + 0.15);
+          gainNode2.gain.setValueAtTime(0, now + 0.15);
+          gainNode2.gain.linearRampToValueAtTime(0.08, now + 0.17);
+          gainNode2.gain.setValueAtTime(0.08, now + 0.25);
+          gainNode2.gain.linearRampToValueAtTime(0, now + 0.27);
+          osc2.start(now + 0.15);
+          osc2.stop(now + 0.28);
+        } catch (ex) {
+          console.warn("Audio play error:", ex);
+        }
+      };
+
+      const step = () => {
+        if (activeCallStatus === 'connecting') {
+          playConnectingBeep();
+        } else if (activeCallStatus === 'ringing') {
+          playRingingDoubleBeep();
+        }
+      };
+
+      step();
+      interval = setInterval(step, 500); // 500ms repeating twice every second
     }
+
+    return () => {
+      if (interval) clearInterval(interval);
+      if (audioCtx) {
+        audioCtx.close().catch(err => console.warn(err));
+      }
+    };
   }, [activeCallStatus]);
+
+  // Synthesized Electronic telephone ringing loop for receiver (incoming call modal)
+  useEffect(() => {
+    let audioCtx: AudioContext | null = null;
+    let interval: any = null;
+
+    if (incomingCallRequest) {
+      try {
+        audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      } catch (e) {
+        console.warn(e);
+      }
+
+      const playPhoneRing = () => {
+        if (!audioCtx || audioCtx.state === 'closed') return;
+        try {
+          const now = audioCtx.currentTime;
+          // Dual classical frequencies
+          const osc1 = audioCtx.createOscillator();
+          const osc2 = audioCtx.createOscillator();
+          const gainNode = audioCtx.createGain();
+
+          osc1.type = 'sine';
+          osc1.frequency.setValueAtTime(440, now);
+          osc2.type = 'sine';
+          osc2.frequency.setValueAtTime(480, now);
+
+          gainNode.gain.setValueAtTime(0, now);
+          // Ring 1
+          gainNode.gain.linearRampToValueAtTime(0.12, now + 0.05);
+          gainNode.gain.setValueAtTime(0.12, now + 0.45);
+          gainNode.gain.linearRampToValueAtTime(0, now + 0.50);
+
+          // Ring 2 (at now + 0.7s)
+          gainNode.gain.linearRampToValueAtTime(0.12, now + 0.75);
+          gainNode.gain.setValueAtTime(0.12, now + 1.15);
+          gainNode.gain.linearRampToValueAtTime(0, now + 1.20);
+
+          osc1.connect(gainNode);
+          osc2.connect(gainNode);
+          gainNode.connect(audioCtx.destination);
+
+          osc1.start(now);
+          osc2.start(now);
+
+          osc1.stop(now + 1.30);
+          osc2.stop(now + 1.30);
+        } catch (ex) {
+          console.warn(ex);
+        }
+      };
+
+      playPhoneRing();
+      interval = setInterval(playPhoneRing, 3000); // Classic cadence every 3s
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+      if (audioCtx) {
+        audioCtx.close().catch(err => console.warn(err));
+      }
+    };
+  }, [incomingCallRequest]);
 
   const handleSearchUsers = async (queryStr: string) => {
     setNewChatHandle(queryStr);
@@ -1372,7 +1468,35 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     return () => clearInterval(interval);
   }, [isRecording]);
 
+  const logMissedCall = async (chatId: string, callType: 'voice' | 'video') => {
+    try {
+      const msgData = {
+        senderId: user.uid,
+        senderHandle: userHandle || '',
+        senderName: user.displayName || userHandle || 'Scholar',
+        text: `Missed ${callType} call`,
+        type: 'missed_call',
+        callType: callType,
+        timestamp: new Date(),
+        encrypted: true,
+        seenBy: [user.uid]
+      };
+      await addDoc(collection(db, 'chats', chatId, 'messages'), msgData);
+      await updateDoc(doc(db, 'chats', chatId), {
+        lastMessage: `📞 Missed ${callType} call`,
+        lastMessageSender: user.displayName || userHandle || 'Scholar',
+        updatedAt: serverTimestamp()
+      });
+    } catch (err) {
+      console.error("Error logging missed call:", err);
+    }
+  };
+
   const hangUp = () => {
+    const wasMissed = activeCallStatus === 'connecting' || activeCallStatus === 'ringing';
+    const currentActiveCallType = activeCall?.type;
+    const isIncoming = isIncomingCall;
+
     if (callInstanceRef.current) {
       callInstanceRef.current.close();
     }
@@ -1390,6 +1514,11 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     setActiveCall(null);
     setActiveCallStatus(null);
     setIsIncomingCall(false);
+    setIncomingCallRequest(null);
+
+    if (wasMissed && !isIncoming && selectedChat && currentActiveCallType) {
+      logMissedCall(selectedChat.id, currentActiveCallType);
+    }
   };
 
   const startCall = async (type: 'voice' | 'video') => {
@@ -1417,8 +1546,16 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
       };
       await addDoc(collection(db, 'users', user.uid, 'callLogs'), callData);
       
+      // Determine if they are online!
+      const otherProfile = otherId ? memberProfiles[otherId] : null;
+      const otherLastSeen = otherProfile?.lastSeen;
+      const otherLastSeenDate = otherLastSeen 
+        ? (otherLastSeen.toDate ? otherLastSeen.toDate() : new Date(otherLastSeen)) 
+        : null;
+      const isOtherOnline = otherLastSeenDate && (Date.now() - otherLastSeenDate.getTime() < 120000);
+
       setActiveCall({ type, chatName: getChatMetadata(selectedChat).name });
-      setActiveCallStatus('ringing');
+      setActiveCallStatus(isOtherOnline ? 'ringing' : 'connecting');
 
       const outCall = peerInstanceRef.current?.call(otherId, stream);
       if (outCall) {
@@ -2115,6 +2252,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
               setInputText={setInputText}
               onSendMessage={handleSendMessage}
               onShareNoteClick={() => setShowNoteShareOverlay(true)}
+              onStartCall={startCall}
               onVoiceUpload={(url, duration) => {
                 const msgData = {
                   senderId: user.uid,
@@ -2421,6 +2559,73 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                   </button>
                 </div>
               </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Custom Non-blocking Incoming Call Popup Modal */}
+      <AnimatePresence>
+        {incomingCallRequest && (
+          <motion.div
+            initial={{ opacity: 0, y: 100 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="fixed bottom-6 left-6 right-6 md:left-auto md:right-6 md:w-96 z-[600] bg-zinc-950 border border-white/10 rounded-3xl p-5 shadow-2xl flex flex-col gap-4 text-left"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-[#DC2626]/10 border border-[#DC2626]/20 flex items-center justify-center shrink-0">
+                <Phone className="text-[#DC2626] animate-bounce animate-infinite" size={20} />
+              </div>
+              <div>
+                <p className="text-[9px] font-black uppercase text-[#DC2626] tracking-widest">Incoming Call</p>
+                <h4 className="text-sm font-black text-white mt-0.5">{incomingCallRequest.callerName}</h4>
+              </div>
+            </div>
+            
+            <p className="text-xs text-white/50 leading-relaxed">
+              Answer the call to connect with your peer scholar. Make sure your microphone is enabled.
+            </p>
+
+            <div className="flex items-center gap-2 mt-2">
+              <button
+                onClick={async () => {
+                  const { call } = incomingCallRequest;
+                  setIncomingCallRequest(null);
+                  setActiveCall({ type: 'voice', chatName: incomingCallRequest.callerName });
+                  setActiveCallStatus('connected');
+                  try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+                    localStreamRef.current = stream;
+                    setLocalStreamState(stream);
+                    call.answer(stream);
+                    call.on('stream', (rStream: any) => {
+                      remoteStreamRef.current = rStream;
+                      setRemoteStreamState(rStream);
+                    });
+                    call.on('close', () => {
+                      hangUp();
+                    });
+                  } catch (e) {
+                    console.error("Accept fail:", e);
+                    call.close();
+                    hangUp();
+                  }
+                }}
+                className="flex-1 bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all"
+              >
+                Answer
+              </button>
+              <button
+                onClick={() => {
+                  incomingCallRequest.call.close();
+                  setIncomingCallRequest(null);
+                  hangUp();
+                }}
+                className="flex-1 bg-red-650 hover:bg-red-700 active:scale-95 text-white py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all"
+              >
+                Decline
+              </button>
             </div>
           </motion.div>
         )}

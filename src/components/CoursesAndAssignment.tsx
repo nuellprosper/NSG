@@ -393,8 +393,10 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, setUse
     recognition.interimResults = false;
     
     setIsListening(stepIdx);
+    let hasResult = false;
     
     recognition.onresult = async (event: any) => {
+      hasResult = true;
       const transcript = event.results[0][0].transcript;
       setIsListening(null);
       analyzeTextWorking(stepIdx, transcript);
@@ -403,7 +405,13 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, setUse
     recognition.onerror = (e: any) => {
       console.error("Speech Error:", e);
       setIsListening(null);
-      setUserNotification("Speech recognition failed.");
+      if (!hasResult && e.error !== 'no-speech' && e.error !== 'aborted') {
+        setUserNotification(`Speech recognition failed: ${e.error || "unknown"}`);
+      }
+    };
+
+    recognition.onend = () => {
+      setIsListening(null);
     };
 
     recognition.start();
@@ -460,8 +468,7 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, setUse
   };
 
   const checkWorking = async (stepIdx: number, providedFile?: File) => {
-    const working = userWorkings[stepIdx];
-    const fileToUse = providedFile || working?.imageFile;
+    const fileToUse = providedFile || userWorkings[stepIdx]?.imageFile;
     
     if (!fileToUse) {
       setUserNotification("Please upload an image of your workings first.");
@@ -471,10 +478,18 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, setUse
     const canProceed = await checkAndIncrementUsage('ASSIGNMENT');
     if (!canProceed) return;
 
-    setUserWorkings(prev => ({
-      ...prev,
-      [stepIdx]: { ...prev[stepIdx], isAnalyzing: true }
-    }));
+    setUserWorkings(prev => {
+      const current = prev[stepIdx] || {};
+      return {
+        ...prev,
+        [stepIdx]: { 
+          ...current, 
+          isAnalyzing: true,
+          imageFile: fileToUse,
+          imagePreview: current.imagePreview || URL.createObjectURL(fileToUse)
+        }
+      };
+    });
 
     try {
       const ai = getAiInstance();
@@ -500,18 +515,24 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, setUse
         contents: { parts: [{ text: prompt }, { inlineData: imagePart.inlineData }] }
       });
 
-      setUserWorkings(prev => ({
-        ...prev,
-        [stepIdx]: { ...prev[stepIdx], isAnalyzing: false, analysis: response?.text || "" }
-      }));
-      setUserNotification("Working analyzed!");
+      setUserWorkings(prev => {
+        const current = prev[stepIdx] || {};
+        return {
+          ...prev,
+          [stepIdx]: { ...current, isAnalyzing: false, analysis: response?.text || "" }
+        };
+      });
+      setUserNotification("Working analyzed successfully!");
     } catch (err: any) {
       console.error("Check Working Error:", err);
-      setUserWorkings(prev => ({
-        ...prev,
-        [stepIdx]: { ...prev[stepIdx], isAnalyzing: false }
-      }));
-      setUserNotification("Analysis failed. Try again.");
+      setUserWorkings(prev => {
+        const current = prev[stepIdx] || {};
+        return {
+          ...prev,
+          [stepIdx]: { ...current, isAnalyzing: false }
+        };
+      });
+      setUserNotification("Could not analyze image. Please try again.");
     }
   };
 

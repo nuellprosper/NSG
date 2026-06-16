@@ -195,6 +195,7 @@ interface PeerChatWorkspaceProps {
   userNotes?: any[];
   onOpenNote?: (noteId: string, noteTitle?: string, noteContent?: string) => void;
   onShareNoteClick?: () => void;
+  onStartCall?: (type: 'voice' | 'video') => void;
 }
 
 export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
@@ -213,7 +214,8 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
   onMessageContextMenu,
   userNotes = [],
   onOpenNote,
-  onShareNoteClick
+  onShareNoteClick,
+  onStartCall
 }) => {
   // Calculate online presence for peer
   const lastSeenVal = targetUserData?.lastSeen;
@@ -283,7 +285,11 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
   }, [callActive]);
 
   const initiateCallState = (type: 'voice' | 'video') => {
-    setCallActive(type);
+    if (onStartCall) {
+      onStartCall(type);
+    } else {
+      setCallActive(type);
+    }
   };
 
   const terminateCallState = () => {
@@ -482,7 +488,23 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
                     )}
 
                     {/* Render Canvas-based Voice Note */}
-                    {msg.type === 'audio' ? (
+                    {msg.type === 'missed_call' ? (
+                      <div 
+                        onClick={() => onStartCall?.(msg.callType || 'voice')}
+                        className="bg-red-500/10 border border-red-500/20 active:bg-red-500/20 rounded-2xl p-3.5 flex flex-col gap-2 min-w-[200px] cursor-pointer transition-all hover:scale-[1.02] relative"
+                        title="Tap to call back"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center justify-center shrink-0">
+                            <PhoneOff size={16} className="text-red-500" />
+                          </div>
+                          <div className="text-left leading-none">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-red-500">Missed Call</p>
+                            <p className="text-[11px] font-bold text-white mt-1 capitalize">Tap to call back</p>
+                          </div>
+                        </div>
+                      </div>
+                    ) : msg.type === 'audio' ? (
                       <VoiceNotePlayer msgId={msg.id} duration={msg.duration || 12} />
                     ) : msg.isSharedNote ? (
                       <div className="bg-black/25 border border-white/10 rounded-xl p-3 space-y-2 mt-1 min-w-[200px] max-w-sm">
@@ -792,20 +814,21 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
               </div>
 
               {/* Avatar Photo Frame inside purple borders */}
-              <div className="flex flex-col items-center justify-center gap-2 p-5 bg-white/5 rounded-3xl border border-white/5 mb-5 relative overflow-hidden">
-                <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-yellow-400 via-[#DC2626] to-[#9933FF] p-1 shadow-2xl">
+              <div className="flex flex-col items-center justify-center gap-3 p-6 bg-gradient-to-br from-[#1E1B2E]/50 to-[#0A0714]/80 rounded-[2rem] border border-white/5 mb-5 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-[#DC2626]/10 to-pink-500/5 blur-[40px] rounded-full pointer-events-none" />
+                <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-yellow-400 via-[#DC2626] to-[#9933FF] p-0.5 shadow-xl">
                   <div className="w-full h-full rounded-full overflow-hidden bg-zinc-950">
                     {targetUserData?.photoURL ? (
                       <img referrerPolicy="no-referrer" src={targetUserData.photoURL} alt="" className="w-full h-full object-cover" />
                     ) : (
-                      <div className="w-full h-full flex items-center justify-center text-white/10 bg-zinc-900 text-3xl font-black">
+                      <div className="w-full h-full flex items-center justify-center text-white/5 bg-zinc-900 text-2xl font-black">
                         {chat.name.charAt(0)}
                       </div>
                     )}
                   </div>
                 </div>
-                <div className="text-center mt-2">
-                  <p className="text-xs font-black uppercase tracking-wide text-white">{targetUserData?.fullName || chat.name}</p>
+                <div className="text-center mt-1">
+                  <p className="text-sm font-black uppercase tracking-wide text-white">{targetUserData?.fullName || chat.name}</p>
                   <p className="text-[8px] font-black uppercase tracking-widest text-[#DC2626]">{targetUserData?.level || '300 LEVEL'} SCHOLAR</p>
                 </div>
               </div>
@@ -846,20 +869,20 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
                   <span className="text-[11px] font-bold text-white/80 mt-1">{targetUserData?.email || 'scholar_nsg@academic.edu.ng'}</span>
                 </div>
 
-                {/* Bento-style fake shared media gallery */}
-                <div className="space-y-2 pt-1">
-                  <span className="text-[8px] font-black uppercase text-red-500 tracking-widest">Shared Scholarly Gallery (4)</span>
-                  <div className="grid grid-cols-4 gap-2">
-                    {[
-                      'https://images.unsplash.com/photo-1530026405186-ed1ea0ac7a63?w=150&auto=format&fit=crop',
-                      'https://images.unsplash.com/photo-1603126857599-f6e157fa2fe6?w=150&auto=format&fit=crop',
-                      'https://images.unsplash.com/photo-1507668077129-56e32842fceb?w=150&auto=format&fit=crop',
-                      'https://images.unsplash.com/photo-1614730321146-b6fa6a46bcb4?w=150&auto=format&fit=crop'
-                    ].map((srv, scdx) => (
-                      <div key={scdx} className="aspect-square rounded-xl overflow-hidden border border-white/10 bg-zinc-900">
-                        <img src={srv} className="w-full h-full object-cover transition-transform hover:scale-115 cursor-pointer" alt="" />
-                      </div>
-                    ))}
+                {/* Bento-style stats highlights for peer verification */}
+                <div className="bg-gradient-to-br from-[#1E1B2E]/20 to-transparent border border-white/5 rounded-2xl p-4 space-y-2">
+                  <span className="text-[8px] font-black uppercase text-red-500 tracking-widest flex items-center gap-1.5">
+                    🎓 Academic Honors & Milestones
+                  </span>
+                  <div className="grid grid-cols-2 gap-2 text-left pt-1">
+                    <div className="p-2.5 bg-white/[0.01] border border-white/5 rounded-xl">
+                      <p className="text-[7px] text-white/25 uppercase font-bold">Activity Streak</p>
+                      <p className="text-xs font-black text-amber-400 mt-0.5">🔥 {targetUserData?.streak || 14} Days</p>
+                    </div>
+                    <div className="p-2.5 bg-white/[0.01] border border-white/5 rounded-xl">
+                      <p className="text-[7px] text-white/25 uppercase font-bold">Verification Rating</p>
+                      <p className="text-xs font-black text-emerald-400 mt-0.5">⭐ compliance OK</p>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -879,9 +902,6 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
           >
             {/* Call header metrics */}
             <div className="flex flex-col items-center gap-1.5 mt-8">
-              <span className="text-[8.5px] font-black uppercase text-[#DC2626] tracking-widest animate-pulse">
-                WebRTC Secure Link Signal Active
-              </span>
               <h2 className="text-xl font-black uppercase text-white tracking-tight italic">
                 {targetUserData?.fullName || chat.name}
               </h2>
@@ -919,7 +939,7 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
                       )}
                     </div>
                   </div>
-                  <span className="text-[9px] font-black uppercase text-emerald-400 tracking-wider">Audio channels mapping synced</span>
+                  <span className="text-[10px] font-black uppercase text-emerald-400 tracking-wider">Active Stream Synced</span>
                 </div>
               )}
             </div>
