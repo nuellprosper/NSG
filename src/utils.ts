@@ -347,6 +347,7 @@ export interface QuizQuestion {
 
 export interface ExamQuestion extends QuizQuestion {
   id: string;
+  subject?: string;
 }
 
 export interface StudentResult {
@@ -370,6 +371,7 @@ export interface RegisteredStudent {
 export interface SubjectConfig {
   name: string;
   questionsToAnswer: number;
+  questionsToSit?: number;
 }
 
 export interface ExamConfig {

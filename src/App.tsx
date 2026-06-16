@@ -6,7 +6,7 @@ import {
   ChevronRight, Sparkles, Trash2, Settings, UserPlus, CreditCard, Edit2, FilePlus,
   ChevronUp, ChevronDown, Bold, Italic, List, CornerDownRight,
   Database, Zap, Cpu, CheckCircle2, XCircle, RefreshCcw, ArrowLeft, FileText, AlertCircle, RotateCcw,
-  Sun, Moon, ArrowDown, PlusCircle, Copy, User, Users, Clock, Lock, Shield, ShieldCheck, AlertTriangle, FileDown, LayoutDashboard, ListChecks, Bell, GraduationCap, LayoutGrid, Home,
+  Sun, Moon, ArrowDown, PlusCircle, Copy, User, Users, Clock, Lock, Unlock, Shield, ShieldCheck, AlertTriangle, FileDown, LayoutDashboard, ListChecks, Bell, GraduationCap, LayoutGrid, Home,
   Pin, Edit3, Share2, Trophy, LogOut, Plus, Menu, Camera, Monitor, X, Activity, MessageSquare, BookOpen, Calendar, Send, Save, MicOff, Video, AtSign, Paperclip,
   Search, Check, CheckCheck, Info, Volume2, Square, Mail, ArrowRight, BoxSelect, Globe, MapPin, Terminal, RefreshCw, Eye, EyeOff
 } from 'lucide-react';
@@ -3119,6 +3119,14 @@ export default function App() {
   const [adminPin, setAdminPin] = useState('');
   const [showAdminLogin, setShowAdminLogin] = useState(false);
   const [registeredStudents, setRegisteredStudents] = useState<RegisteredStudent[]>([]);
+  
+  // Custom states for the new multi-subject CBT Redesign
+  const [adminSelectedSubjectIdx, setAdminSelectedSubjectIdx] = useState(0);
+  const [showManualQuestionEntryPage, setShowManualQuestionEntryPage] = useState(false);
+  const [isQuestionsLocked, setIsQuestionsLocked] = useState(false);
+  const [adminOmniQuantity, setAdminOmniQuantity] = useState(10);
+  const [studentActiveQuestions, setStudentActiveQuestions] = useState<ExamQuestion[]>([]);
+  const [activeStudentSubject, setActiveStudentSubject] = useState<string>("");
   const initialExamConfig: ExamConfig = {
     questionCount: 15,
     duration: 30,
@@ -3130,6 +3138,74 @@ export default function App() {
     ]
   };
   const [examConfig, setExamConfig] = useState<ExamConfig>(initialExamConfig);
+  const activeSubjects = (examConfig.subjects && examConfig.subjects.length > 0) ? examConfig.subjects : [{ name: "Mathematics", questionsToAnswer: 15 }];
+  
+  const validateAndSetLimit = (
+    valStr: string,
+    minVal: number,
+    maxVal: number,
+    setter: (val: number) => void,
+    fieldName: string
+  ) => {
+    const valInt = parseInt(valStr);
+    if (isNaN(valInt)) {
+      setter(minVal);
+      return;
+    }
+    if (valInt < minVal) {
+      setUserNotification(`⚠️ ${fieldName} cannot be less than ${minVal}.`);
+      setter(minVal);
+    } else if (valInt > maxVal) {
+      setUserNotification(`⚠️ ${fieldName} is capped at ${maxVal}.`);
+      setter(maxVal);
+    } else {
+      setter(valInt);
+    }
+  };
+
+  useEffect(() => {
+    let changed = false;
+    let updatedQuestions = [...examQuestions];
+
+    activeSubjects.forEach(sub => {
+      const subName = sub.name.trim().toLowerCase();
+      // Filter existing questions of this subject
+      const subQs = updatedQuestions.filter(q => (q.subject || "Mathematics").trim().toLowerCase() === subName);
+      const targetCount = sub.questionsToAnswer || 15;
+
+      if (subQs.length < targetCount) {
+        // Need to add blank questions
+        const needed = targetCount - subQs.length;
+        for (let i = 0; i < needed; i++) {
+          updatedQuestions.push({
+            id: `q-${Date.now()}-${Math.random().toString(36).substr(2, 5)}-${subName}-${i}`,
+            question: "Enter question query here...",
+            options: ["", "", "", ""],
+            correctAnswer: 0,
+            explanation: "",
+            subject: sub.name
+          });
+        }
+        changed = true;
+      } else if (subQs.length > targetCount) {
+        // Truncate some questions from this subject specifically
+        let count = 0;
+        updatedQuestions = updatedQuestions.filter(q => {
+          if ((q.subject || "Mathematics").trim().toLowerCase() === subName) {
+            count++;
+            return count <= targetCount;
+          }
+          return true;
+        });
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      setExamQuestions(updatedQuestions);
+    }
+  }, [examConfig.subjects, examQuestions.length]);
+
   const [newStudentMatric, setNewStudentMatric] = useState('');
   const [newStudentName, setNewStudentName] = useState('');
 
@@ -3145,12 +3221,14 @@ export default function App() {
       return;
     }
 
+    const currentSubName = examConfig.subjects?.[adminSelectedSubjectIdx]?.name || "Mathematics";
     const newQ: ExamQuestion = {
       id: isEditingQuestionId || Math.random().toString(36).substr(2, 9),
       question: manualQuestion,
       options: manualOptions,
       correctAnswer: manualCorrect,
-      explanation: manualExplanation
+      explanation: manualExplanation,
+      subject: currentSubName
     };
 
     if (isEditingQuestionId) {
@@ -3620,6 +3698,28 @@ export default function App() {
       return () => clearTimeout(timer);
     }
   }, [examConfig, hostExamId, isHostPaid, user]);
+
+  // Auto-sync Exam Questions and Students to Firestore every second
+  useEffect(() => {
+    if (hostExamId && isHostPaid && user) {
+      const syncQuestionsAndStudents = async () => {
+        if (!user || !hostExamId) return;
+        try {
+          const examDoc = await getDoc(doc(db, 'exams', hostExamId));
+          if (examDoc.exists() && examDoc.data().hostUid === user.uid) {
+            await updateDoc(doc(db, 'exams', hostExamId), { 
+              questions: examQuestions,
+              registeredStudents: registeredStudents 
+            });
+          }
+        } catch (err) {
+          console.error("Auto-sync Questions/Students Error:", err);
+        }
+      };
+      const timer = setTimeout(syncQuestionsAndStudents, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [examQuestions, registeredStudents, hostExamId, isHostPaid, user]);
 
   // Admin Mode Persistence
   useEffect(() => {
@@ -4242,39 +4342,64 @@ export default function App() {
     return newArr;
   };
 
-  const generateAdminQuestions = async () => {
-    console.log("Starting Admin Question Generation...");
-    if (!adminQuestionsRaw.trim()) return;
+  const generateAdminQuestions = async (options?: { quantity?: number; rawNotes?: string; customPrompt?: string }) => {
+    console.log("Starting Subject-Specific Admin Question Generation...");
     
     if (!getApiKey()) {
-      setUserNotification("Gemini API Key is missing. Please set GEMINI_API_KEY in your environment.");
+      setUserNotification("API Key is missing. Please set GEMINI_API_KEY inside your settings.");
+      return;
+    }
+
+    const currentSub = examConfig.subjects?.[adminSelectedSubjectIdx];
+    const currentSubjectName = currentSub ? currentSub.name : 'Mathematics';
+    
+    // Filter existing pool for this subject
+    const existingSubQuestions = examQuestions.filter(q => q.subject?.trim().toLowerCase() === currentSubjectName.trim().toLowerCase());
+    
+    // Determine target quantity
+    const quantity = options?.quantity || adminOmniQuantity || 10;
+
+    const combinedPrompt = options 
+      ? `${options.customPrompt || ""}\n${options.rawNotes || ""}`.trim()
+      : adminQuestionsRaw.trim();
+
+    if (existingSubQuestions.length === 0 && !combinedPrompt) {
+      setUserNotification(`Please enter a prompt instruction for ${currentSubjectName} first, as there are no manual questions to analyze.`);
       return;
     }
 
     setIsGeneratingAdminQuestions(true);
     try {
       const prompt = `
-        Convert the following raw text into a professional Multiple Choice Question (MCQ) pool.
-        Generate exactly ${examConfig.poolCount || 50} questions.
-        Each question must have 4 options (A-D) and one correct answer index (0-3).
+        Convert the following user specifications or analyze the style of existing questions to generate a professional Multiple Choice Question (MCQ) pool.
+        Generate exactly ${Math.min(50, quantity)} questions for the subject/exam of "${currentSubjectName}".
+        Each question must have exactly 4 options (A-D) and one correct answer index (0-3).
+        
+        ${combinedPrompt ? `User Instructions/Topic Prompt: "${combinedPrompt}"` : `Analyze difficulty and style from the existing questions below and create similar questions.`}
+        
+        ${existingSubQuestions.length > 0 ? `
+        Analyzable Existing Questions for style modeling in ${currentSubjectName}:
+        ${JSON.stringify(existingSubQuestions.slice(0, 5))}
+        ` : ''}
+
         IMPORTANT: For any mathematical formulas or scientific notations, ALWAYS use LaTeX notation. 
         Use $ ... $ for inline math (e.g. $x^2$) and $$ ... $$ for block math (e.g. $$E=mc^2$$).
-        NEVER use other delimiters like \( \) or [ ].
         NEVER wrap LaTeX in code blocks.
         Ensure all backslashes are properly escaped for JSON.
-        Return ONLY a JSON object with this structure:
+        
+        Return ONLY a JSON object with this exact structure:
         {
           "questions": [
             {
               "question": "string",
               "options": ["string", "string", "string", "string"],
               "correctAnswer": number,
-              "explanation": "A comprehensive breakdown. 1. Why the correct answer is right. 2. Why the other options are incorrect or common pitfalls. Ensure this is detailed enough for a thorough review."
+              "explanation": "string detailing academic explanation"
             }
           ]
         }
-        Raw Text: ${adminQuestionsRaw}
       `;
+
       const askGemini = async () => {
         const aiInstance = getAiInstance();
         const res = await aiInstance.models.generateContent({
@@ -4299,22 +4424,55 @@ export default function App() {
       const respText = await askGemini() || await askTogether() || await askOpenRouter() || "{}";
       const data = JSON.parse(respText);
       if (data.questions) {
-        const formatted = data.questions.map((q: any) => ({ ...q, id: Math.random().toString(36).substr(2, 9) }));
+        const formatted = data.questions.map((q: any) => ({ 
+          ...q, 
+          id: `q-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+          subject: currentSubjectName
+        }));
         
-        // Append to existing pool (Hybrid) - Max 100
-        const updatedPool = [...examQuestions, ...formatted].slice(0, 100);
+        // Filter out blank questions of this subject so real generated ones replace them
+        const isBlank = (itemQ: any) => !itemQ.question || itemQ.question.trim() === "" || itemQ.question.trim().toLowerCase() === "enter question query here...";
+        
+        const otherSubjectsQs = examQuestions.filter(q => (q.subject || "Mathematics").trim().toLowerCase() !== currentSubjectName.trim().toLowerCase());
+        const existingSubQs = examQuestions.filter(q => (q.subject || "Mathematics").trim().toLowerCase() === currentSubjectName.trim().toLowerCase());
+        
+        const realSubQs = existingSubQs.filter(q => !isBlank(q));
+        const combinedSubQs = [...realSubQs, ...formatted];
+        const newTotalCount = combinedSubQs.length;
+        
+        // Update subjects limit if new pool size exceeds it so we don't truncate any
+        const targetSub = examConfig.subjects?.find(s => s.name.trim().toLowerCase() === currentSubjectName.trim().toLowerCase());
+        const currentTargetCount = targetSub ? (targetSub.questionsToAnswer || 15) : 15;
+        
+        let finalSubjects = examConfig.subjects || [];
+        if (newTotalCount > currentTargetCount) {
+          finalSubjects = (examConfig.subjects || []).map(s => {
+            if (s.name.trim().toLowerCase() === currentSubjectName.trim().toLowerCase()) {
+              return { ...s, questionsToAnswer: newTotalCount };
+            }
+            return s;
+          });
+          setExamConfig(prev => ({ ...prev, subjects: finalSubjects }));
+        }
+        
+        const updatedPool = [...otherSubjectsQs, ...combinedSubQs].slice(0, 200);
         setExamQuestions(updatedPool);
         
         // Auto-sync to Firestore if hosting
         if (hostExamId) {
-          await updateDoc(doc(db, 'exams', hostExamId), { questions: updatedPool });
+          await updateDoc(doc(db, 'exams', hostExamId), { 
+            questions: updatedPool,
+            config: { ...examConfig, subjects: finalSubjects }
+          });
         }
         
-        setAdminNotification(`Successfully added ${formatted.length} questions to the pool (Total: ${updatedPool.length}/100).`);
+        setAdminNotification(`Added ${formatted.length} ${currentSubjectName} questions!`);
+        // Clear prompt text after successful completion
+        setAdminQuestionsRaw('');
       }
     } catch (e) {
       console.error(e);
-      setAdminNotification("Failed to generate questions.");
+      setAdminNotification("Failed to generate questions. Verify your prompt or API key.");
     } finally {
       setIsGeneratingAdminQuestions(false);
     }
@@ -4420,17 +4578,37 @@ export default function App() {
       setShowAuthModal(true);
       return;
     }
-    if (examQuestions.length < examConfig.questionCount) {
-      setUserNotification(`Admin has not uploaded enough questions (Minimum ${examConfig.questionCount} required).`);
-      return;
+
+    let finalSelectedQuestions: ExamQuestion[] = [];
+    if (examConfig.subjects && examConfig.subjects.length > 0) {
+      // Multi-subject slice selection
+      examConfig.subjects.forEach(sub => {
+        const subPool = examQuestions.filter(q => q.subject?.trim().toLowerCase() === sub.name.trim().toLowerCase());
+        const subCount = sub.questionsToAnswer || 15;
+        // Shuffle the subject's pool and slice to needed count
+        const sliced = shuffleArray(subPool).slice(0, subCount);
+        finalSelectedQuestions.push(...sliced);
+      });
     }
-    const shuffled = shuffleArray(examQuestions).slice(0, examConfig.questionCount);
-    setExamQuestions(shuffled);
+
+    if (finalSelectedQuestions.length === 0) {
+      if (examQuestions.length < examConfig.questionCount) {
+        setUserNotification(`Admin has not uploaded enough questions (Minimum ${examConfig.questionCount} required).`);
+        return;
+      }
+      finalSelectedQuestions = shuffleArray(examQuestions).slice(0, examConfig.questionCount);
+    }
+
+    setExamQuestions(finalSelectedQuestions);
     setExamTimer(examConfig.duration * 60);
     setExamLobbyState('exam');
     setExamAnswers({});
     setCurrentExamIndex(0);
     setExamFinished(false);
+    
+    // Pick the first subject as active subject
+    const distinctSubjects = Array.from(new Set(finalSelectedQuestions.map(q => q.subject).filter(Boolean))) as string[];
+    setActiveStudentSubject(distinctSubjects[0] || "");
     
     // Mark as active
     setRegisteredStudents(prev => prev.map(s => 
@@ -4466,7 +4644,8 @@ export default function App() {
     
     let score = 0;
     examQuestions.forEach((q, idx) => {
-      if (examAnswers[idx] === q.correctAnswer) score++;
+      const studentAns = examAnswers[q.id] !== undefined ? examAnswers[q.id] : examAnswers[idx];
+      if (studentAns === q.correctAnswer) score++;
     });
 
     setExamScore(score);
@@ -4604,8 +4783,8 @@ export default function App() {
   };
 
   const createNewExam = () => {
-    if (hostedExams.length >= 5) {
-      setUserNotification("Limit reached: You can only have 5 active exams at a time. Delete one to create space.");
+    if (hostedExams.length >= 20) {
+      setUserNotification("Limit reached: You can only have 20 active exams at a time. Delete one to create space.");
       return;
     }
 
@@ -9755,60 +9934,111 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                 </div>
               )}
 
-              {examLobbyState === 'exam' && (
-                <div className="space-y-4 sm:space-y-6">
-                  <div className={`flex items-center justify-between ${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-3 sm:p-4 rounded-2xl border shadow-sm sticky top-16 sm:top-20 z-30`}>
-                    <div className="flex items-center gap-2 text-[#DC2626] font-black">
-                      <Clock size={16} className="sm:size-[18px]" />
-                      <span className="font-mono text-base sm:text-lg">{Math.floor(examTimer / 60)}:{(examTimer % 60).toString().padStart(2, '0')}</span>
+              {examLobbyState === 'exam' && (() => {
+                const distinctStudentSubjects = Array.from(new Set(examQuestions.map(q => q.subject || "Mathematics").filter(Boolean))) as string[];
+                const activeSub = activeStudentSubject || distinctStudentSubjects[0] || "Mathematics";
+                const activeSubjectQuestions = activeSub ? examQuestions.filter(q => (q.subject || "Mathematics") === activeSub) : examQuestions;
+                const currentQuestion = activeSubjectQuestions[currentExamIndex] || activeSubjectQuestions[0];
+                
+                return (
+                  <div className="space-y-4 sm:space-y-6">
+                    <div className={`flex items-center justify-between ${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-3 sm:p-4 rounded-2xl border shadow-sm sticky top-16 sm:top-20 z-30`}>
+                      <div className="flex items-center gap-2 text-[#DC2626] font-black">
+                        <Clock size={16} className="sm:size-[18px]" />
+                        <span className="font-mono text-base sm:text-lg">{Math.floor(examTimer / 60)}:{(examTimer % 60).toString().padStart(2, '0')}</span>
+                      </div>
+                      <div className="text-center">
+                        <p className={`text-[8px] sm:text-[10px] font-black ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} uppercase`}>Exam Progress</p>
+                        <p className={`text-xs sm:text-sm font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                          {activeSub ? `${activeSub}: ` : ""} {currentExamIndex + 1} / {activeSubjectQuestions.length}
+                        </p>
+                      </div>
+                      <button onClick={submitExam} className="bg-[#DC2626] text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-[#DC2626]/90 transition-all shadow-md">Submit Exam</button>
                     </div>
-                    <div className="text-center"><p className={`text-[8px] sm:text-[10px] font-black ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} uppercase`}>Question</p><p className={`text-xs sm:text-sm font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{currentExamIndex + 1} / {examQuestions.length}</p></div>
-                    <button onClick={submitExam} disabled={Object.keys(examAnswers).length < (examQuestions.length * 0.5)} className="bg-[#DC2626] text-white px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-[8px] sm:text-[10px] font-black uppercase tracking-widest disabled:opacity-30">Submit</button>
-                  </div>
 
-                  {/* Exam Question Navigation */}
-                  <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
-                    {examQuestions.map((_, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => setCurrentExamIndex(idx)}
-                        className={`flex-shrink-0 w-8 h-8 rounded-lg text-[10px] font-black border transition-all ${
-                          currentExamIndex === idx 
-                            ? 'bg-[#DC2626] border-[#DC2626] text-white' 
-                            : examAnswers[idx] !== undefined 
-                              ? 'bg-green-500/20 border-green-500/30 text-green-500' 
-                              : 'bg-white/5 border-white/10 text-white/40'
-                        }`}
-                      >
-                        {idx + 1}
-                      </button>
-                    ))}
-                  </div>
+                    {/* Subject Tabs (As seen in JAMB) */}
+                    {distinctStudentSubjects.length > 1 && (
+                      <div className="flex flex-wrap gap-2 pb-1 border-b border-white/5">
+                        {distinctStudentSubjects.map((subName) => (
+                          <button
+                            key={subName}
+                            onClick={() => {
+                              setActiveStudentSubject(subName);
+                              setCurrentExamIndex(0);
+                            }}
+                            className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wide border transition-all ${
+                              activeSub === subName
+                                ? 'bg-[#DC2626] border-[#DC2626] text-white shadow-md'
+                                : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
+                            }`}
+                          >
+                            {subName}
+                          </button>
+                        ))}
+                      </div>
+                    )}
 
-                  <div className={`${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-5 sm:p-8 rounded-3xl border space-y-6 sm:space-y-8 shadow-sm`}>
-                    <MarkdownRenderer 
-                      content={examQuestions[currentExamIndex].question}
-                      className={`text-base sm:text-lg font-bold leading-tight ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}
-                    />
-                    <div className="space-y-3">
-                      {examQuestions[currentExamIndex].options.map((option, idx) => (
-                        <button key={idx} onClick={() => setExamAnswers({ ...examAnswers, [currentExamIndex]: idx })} className={`w-full text-left p-4 rounded-2xl border transition-all ${examAnswers[currentExamIndex] === idx ? 'border-[#DC2626] bg-[#DC2626]/5 text-[#DC2626]' : `${theme === 'dark' ? 'bg-white/5 border-white/10 text-white/80' : 'bg-slate-50 border-slate-200 text-slate-700'}`}`}>
-                          <div className="flex items-start gap-3">
-                            <MarkdownRenderer 
-                              content={option}
-                              className="flex-1 text-sm font-medium"
-                            />
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                    <div className="flex justify-between pt-4">
-                      <button onClick={() => setCurrentExamIndex(prev => Math.max(0, prev - 1))} disabled={currentExamIndex === 0} className={`p-3 ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'} hover:text-[#DC2626] disabled:opacity-20`}><ArrowLeft size={24} /></button>
-                      <button onClick={() => setCurrentExamIndex(prev => Math.min(examQuestions.length - 1, prev + 1))} disabled={currentExamIndex === examQuestions.length - 1} className={`p-3 ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'} hover:text-[#DC2626] disabled:opacity-20`}><ChevronRight size={24} /></button>
-                    </div>
+                    {/* Question Navigation Bubbles */}
+                    {activeSubjectQuestions.length > 0 && (
+                      <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
+                        {activeSubjectQuestions.map((_, idx) => {
+                          const associatedQ = activeSubjectQuestions[idx];
+                          const isAnswered = examAnswers[associatedQ.id] !== undefined;
+                          return (
+                            <button
+                              key={associatedQ.id || idx}
+                              onClick={() => setCurrentExamIndex(idx)}
+                              className={`flex-shrink-0 w-8 h-8 rounded-lg text-[10px] font-black border transition-all ${
+                                currentExamIndex === idx 
+                                  ? 'bg-[#DC2626] border-[#DC2626] text-white' 
+                                  : isAnswered 
+                                    ? 'bg-green-500/20 border-green-500/30 text-green-400 font-bold' 
+                                    : 'bg-white/5 border-white/10 text-white/40'
+                              }`}
+                            >
+                              {idx + 1}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {currentQuestion ? (
+                      <div className={`${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-5 sm:p-8 rounded-3xl border space-y-6 sm:space-y-8 shadow-sm`}>
+                        <MarkdownRenderer 
+                          content={currentQuestion.question}
+                          className={`text-base sm:text-lg font-bold leading-tight ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}
+                        />
+                        <div className="space-y-3">
+                          {currentQuestion.options.map((option, idx) => {
+                            const isSelected = examAnswers[currentQuestion.id] === idx;
+                            return (
+                              <button 
+                                key={idx} 
+                                onClick={() => setExamAnswers({ ...examAnswers, [currentQuestion.id]: idx })} 
+                                className={`w-full text-left p-4 rounded-2xl border transition-all ${isSelected ? 'border-[#DC2626] bg-[#DC2626]/5 text-[#DC2626]' : `${theme === 'dark' ? 'bg-white/5 border-white/10 text-white/80' : 'bg-slate-50 border-slate-200 text-slate-700'}`}`}
+                              >
+                                <div className="flex items-start gap-3">
+                                  <MarkdownRenderer 
+                                    content={option}
+                                    className="flex-1 text-sm font-medium"
+                                  />
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="flex justify-between pt-4">
+                          <button onClick={() => setCurrentExamIndex(prev => Math.max(0, prev - 1))} disabled={currentExamIndex === 0} className={`p-3 ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'} hover:text-[#DC2626] disabled:opacity-20`}><ArrowLeft size={24} /></button>
+                          <button onClick={() => setCurrentExamIndex(prev => Math.min(activeSubjectQuestions.length - 1, prev + 1))} disabled={currentExamIndex === activeSubjectQuestions.length - 1} className={`p-3 ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'} hover:text-[#DC2626] disabled:opacity-20`}><ChevronRight size={24} /></button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="py-20 text-center text-white/40">No questions found in this section.</div>
+                    )}
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {examLobbyState === 'result' && (
                 <div className={`${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-10 rounded-3xl border text-center space-y-6 shadow-sm`}>
@@ -11718,43 +11948,71 @@ Respond professionally, concisely, and use LaTeX for math.` }];
 
           {/* HOST EXAM PANEL (FORMERLY ADMIN) */}
           {adminMode && (
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className={`fixed inset-0 z-[110] p-2 sm:p-6 overflow-y-auto ${theme === 'dark' ? 'bg-[#13111C]/95' : 'bg-white/95'} backdrop-blur-xl`}>
-              <div className="max-w-6xl mx-auto space-y-4 sm:space-y-8 pb-32">
-                <div className="flex items-center justify-between border-b border-[#DC2626]/20 pb-4 sm:pb-6">
-                  <div className="flex items-center gap-2 sm:gap-4">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className={`fixed inset-0 z-[110] p-2 sm:p-6 overflow-y-auto ${theme === 'dark' ? 'bg-[#13111C]/96' : 'bg-slate-50'} backdrop-blur-xl`}>
+              <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6 pb-32">
+                
+                {/* Fixed/Sticky Top Control Header */}
+                <div className={`p-4 sm:p-6 rounded-3xl border ${theme === 'dark' ? 'bg-[#181524] border-white/10' : 'bg-white border-slate-200'} shadow-md flex flex-col md:flex-row md:items-center md:justify-between gap-4 sticky top-0 z-50`}>
+                  <div className="flex items-center gap-3">
                     <button 
-                      onClick={() => setShowExamSidebar(true)}
-                      className={`p-2 sm:p-3 rounded-xl sm:rounded-2xl transition-all ${theme === 'dark' ? 'bg-white/5 text-white/40' : 'bg-zinc-100 text-zinc-500'} hover:bg-[#DC2626]/10`}
+                      onClick={() => setShowExamSidebar(!showExamSidebar)}
+                      className={`p-2 lg:p-3 rounded-xl sm:rounded-2xl transition-all ${theme === 'dark' ? 'bg-white/5 text-white/40' : 'bg-slate-100 text-slate-500'} hover:bg-[#DC2626]/10`}
                     >
-                      <Menu size={20} className="sm:size-[24px]" />
+                      <Menu size={20} />
                     </button>
-                    <div className="w-10 h-10 sm:w-12 sm:h-12 bg-[#DC2626] rounded-xl sm:rounded-2xl flex items-center justify-center shadow-lg shadow-[#DC2626]/20">
-                      <LayoutDashboard size={20} className="text-white sm:hidden" />
-                      <LayoutDashboard size={24} className="text-white hidden sm:block" />
+                    <div className="w-10 h-10 bg-[#DC2626] rounded-xl flex items-center justify-center shadow-lg shadow-[#DC2626]/20">
+                      <LayoutDashboard size={20} className="text-white" />
                     </div>
                     <div>
-                      <h1 className="text-lg sm:text-3xl font-black text-[#DC2626] uppercase tracking-tighter italic">Host Exam</h1>
-                      <p className="text-[7px] sm:text-[10px] font-bold uppercase tracking-[0.3em] text-white/40">Professional Infrastructure</p>
+                      <h1 className={`text-lg sm:text-2xl font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'} uppercase tracking-tight`}>Host Exam Control Room</h1>
+                      <p className={`text-[8px] sm:text-[10px] font-bold uppercase tracking-[0.2em] ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'}`}>Professional Examination Pool</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 sm:gap-4">
-                    <AnimatePresence>
-                      {adminNotification && (
-                        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="bg-[#DC2626] text-white px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-[8px] sm:text-[10px] font-black uppercase tracking-widest shadow-lg shadow-[#DC2626]/20">
-                          {adminNotification}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                    <button 
-                      onClick={() => setAdminMode(false)} 
-                      className={`p-2 sm:p-3 rounded-xl sm:rounded-2xl transition-all ${theme === 'dark' ? 'bg-white/5 text-white/40' : 'bg-zinc-100 text-zinc-500'} hover:bg-[#DC2626]/10`}
+
+                  <div className="flex items-center flex-wrap gap-2.5">
+                    {/* Dynamic Padlock Button visible at all times */}
+                    <button
+                      onClick={() => {
+                        setIsQuestionsLocked(!isQuestionsLocked);
+                        setUserNotification(isQuestionsLocked ? "🔓 Exam questions unlocked for editing." : "🔒 Exam questions locked to prevent accidental changes.");
+                      }}
+                      className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all shadow-sm ${
+                        isQuestionsLocked 
+                          ? 'bg-amber-500/15 border border-amber-500/40 text-amber-500' 
+                          : 'bg-green-500/15 border border-green-500/40 text-green-500'
+                      }`}
+                      title={isQuestionsLocked ? "Unlock configuration" : "Lock configuration"}
                     >
-                      <XCircle size={20} className="sm:size-[24px]" />
+                      {isQuestionsLocked ? (
+                        <>
+                          <Lock size={14} className="animate-pulse" />
+                          <span>LOCKED</span>
+                        </>
+                      ) : (
+                        <>
+                          <Unlock size={14} />
+                          <span>UNLOCKED</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button 
+                      onClick={saveHostedExam} 
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-xs font-black uppercase shadow-md transition-colors"
+                    >
+                      Save Progress
+                    </button>
+
+                    <button 
+                      onClick={() => { setAdminMode(false); setShowManualQuestionEntryPage(false); }} 
+                      className={`p-2.5 rounded-xl transition-all ${theme === 'dark' ? 'bg-white/5 text-white/40' : 'bg-slate-100 text-slate-500'} hover:bg-red-500/10 hover:text-red-500`}
+                    >
+                      <XCircle size={20} />
                     </button>
                   </div>
                 </div>
 
-                {/* Sidebar Backdrop and Drawer */}
+                {/* Drawer/Sidebar */}
                 <AnimatePresence>
                   {showExamSidebar && (
                     <>
@@ -11786,17 +12044,17 @@ Respond professionally, concisely, and use LaTeX for math.` }];
 
                           <div className="flex-1 overflow-y-auto space-y-3 pb-8 custom-scrollbar">
                              <button 
-                               onClick={createNewExam}
-                               className={`w-full flex items-center justify-center gap-2 p-4 rounded-2xl bg-[#DC2626]/10 border border-[#DC2626]/20 text-[#DC2626] hover:bg-[#DC2626] hover:text-white transition-all group`}
+                               onClick={() => { createNewExam(); setShowManualQuestionEntryPage(false); }}
+                               className="w-full flex items-center justify-center gap-2 p-4 rounded-2xl bg-[#DC2626]/10 border border-[#DC2626]/20 text-[#DC2626] hover:bg-[#DC2626] hover:text-white transition-all group"
                              >
                                <PlusCircle size={18} />
-                               <span className="text-[10px] font-black uppercase">Host New Exam ({hostedExams.length}/5)</span>
+                               <span className="text-[10px] font-black uppercase">Host New Exam ({hostedExams.length}/20)</span>
                              </button>
 
                              <div className="pt-4 space-y-3">
                                <p className={`text-[8px] font-black ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} uppercase tracking-[0.2em] px-2 mb-4`}>Your Active Exams</p>
                                {hostedExams.length === 0 ? (
-                                 <div className={`py-20 text-center space-y-2 ${theme === 'dark' ? 'text-white/20' : 'text-slate-300'}`}>
+                                 <div className={`py-12 text-center space-y-2 ${theme === 'dark' ? 'text-white/20' : 'text-slate-300'}`}>
                                    <Database size={32} className="mx-auto mb-2" />
                                    <p className="text-[10px] font-bold">No active exams found</p>
                                  </div>
@@ -11804,9 +12062,9 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                                  hostedExams.map(ex => (
                                    <div key={ex.id} className="relative group">
                                      <button 
-                                       onClick={() => switchExam(ex.id)}
+                                       onClick={() => { switchExam(ex.id!); setShowManualQuestionEntryPage(false); }}
                                        className={`w-full text-left p-4 rounded-2xl border transition-all ${hostExamId === ex.id 
-                                         ? 'bg-[#DC2626] border-[#DC2626] text-white shadow-lg shadow-[#DC2626]/20' 
+                                         ? 'bg-[#DC2626] border-[#DC2626] text-white shadow-lg' 
                                          : theme === 'dark' 
                                            ? 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10' 
                                            : 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:bg-zinc-100'}`}
@@ -11829,12 +12087,8 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                                      </button>
                                    </div>
                                  ))
-                               )}
+                                )}
                              </div>
-                          </div>
-
-                          <div className={`pt-4 border-t ${theme === 'dark' ? 'border-white/5 text-white/40' : 'border-zinc-100 text-zinc-400'}`}>
-                             <p className="text-[7px] text-center uppercase tracking-widest leading-relaxed"></p>
                           </div>
                         </div>
                       </motion.div>
@@ -11849,308 +12103,699 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                 ) : (!isPremium && !isHostPaid && hostedExams.length === 0) ? (
                   <div className="max-w-md mx-auto py-10 sm:py-20 text-center space-y-6 px-4">
                     <div className="w-16 h-16 sm:w-20 sm:h-20 bg-[#DC2626]/10 rounded-full flex items-center justify-center mx-auto">
-                      <ShieldCheck size={32} className="text-[#DC2626] sm:size-[40px]" />
+                      <ShieldCheck size={32} className="text-[#DC2626]" />
                     </div>
                     <div className="space-y-2">
-                      <h2 className="text-xl sm:text-2xl font-black text-white uppercase tracking-tighter">Host Your Own Exam</h2>
-                      <p className="text-xs sm:text-sm text-white/40 leading-relaxed">
-                        {isPremium ? "Premium Active: You can host professional exams for free." : `Create a professional CBT environment for your students. Hosting fee is \u{20A6}200 per session.`}
+                      <h2 className={`text-xl sm:text-2xl font-black uppercase tracking-tighter ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Create & Host CBT Exams</h2>
+                      <p className={`text-xs sm:text-sm leading-relaxed ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}>
+                        {isPremium ? "Premium Active: Setup instant test sessions for free." : "Create custom multi-subject examination instances. Single-exam hosting starts at \u{20A6}200."}
                       </p>
                     </div>
                     <button 
                       onClick={createNewExam} 
-                      className="w-full bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black py-4 sm:py-5 rounded-2xl text-sm shadow-xl shadow-[#DC2626]/20 transition-all flex items-center justify-center gap-2"
+                      className="w-full bg-[#DC2626] text-white font-black py-4 rounded-2xl text-xs shadow-xl hover:bg-[#DC2626]/90 transition-all uppercase tracking-widest"
                     >
-                      <CreditCard size={18} className="sm:size-[20px]" /> 
-                      {isPremium || currentUserData?.role === 'admin' || currentUserData?.bypassHostingPayment ? "ACTIVATE EXAM CLOUD" : "PAY \u{20A6}200 TO START"}
+                      {isPremium || currentUserData?.role === 'admin' || currentUserData?.bypassHostingPayment ? "START EXAM HOSTING" : "PAY \u{20A6}200 TO START"}
                     </button>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-                    {/* Student Management */}
-                    <div className="lg:col-span-2 space-y-4 sm:space-y-6">
-                      {hostExamId ? (
-                        <div className="bg-green-500/10 border border-green-500/20 p-3 sm:p-4 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3">
-                          <div className="flex items-center gap-3 w-full sm:w-auto">
-                            <div className="w-8 h-8 bg-green-500 rounded-lg flex-shrink-0 flex items-center justify-center text-white"><Share2 size={16} /></div>
-                            <div className="overflow-hidden">
-                              <p className="text-[8px] sm:text-[10px] font-black text-green-500 uppercase tracking-widest">Exam ID</p>
-                              <p className="text-lg font-black font-mono text-white tracking-widest">{hostExamId}</p>
-                            </div>
-                          </div>
-                          <div className="flex gap-2 w-full sm:w-auto">
-                            <button onClick={() => copyToClipboard(hostExamId)} className="flex-1 sm:flex-none p-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-all flex items-center justify-center gap-2 text-[10px] font-bold"><Copy size={14} /> COPY ID</button>
-                            {examStatus === 'active' ? (
-                              <motion.button whileTap={{ scale: 0.95 }} onClick={endHostedExam} className="flex-1 sm:flex-none p-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-all flex items-center justify-center gap-2 text-[10px] font-bold" title="End Session Locally"><XCircle size={14} /> END SESSION</motion.button>
-                            ) : (
-                              <motion.button 
-                                whileTap={{ scale: 0.95 }} 
-                                onClick={deleteHostedExam} 
-                                className={`flex-1 sm:flex-none p-2 ${deleteConfirmStep === 1 ? 'bg-red-700 animate-pulse' : 'bg-red-500'} text-white rounded-lg hover:bg-red-600 transition-all flex items-center justify-center gap-2 text-[10px] font-bold`} 
-                                title="Delete All Details Permanently"
-                              >
-                                <Trash2 size={14} /> {deleteConfirmStep === 1 ? 'CONFIRM DELETE' : 'DELETE ALL'}
-                              </motion.button>
-                            )}
+                  <div>
+                    {/* Active Link Status Card */}
+                    {hostExamId ? (
+                      <div className={`mb-6 p-4 rounded-2xl border ${theme === 'dark' ? 'bg-[#181524] border-white/10 text-white' : 'bg-green-50 border-green-200 text-slate-800'} flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm`}>
+                        <div className="flex items-center gap-3 w-full sm:w-auto">
+                          <div className="w-9 h-9 bg-[#DC2626] rounded-xl flex-shrink-0 flex items-center justify-center text-white"><Share2 size={16} /></div>
+                          <div>
+                            <p className={`text-[8px] sm:text-[10px] font-black uppercase tracking-wider ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>Exam Code</p>
+                            <p className="text-lg font-black font-mono tracking-widest text-[#DC2626]">{hostExamId}</p>
                           </div>
                         </div>
-                      ) : (
-                        <div className={`bg-[#DC2626]/10 border border-[#DC2626]/20 p-4 rounded-2xl text-center space-y-3 ${theme === 'dark' ? '' : 'bg-red-50 border-red-100'}`}>
-                          <p className={`text-xs ${theme === 'dark' ? 'text-white/60' : 'text-slate-600'}`}>No active exam link found. Click below to generate one.</p>
-                          <button 
-                            onClick={() => {
-                              const newId = Math.random().toString(36).substr(2, 9).toUpperCase();
-                              setHostExamId(newId);
-                              localStorage.setItem('nsg_host_exam_id', newId);
-                            }}
-                            className="bg-[#DC2626] text-white px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest"
+                        <div className="flex gap-2 w-full sm:w-auto">
+                          <button onClick={() => copyToClipboard(hostExamId)} className="flex-1 sm:flex-none p-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-all flex items-center justify-center gap-2 text-[10px] font-black tracking-wide"><Copy size={13} /> COPY ID</button>
+                          {examStatus === 'active' ? (
+                            <button onClick={endHostedExam} className="flex-1 sm:flex-none p-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-all flex items-center justify-center gap-2 text-[10px] font-black tracking-wide"><XCircle size={13} /> END EXAM</button>
+                          ) : (
+                            <button 
+                              onClick={deleteHostedExam} 
+                              className={`flex-1 sm:flex-none p-2 ${deleteConfirmStep === 1 ? 'bg-red-800 animate-pulse' : 'bg-red-600'} text-white rounded-lg hover:bg-red-700 transition-all flex items-center justify-center gap-2 text-[10px] font-black tracking-wide`}
+                            >
+                              <Trash2 size={13} /> {deleteConfirmStep === 1 ? 'CONFIRM' : 'DELETE'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className={`mb-6 p-6 rounded-3xl border border-dashed text-center space-y-3 ${theme === 'dark' ? 'bg-[#181524] border-white/10' : 'bg-slate-50 border-slate-300'}`}>
+                        <p className={`text-xs ${theme === 'dark' ? 'text-white/50' : 'text-slate-500'}`}>No active exam code exists. Generate a code below.</p>
+                        <button 
+                          onClick={() => {
+                            const newId = Math.random().toString(36).substr(2, 9).toUpperCase();
+                            setHostExamId(newId);
+                            localStorage.setItem('nsg_host_exam_id', newId);
+                          }}
+                          className="bg-[#DC2626] text-white px-5 py-2 rounded-xl text-xs font-black uppercase tracking-widest"
+                        >
+                          Generate Exam Code
+                        </button>
+                      </div>
+                    )}
+
+                    {/* DEDICATED VIEW A: GENERAL SETTINGS, STUDENTS & RESULTS (when setting entry page is false) */}
+                    {!showManualQuestionEntryPage ? (
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        
+                        {/* Column 1: CBT General Settings & Subject Registry */}
+                        <div className="lg:col-span-2 space-y-6">
+                          <div className={`p-6 sm:p-8 rounded-3xl border ${theme === 'dark' ? 'bg-[#181524] border-white/10' : 'bg-white border-slate-200'} space-y-6 shadow-sm`}>
+                            <h2 className={`text-md sm:text-lg font-black uppercase tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-900'} flex items-center gap-2.5 border-b pb-3`}>
+                              <span>⚙️ Exam Settings</span>
+                            </h2>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <p className={`text-[8px] font-black uppercase mb-1.5 ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>Total Duration (Minutes)</p>
+                                <input 
+                                  type="number" 
+                                  value={examConfig.duration || 30} 
+                                  onChange={(e) => validateAndSetLimit(e.target.value, 1, 300, (v) => setExamConfig({...examConfig, duration: v}), "Exam Duration")} 
+                                  className={`w-full border rounded-xl px-4 py-2.5 text-xs outline-none focus:border-[#DC2626]/50 transition-all ${theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'}`} 
+                                />
+                              </div>
+                              <div>
+                                <p className={`text-[8px] font-black uppercase mb-1.5 ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>Warning / Notice for Students</p>
+                                <input 
+                                  type="text" 
+                                  value={examConfig.warningMessage || ""} 
+                                  onChange={(e) => setExamConfig({...examConfig, warningMessage: e.target.value})} 
+                                  placeholder="Leave blank for standard instructions..."
+                                  className={`w-full border rounded-xl px-4 py-2.5 text-xs outline-none focus:border-[#DC2626]/50 transition-all ${theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'}`} 
+                                />
+                              </div>
+                            </div>
+
+                            {/* Sub-block: Add Subjects and Questions to CBT */}
+                            <div className={`p-4 rounded-2xl border ${theme === 'dark' ? 'bg-white/[0.02] border-white/5' : 'bg-slate-50 border-slate-100'} space-y-4`}>
+                              <div>
+                                <p className="text-xs font-black uppercase text-red-500 leading-normal">Add subjects and set the questions count</p>
+                                <p className={`text-[8px] ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'} uppercase mt-0.5`}>Set up the subjects for this exam</p>
+                              </div>
+
+                              <div className="flex flex-col sm:flex-row gap-3">
+                                <input 
+                                  type="text" 
+                                  id="cbt-subj-name-input"
+                                  placeholder="e.g. Chemistry, Biology, Physics" 
+                                  className={`flex-[2] border rounded-xl px-4 py-2.5 text-xs outline-none focus:border-[#DC2626]/50 transition-all ${theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-800'}`} 
+                                />
+                                <input 
+                                  type="number" 
+                                  id="cbt-subj-sitting-input"
+                                  placeholder="Questions per subject" 
+                                  defaultValue={15}
+                                  className={`flex-1 border rounded-xl px-4 py-2.5 text-xs outline-none focus:border-[#DC2626]/50 transition-all ${theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-800'}`} 
+                                />
+                                <button 
+                                  onClick={() => {
+                                    const nameInp = document.getElementById("cbt-subj-name-input") as HTMLInputElement;
+                                    const countInp = document.getElementById("cbt-subj-sitting-input") as HTMLInputElement;
+                                    if (nameInp && nameInp.value.trim()) {
+                                      const newSubName = nameInp.value.trim();
+                                      const sitCount = parseInt(countInp.value) || 15;
+                                      const currentList = examConfig.subjects || [];
+                                      if (currentList.length >= 10) {
+                                        setUserNotification("⚠️ Limit reached: You can only set up to 10 different subjects per exam.");
+                                        return;
+                                      }
+                                      
+                                      // Avoid duplicates
+                                      if (currentList.some(s => s.name.toLowerCase() === newSubName.toLowerCase())) {
+                                        setUserNotification(`⚠️ ${newSubName} is already added.`);
+                                        return;
+                                      }
+
+                                      const updatedSubs = [...currentList, { name: newSubName, questionsToAnswer: sitCount }];
+                                      setExamConfig({ ...examConfig, subjects: updatedSubs });
+                                      nameInp.value = "";
+                                      setUserNotification(`✅ Added subject: ${newSubName}`);
+                                    } else {
+                                      setUserNotification("⚠️ Please enter a valid subject name.");
+                                    }
+                                  }}
+                                  className="bg-[#DC2626] hover:bg-[#DC2626]/90 text-white px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider"
+                                >
+                                  Add Subject
+                                </button>
+                              </div>
+
+                              {/* Configured subjects row */}
+                              <div className="flex flex-wrap gap-2 pt-2">
+                                {((examConfig.subjects && examConfig.subjects.length > 0) ? examConfig.subjects : [{ name: "Mathematics", questionsToAnswer: 15 }]).map((subjSub) => (
+                                  <div key={subjSub.name} className={`px-3 py-2 rounded-xl text-[10px] font-black border flex items-center gap-2.5 uppercase ${theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-800'}`}>
+                                    <span>{subjSub.name} ({subjSub.questionsToAnswer || 15} Qs)</span>
+                                    {/* Don't delete Mathematics if it's the only one left */}
+                                    <button 
+                                      onClick={() => {
+                                        const originalSubs = examConfig.subjects || [];
+                                        const filtered = originalSubs.filter(s => s.name !== subjSub.name);
+                                        setExamConfig({ ...examConfig, subjects: filtered });
+                                        setUserNotification(`Removed subject category: ${subjSub.name}`);
+                                      }}
+                                      className="text-red-500 hover:text-red-600 font-bold"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Button for Setting Exam Questions */}
+                            <div className="pt-4">
+                              <button
+                                onClick={() => setShowManualQuestionEntryPage(true)}
+                                className="w-full py-5 rounded-2xl bg-[#DC2626] text-white hover:bg-[#DC2626]/95 hover:shadow-lg hover:shadow-[#DC2626]/10 active:scale-98 transition-all flex items-center justify-center gap-2"
+                              >
+                                <Edit3 size={18} />
+                                <span className="font-black text-xs uppercase tracking-widest">📝 EDIT EXAM QUESTIONS</span>
+                              </button>
+                            </div>
+
+                          </div>
+
+                          {/* Student Registry Panel */}
+                          <div className={`p-6 sm:p-8 rounded-3xl border ${theme === 'dark' ? 'bg-[#181524] border-white/10' : 'bg-white border-slate-200'} space-y-4 shadow-sm text-left`}>
+                            <h3 className={`font-bold flex items-center gap-2 ${theme === 'dark' ? 'text-white' : 'text-slate-900'} text-sm`}>
+                              <UserPlus size={18} className="text-[#DC2626]" /> Register Students
+                            </h3>
+                            <div className="flex flex-col sm:flex-row gap-3">
+                              <input type="text" value={newStudentMatric} onChange={(e) => setNewStudentMatric(e.target.value)} placeholder="Matric / Reg Number" className={`flex-1 border rounded-xl px-4 py-3 text-xs outline-none focus:border-[#DC2626]/50 transition-all ${theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'}`} />
+                              <input type="text" value={newStudentName} onChange={(e) => setNewStudentName(e.target.value)} placeholder="Full Student Name" className={`flex-1 border rounded-xl px-4 py-3 text-xs outline-none focus:border-[#DC2626]/50 transition-all ${theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'}`} />
+                              <button onClick={addStudent} className="bg-[#DC2626] hover:bg-[#DC2626]/90 text-white px-6 py-3 sm:py-0 rounded-xl text-xs font-black transition-all shadow-md uppercase tracking-wider">REGISTER</button>
+                            </div>
+                            
+                            <div className="overflow-x-auto max-h-[250px] border border-white/5 rounded-2xl">
+                              <table className="w-full text-left text-[10px]">
+                                <thead>
+                                  <tr className={`uppercase tracking-wider border-b ${theme === 'dark' ? 'text-white/30 border-white/5' : 'text-slate-400 border-slate-100'}`}>
+                                    <th className="py-3 px-3">Student ID / Matric No.</th>
+                                    <th className="py-3 px-3">Full Student Name</th>
+                                    <th className="py-3 px-3 text-right">Delete</th>
+                                  </tr>
+                                </thead>
+                                <tbody className={`${theme === 'dark' ? 'text-white/70' : 'text-slate-700'}`}>
+                                  {registeredStudents.length === 0 ? (
+                                    <tr>
+                                      <td colSpan={3} className="text-center py-10 opacity-40">No students registered yet</td>
+                                    </tr>
+                                  ) : (
+                                    registeredStudents.map(student => (
+                                      <tr key={student.matric} className={`border-b transition-colors ${theme === 'dark' ? 'border-white/5 hover:bg-white/5' : 'border-slate-100 hover:bg-slate-50'}`}>
+                                        <td className="py-3 px-3 font-mono">{student.matric}</td>
+                                        <td className="py-3 px-3 font-bold">{student.name}</td>
+                                        <td className="py-3 px-3 text-right">
+                                          <button onClick={() => deleteStudent(student.matric)} className="p-2 text-red-400 hover:text-red-500" title="Delete Student"><Trash2 size={12} /></button>
+                                        </td>
+                                      </tr>
+                                    ))
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+
+                        </div>
+
+                        {/* Column 2: Results Display Panel */}
+                        <div className="space-y-6">
+                          <div className={`p-6 rounded-3xl border ${theme === 'dark' ? 'bg-[#181524] border-white/10' : 'bg-white border-slate-200'} space-y-4 shadow-sm text-left`}>
+                            <div className="flex items-center justify-between border-b pb-3">
+                              <h3 className={`font-bold flex items-center gap-2 ${theme === 'dark' ? 'text-white' : 'text-slate-900'} text-sm`}>
+                                <ListChecks size={18} className="text-[#DC2626]" /> CBT Score Sheets
+                              </h3>
+                              <div className="flex items-center gap-2">
+                                <button onClick={clearExamResults} className="text-red-400 hover:text-red-500 transition-colors" title="Clear Scores"><Trash2 size={14} /></button>
+                                <button onClick={downloadResults} className="text-emerald-500 hover:text-emerald-600 transition-colors" title="Download Excel Sheet"><FileDown size={14} /></button>
+                              </div>
+                            </div>
+                            
+                            <div className="overflow-y-auto space-y-2.5 max-h-[500px] pr-1.5 scrollbar-thin">
+                              {scoreSheet.length === 0 ? (
+                                <p className="text-[10px] text-center py-20 opacity-30">No results recorded yet from students.</p>
+                              ) : (
+                                scoreSheet.map((res, i) => (
+                                  <div key={i} className={`p-3.5 rounded-2xl border flex items-center justify-between transition-colors ${theme === 'dark' ? 'bg-white/5 border-white/5 hover:bg-white/10' : 'bg-slate-50 border-slate-100 hover:bg-slate-100'}`}>
+                                    <div>
+                                      <p className={`text-[10px] font-black ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{res.name}</p>
+                                      <p className="text-[8px] font-mono text-slate-400 mt-0.5">{res.matric} | Raw: {res.score}/{res.total}</p>
+                                    </div>
+                                    <div className="text-right">
+                                      <p className="text-[11px] font-black text-[#DC2626]">{res.total > 0 ? Math.round((res.score/res.total)*100) : 0}%</p>
+                                      <p className="text-[6.5px] uppercase text-slate-400 mt-0.5">{res.timestamp}</p>
+                                    </div>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                      </div>
+                    ) : (
+                      
+                      /* DEDICATED VIEW B: DEDICATED QUESTION SETTING CENTER with HORIZONTAL SWIPE / TABBING */
+                      <div className="space-y-6 text-left">
+                        
+                        {/* Tab Selector bar across different subjects */}
+                        <div className="flex flex-wrap gap-2 pb-2.5 border-b border-white/10 overflow-x-auto no-scrollbar">
+                          {activeSubjects.map((subItem, index) => (
+                            <button
+                              key={subItem.name}
+                              onClick={() => setAdminSelectedSubjectIdx(index)}
+                              className={`px-5 py-3 rounded-2xl text-[10px] font-black uppercase tracking-wider border transition-all ${
+                                adminSelectedSubjectIdx === index
+                                  ? 'bg-[#DC2626] border-[#DC2626] text-white shadow-lg'
+                                  : theme === 'dark' 
+                                    ? 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10' 
+                                    : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                              }`}
+                            >
+                              📂 {subItem.name}
+                            </button>
+                          ))}
+                          
+                          <button
+                            onClick={() => setShowManualQuestionEntryPage(false)}
+                            className={`ml-auto px-4 py-3 rounded-2xl text-[10px] font-bold uppercase tracking-wider border transition-all border-dashed ${theme === 'dark' ? 'border-white/10 hover:bg-white/5 text-white/55' : 'border-slate-300 hover:bg-slate-50 text-slate-700'}`}
                           >
-                            Generate Exam Link
+                            ← Back to Main settings
                           </button>
                         </div>
-                      )}
 
-                      <div className="bg-white/5 border border-white/10 p-4 sm:p-6 rounded-3xl space-y-4 shadow-sm">
-                        <div className="flex items-center justify-between">
-                          <h3 className="font-bold flex items-center gap-2 text-white"><UserPlus size={18} className="text-[#DC2626]" /> Register Students</h3>
-                          <button onClick={saveHostedExam} className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-green-500/20">Save Exam Changes</button>
-                        </div>
-                        <div className="flex flex-col sm:flex-row gap-3">
-                          <input type="text" value={newStudentMatric} onChange={(e) => setNewStudentMatric(e.target.value)} placeholder="Matric Number" className="flex-1 border rounded-xl px-4 py-3 text-xs outline-none focus:border-[#DC2626]/50 transition-all bg-white/5 border-white/10 text-white" />
-                          <input type="text" value={newStudentName} onChange={(e) => setNewStudentName(e.target.value)} placeholder="Full Name" className="flex-1 border rounded-xl px-4 py-3 text-xs outline-none focus:border-[#DC2626]/50 transition-all bg-white/5 border-white/10 text-white" />
-                          <button onClick={addStudent} className="bg-[#DC2626] hover:bg-[#DC2626]/90 text-white px-6 py-3 sm:py-0 rounded-xl text-xs font-black transition-all shadow-lg shadow-[#DC2626]/20 uppercase tracking-widest">ADD</button>
-                        </div>
-                        
-                        <div className="overflow-x-auto max-h-[300px]">
-                          <table className="w-full text-left text-[10px]">
-                            <thead>
-                              <tr className="uppercase tracking-widest border-b text-white/30 border-white/5">
-                                <th className="py-3 px-2">Matric</th>
-                                <th className="py-3 px-2">Name</th>
-                                <th className="py-3 px-2 text-right">Actions</th>
-                              </tr>
-                            </thead>
-                            <tbody className="text-white/70">
-                              {registeredStudents.map(student => (
-                                <tr key={student.matric} className="border-b transition-colors border-white/5 hover:bg-white/5">
-                                  <td className="py-3 px-2 font-mono">{student.matric}</td>
-                                  <td className="py-3 px-2 font-bold">{student.name}</td>
-                                  <td className="py-3 px-2 text-right space-x-2">
-                                    <button onClick={() => deleteStudent(student.matric)} className="p-2 transition-all text-white/30 hover:text-[#DC2626]" title="Delete Student"><Trash2 size={12} /></button>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-
-                      {/* Manual Question Entry */}
-                      <div id="manual-question-form" className="bg-white/5 border border-white/10 p-4 sm:p-6 rounded-3xl space-y-4 shadow-sm">
-                        <h3 className="font-bold flex items-center gap-2 text-white"><FilePlus size={18} className="text-[#DC2626]" /> {isEditingQuestionId ? 'Edit' : 'Add Manual'} Question</h3>
-                        <div className="space-y-4">
-                          <textarea 
-                            value={manualQuestion} 
-                            onChange={(e) => setManualQuestion(e.target.value)} 
-                            placeholder="Question text (Markdown/LaTeX supported)..." 
-                            className="w-full h-20 border rounded-2xl p-4 text-[10px] outline-none focus:border-[#DC2626]/50 transition-all bg-white/5 border-white/10 text-white" 
-                          />
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            {manualOptions.map((opt, idx) => (
-                              <div key={idx} className="flex flex-col gap-1">
-                                <p className="text-[7px] font-black uppercase text-white/30">Option {String.fromCharCode(65 + idx)} {idx === manualCorrect && "(Correct)"}</p>
-                                <div className="flex gap-2">
-                                  <input 
-                                    type="text" 
-                                    value={opt} 
-                                    onChange={(e) => {
-                                      const newOpts = [...manualOptions];
-                                      newOpts[idx] = e.target.value;
-                                      setManualOptions(newOpts);
-                                    }} 
-                                    placeholder={`Option ${String.fromCharCode(65 + idx)}`} 
-                                    className="flex-1 border rounded-xl px-3 py-2 text-[10px] bg-white/5 border-white/10 text-white outline-none focus:border-[#DC2626]/50" 
-                                  />
-                                  <button 
-                                    onClick={() => setManualCorrect(idx)}
-                                    className={`px-3 rounded-lg text-[8px] font-black transition-all ${idx === manualCorrect ? 'bg-green-500 text-white' : 'bg-white/5 text-white/30 hover:bg-white/10'}`}
-                                  >
-                                    CORRECT
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                          <textarea 
-                            value={manualExplanation} 
-                            onChange={(e) => setManualExplanation(e.target.value)} 
-                            placeholder="Detailed Explanation (Academic Logic)..." 
-                            className="w-full h-16 border rounded-2xl p-4 text-[10px] outline-none focus:border-[#DC2626]/50 transition-all bg-white/5 border-white/10 text-white" 
-                          />
-                          <div className="flex gap-3">
-                            <button 
-                              onClick={addManualQuestion} 
-                              className="flex-1 bg-green-600 hover:bg-green-700 text-white font-black py-3 rounded-xl text-[10px] transition-all shadow-lg shadow-green-600/20 uppercase tracking-widest"
-                            >
-                              {isEditingQuestionId ? 'Update Question' : 'Add to Pool'}
-                            </button>
-                            {isEditingQuestionId && (
-                              <button 
-                                onClick={() => {
-                                  setIsEditingQuestionId(null);
-                                  setManualQuestion("");
-                                  setManualOptions(["", "", "", ""]);
-                                  setManualCorrect(0);
-                                  setManualExplanation("");
-                                }} 
-                                className="px-6 bg-white/5 hover:bg-white/10 text-white/40 rounded-xl text-[10px] font-black uppercase tracking-widest"
-                              >
-                                Cancel
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="grid md:grid-cols-2 gap-6">
-                        {/* Exam Config */}
-                        <div className="bg-white/5 border border-white/10 p-4 sm:p-6 rounded-3xl space-y-4 shadow-sm">
-                          <h3 className="font-bold flex items-center gap-2 text-white"><Settings size={18} className="text-[#DC2626]" /> Exam Configuration</h3>
-                          <div className="space-y-3">
-                            <div>
-                              <p className="text-[8px] font-black uppercase mb-1 text-white/30">Question Count (Max 50)</p>
-                              <input 
-                                type="number" 
-                                max={50}
-                                value={examConfig.questionCount || 0} 
-                                onChange={(e) => setExamConfig({...examConfig, questionCount: Math.min(50, Math.max(1, parseInt(e.target.value) || 0))})} 
-                                className="w-full border rounded-xl px-4 py-2 text-xs outline-none focus:border-[#DC2626]/50 transition-all bg-white/5 border-white/10 text-white" 
-                              />
-                            </div>
-                            <div>
-                              <p className="text-[8px] font-black uppercase mb-1 text-white/30">Duration (Minutes)</p>
-                              <input type="number" value={examConfig.duration || 0} onChange={(e) => setExamConfig({...examConfig, duration: Math.max(1, parseInt(e.target.value) || 0)})} className="w-full border rounded-xl px-4 py-2 text-xs outline-none focus:border-[#DC2626]/50 transition-all bg-white/5 border-white/10 text-white" />
-                            </div>
-                            <div>
-                              <p className="text-[8px] font-black uppercase mb-1 text-white/30">Pool Count (AI Generation)</p>
-                              <input type="number" value={examConfig.poolCount || 0} onChange={(e) => setExamConfig({...examConfig, poolCount: Math.max(1, parseInt(e.target.value) || 0)})} className="w-full border rounded-xl px-4 py-2 text-xs outline-none focus:border-[#DC2626]/50 transition-all bg-white/5 border-white/10 text-white" />
-                            </div>
-                            <div>
-                              <p className="text-[8px] font-black uppercase mb-1 text-white/30">Exam Warning Message</p>
-                              <input 
-                                type="text" 
-                                value={examConfig.warningMessage || ""} 
-                                onChange={(e) => setExamConfig({...examConfig, warningMessage: e.target.value})} 
-                                placeholder="Default warning applies if empty..."
-                                className="w-full border rounded-xl px-4 py-2 text-xs outline-none focus:border-[#DC2626]/50 transition-all bg-white/5 border-white/10 text-white" 
-                              />
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Question Generation */}
-                        <div className="bg-white/5 border border-white/10 p-4 sm:p-6 rounded-3xl space-y-4 shadow-sm">
-                          <div className="flex items-center justify-between">
-                            <h3 className="font-bold flex items-center gap-2 text-white"><PlusCircle size={18} className="text-[#DC2626]" /> Add Questions</h3>
-                            <div className="bg-[#DC2626]/10 px-3 py-1 rounded-full border border-[#DC2626]/20">
-                              <p className="text-[9px] font-black text-[#DC2626] uppercase">Pool: {examQuestions.length}/100</p>
-                            </div>
-                          </div>
+                        {/* WORKSPACE OF ACTIVE SUBJECT */}
+                        {(() => {
+                          const activeSub = activeSubjects[adminSelectedSubjectIdx] || activeSubjects[0] || { name: "Mathematics", questionsToAnswer: 15 };
+                          const activeSubQuestions = examQuestions.filter(q => (q.subject || "Mathematics").trim().toLowerCase() === activeSub.name.trim().toLowerCase());
                           
-                          <textarea value={adminQuestionsRaw} onChange={(e) => setAdminQuestionsRaw(e.target.value)} placeholder="Paste textbook, notes or raw text here for AI generation..." className="w-full h-32 border rounded-2xl p-4 text-[10px] outline-none focus:border-[#DC2626]/50 transition-all bg-white/5 border-white/10 text-white" />
-                          
-                          <div className="flex flex-col sm:flex-row gap-3">
-                            <div className="flex-1">
-                              <p className="text-[7px] font-black uppercase mb-1 text-white/30">Number of questions to be generated</p>
-                              <input 
-                                type="number" 
-                                value={examConfig.poolCount || 0} 
-                                onChange={(e) => setExamConfig({...examConfig, poolCount: Math.max(1, parseInt(e.target.value) || 0)})} 
-                                className="w-full border rounded-xl px-4 py-3 text-xs outline-none focus:border-[#DC2626]/50 transition-all bg-white/5 border-white/10 text-white" 
-                              />
-                            </div>
-                            <button 
-                              onClick={generateAdminQuestions} 
-                              disabled={isGeneratingAdminQuestions || !adminQuestionsRaw.trim()} 
-                              className="flex-[2] bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black py-4 sm:py-0 rounded-xl text-xs flex items-center justify-center gap-2 disabled:opacity-50 shadow-lg shadow-[#DC2626]/20 uppercase tracking-widest transition-all"
-                            >
-                              {isGeneratingAdminQuestions ? <RefreshCcw size={16} className="animate-spin" /> : <Cpu size={16} />} GENERATE QUESTIONS WITH AI
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                          return (
+                            <div className="space-y-6">
+                              
+                              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+                                
+                                {/* Form A: Omni AI Question Synthesizer & Questions counts limits */}
+                                <div className="lg:col-span-1 space-y-6">
+                                  
+                                  <div className={`p-6 rounded-3xl border ${theme === 'dark' ? 'bg-[#181524] border-white/10' : 'bg-white border-slate-200'} space-y-5 shadow-sm`}>
+                                    <div className="flex items-center justify-between border-b pb-2">
+                                      <p className="text-xs font-black uppercase text-red-500 flex items-center gap-1">🧪 Generate with Omni</p>
+                                      <div className="bg-[#DC2626]/10 px-2.5 py-0.5 rounded-full border border-[#DC2626]/20">
+                                        <p className="text-[8px] font-black text-[#DC2626] uppercase">Subject Active Qs: {activeSubQuestions.length}</p>
+                                      </div>
+                                    </div>
 
-                    {/* Results & Question Log */}
-                    <div className="grid grid-rows-2 gap-4 h-full">
-                      <div className="bg-white/5 border border-white/10 p-4 sm:p-6 rounded-2xl sm:rounded-3xl space-y-4 shadow-sm">
-                        <div className="flex items-center justify-between">
-                          <h3 className="font-bold flex items-center gap-2 text-white"><ListChecks size={18} className="text-[#DC2626]" /> Exam Results</h3>
-                          <div className="flex items-center gap-2">
-                            <motion.button 
-                              whileTap={{ scale: 0.9 }}
-                              onClick={clearExamResults} 
-                              className={`${clearConfirmStep === 1 ? 'text-red-500 animate-pulse' : 'text-white/30'} hover:text-red-500 transition-all`} 
-                              title="Clear All Results"
-                            >
-                              <Trash2 size={16} />
-                            </motion.button>
-                            <button onClick={downloadResults} className="text-[#DC2626] hover:text-[#DC2626]/80 transition-all"><FileDown size={20} /></button>
-                          </div>
-                        </div>
-                        <div className="flex-1 overflow-y-auto space-y-2 pr-2 max-h-[250px] sm:max-h-none">
-                          {scoreSheet.length === 0 ? (
-                            <p className="text-[10px] text-center py-10 text-white/20">No results recorded yet</p>
-                          ) : (
-                            scoreSheet.map((res, i) => (
-                              <div key={i} className="p-3 rounded-xl border flex items-center justify-between group bg-white/5 border-white/5">
-                                <div>
-                                  <p className="text-[10px] font-bold text-white">{res.name}</p>
-                                  <p className="text-[8px] font-mono text-white/40">{res.matric} | {res.score}/{res.total}</p>
-                                </div>
-                                <div className="text-right">
-                                  <p className="text-[10px] font-black text-[#DC2626]">{res.total > 0 ? Math.round((res.score/res.total)*100) : 0}%</p>
-                                  <p className="text-[6px] uppercase text-white/20">{res.timestamp}</p>
-                                </div>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      </div>
+                                    <div className="space-y-4">
+                                      {/* Prompt Input */}
+                                      <div className="space-y-1">
+                                        <p className={`text-[7.5px] font-black uppercase ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'}`}>Omni prompt instruction (Optional if context exists)</p>
+                                        <input
+                                          type="text"
+                                          placeholder="e.g. Set questions focusing on organic naming or matrices..."
+                                          id="omni-subject-prompt"
+                                          className={`w-full border rounded-xl px-3.5 py-3 text-xs outline-none focus:border-[#DC2626]/50 transition-all ${
+                                            theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                                          }`}
+                                        />
+                                      </div>
 
-                      <div className="bg-white/5 border border-white/10 p-4 sm:p-6 rounded-2xl sm:rounded-3xl space-y-4 shadow-sm">
-                        <h3 className="font-bold flex items-center gap-2 text-white"><FileText size={18} className="text-[#DC2626]" /> Question Log</h3>
-                        <div className="flex-1 overflow-y-auto space-y-3 pr-2 max-h-[250px] sm:max-h-none">
-                          {examQuestions.length === 0 ? (
-                            <p className="text-[10px] text-center py-10 text-white/20">No questions in pool</p>
-                          ) : (
-                            examQuestions.map((q, i) => (
-                              <div key={i} className="p-3 rounded-xl border space-y-2 bg-white/5 border-white/5 group relative">
-                                <div className="flex items-start justify-between gap-4">
-                                  <MarkdownRenderer 
-                                    content={`${q.question}`}
-                                    className="text-[10px] font-bold leading-tight text-white flex-1"
-                                  />
-                                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                                    <button onClick={() => editQuestionFromPool(q)} className="p-1.5 bg-white/5 hover:bg-blue-500/20 text-white/20 hover:text-blue-400 rounded-lg"><Edit2 size={12} /></button>
-                                    <button onClick={() => deleteQuestionFromPool(q.id)} className="p-1.5 bg-white/5 hover:bg-red-500/20 text-white/20 hover:text-red-400 rounded-lg"><Trash2 size={12} /></button>
+                                      {/* Text Area for raw context */}
+                                      <div className="space-y-1">
+                                        <p className={`text-[7.5px] font-black uppercase ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'}`}>Raw Textbook / Notes Content</p>
+                                        <textarea
+                                          placeholder="Paste raw textbook text here, formulas or syllabus contents..."
+                                          id="omni-raw-notes-area"
+                                          className={`w-full h-24 border rounded-2xl p-3 text-[10px] outline-none focus:border-[#DC2626]/50 transition-all ${
+                                            theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                                          }`}
+                                        />
+                                      </div>
+
+                                      {/* Batch size to be generated (capped at 50 per generation) */}
+                                      <div className="grid grid-cols-2 gap-3 items-center">
+                                        <div>
+                                          <p className={`text-[7.5px] font-black uppercase ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'}`}>Questions Quantity</p>
+                                          <input
+                                            type="number"
+                                            defaultValue={5}
+                                            id="omni-quantity-count"
+                                            className={`w-full border rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-[#DC2626]/50 ${
+                                              theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                                            }`}
+                                          />
+                                        </div>
+                                        <div className="pt-3">
+                                          <button
+                                            onClick={async () => {
+                                              if (isGeneratingAdminQuestions) return;
+                                              const pInp = document.getElementById("omni-subject-prompt") as HTMLInputElement;
+                                              const textInp = document.getElementById("omni-raw-notes-area") as HTMLTextAreaElement;
+                                              const countInp = document.getElementById("omni-quantity-count") as HTMLInputElement;
+
+                                              const promptText = pInp ? pInp.value.trim() : "";
+                                              const rawContextText = textInp ? textInp.value.trim() : "";
+                                              const qty = Math.min(50, Math.max(1, parseInt(countInp?.value || "5")));
+
+                                              if (!rawContextText && activeSubQuestions.length === 0) {
+                                                setUserNotification("⚠️ Please paste some raw Textbook content so Omni can generate your questions pool.");
+                                                return;
+                                              }
+
+                                              setUserNotification(`🤖 Omni is analyzing ${qty} questions for ${activeSub.name}...`);
+                                              setIsGeneratingAdminQuestions(true);
+
+                                              try {
+                                                // Call our robust subject-aware AI generation
+                                                await generateAdminQuestions({
+                                                  
+                                                  rawNotes: rawContextText,
+                                                  quantity: qty,
+                                                  customPrompt: promptText,
+                                                  
+                                                });
+                                                
+                                                if (textInp) textInp.value = "";
+                                                if (pInp) pInp.value = "";
+                                                setUserNotification(`✨ Omni has successfully synthesised ${qty} questions!`);
+                                              } catch (err) {
+                                                console.error(err);
+                                                setUserNotification("❌ AI synthesiser suffered a loading timeout. Please try again.");
+                                              } finally {
+                                                setIsGeneratingAdminQuestions(false);
+                                              }
+                                            }}
+                                            disabled={isGeneratingAdminQuestions}
+                                            className="w-full bg-red-650 hover:bg-red-700 text-white font-black py-3 rounded-xl text-[9px] uppercase tracking-wider transition-colors disabled:opacity-40"
+                                            style={{ backgroundColor: "#DC2626" }}
+                                          >
+                                            {isGeneratingAdminQuestions ? "GENERATING..." : "Generate questions with AI"}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </div>
                                   </div>
+
+                                  {/* Subject Sitting Count limit Config */}
+                                  <div className={`p-6 rounded-3xl border ${theme === 'dark' ? 'bg-[#181524] border-white/10' : 'bg-white border-slate-200'} space-y-4 shadow-sm`}>
+                                    <p className="text-xs font-black uppercase text-red-500">Sitting Count Profile</p>
+                                    
+                                    <div className="space-y-2">
+                                      <p className={`text-[8.5px] font-sans ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'} leading-snug`}>
+                                        Declare exactly how many questions participants will answer under {activeSub.name} subject tab during examinations.
+                                      </p>
+                                      <input 
+                                        type="number"
+                                        value={activeSub.questionsToSit !== undefined ? activeSub.questionsToSit : (activeSub.questionsToAnswer || 15)}
+                                        onChange={(e) => {
+                                          validateAndSetLimit(e.target.value, 1, 500, (v) => {
+                                            const updated = (examConfig.subjects || []).map(s => 
+                                              s.name.toLowerCase() === activeSub.name.toLowerCase() ? { ...s, questionsToSit: v } : s
+                                            );
+                                            setExamConfig({ ...examConfig, subjects: updated });
+                                          }, "Sitting amount");
+                                        }}
+                                        className={`w-full border rounded-xl px-4 py-3 text-xs outline-none focus:border-[#DC2626]/50 transition-all ${
+                                          theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                                        }`} 
+                                      />
+                                      <p className="text-[8px] italic text-[#DC2626] font-medium leading-none mt-2 text-left bg-red-500/5 p-2 rounded-lg border border-red-500/10">
+                                        (how many questions should participants sit for)
+                                      </p>
+                                    </div>
+                                  </div>
+
                                 </div>
-                                <div className="grid grid-cols-2 gap-1">
-                                  {q.options.map((opt, idx) => (
-                                    <MarkdownRenderer 
-                                      key={idx}
-                                      content={opt}
-                                      className={`text-[8px] px-2 py-1 rounded ${idx === q.correctAnswer ? 'bg-green-500/20 text-green-400' : 'bg-white/5 text-white/40'}`}
-                                    />
-                                  ))}
+
+                                {/* Form B: List of active questions & Manual Editor cards */}
+                                <div className="lg:col-span-2 space-y-4">
+                                  
+                                  <div className="flex items-center justify-between border-b pb-2">
+                                    <h3 className={`font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'} text-xs uppercase tracking-tight`}>
+                                      📖 Add questions manually for {activeSub.name}
+                                    </h3>
+                                    
+                                    <button
+                                      disabled={isQuestionsLocked}
+                                      onClick={() => {
+                                        // add new empty manual slot
+                                        const newQId = `q-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+                                        const blankQ: ExamQuestion = {
+                                          id: newQId,
+                                          question: "Enter question query here...",
+                                          options: ["", "", "", ""],
+                                          correctAnswer: 0,
+                                          explanation: "",
+                                          subject: activeSub.name
+                                        };
+                                        
+                                        // sync pool count in config
+                                        const updatedSubjects = (examConfig.subjects || []).map(s => {
+                                          if (s.name.trim().toLowerCase() === activeSub.name.trim().toLowerCase()) {
+                                            return { ...s, questionsToAnswer: (s.questionsToAnswer || 15) + 1 };
+                                          }
+                                          return s;
+                                        });
+                                        
+                                        setExamConfig(prev => ({ ...prev, subjects: updatedSubjects }));
+                                        setExamQuestions(prev => [...prev, blankQ]);
+                                        setUserNotification("➕ Added 1 more question slot.");
+                                      }}
+                                      className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-30 ${
+                                        theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-700'
+                                      }`}
+                                    >
+                                      <span>Add more questions</span>
+                                    </button>
+                                  </div>
+
+                                  <div className="space-y-4 max-h-[800px] overflow-y-auto pr-1">
+                                    {activeSubQuestions.length === 0 ? (
+                                      <div className={`py-24 text-center rounded-3xl border border-dashed ${
+                                        theme === 'dark' ? 'bg-white/[0.01] border-white/10 text-white/20' : 'bg-slate-50 border-slate-250 text-slate-400'
+                                      }`}>
+                                        <FileText size={40} className="mx-auto mb-2 opacity-60" />
+                                        <p className="text-[10px] font-bold">Your question slot bank is empty for {activeSub.name}</p>
+                                        <p className="text-[9px] opacity-70 mt-1">Use Generate with Omni above or Click Add more questions to start typing</p>
+                                      </div>
+                                    ) : (
+                                      activeSubQuestions.map((thisQ, relativeIndex) => {
+                                        
+                                        // Student mode locked view to prevent accidental edits while scrolling
+                                        if (isQuestionsLocked) {
+                                          return (
+                                            <div 
+                                              key={thisQ.id} 
+                                              className={`p-5 sm:p-6 rounded-3xl border text-left space-y-4 ${
+                                                theme === 'dark' ? 'bg-[#181524] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-800'
+                                              }`}
+                                            >
+                                              <div className="flex justify-between items-start border-b border-white/5 pb-2.5">
+                                                <span className="text-[10px] font-black uppercase tracking-wider text-[#DC2626]">
+                                                  Question {relativeIndex + 1} (Lock Mode Active)
+                                                </span>
+                                                <span className="text-[8px] font-mono opacity-40">{thisQ.id}</span>
+                                              </div>
+
+                                              <div className="text-xs font-bold leading-relaxed">
+                                                <MarkdownRenderer content={thisQ.question} />
+                                              </div>
+
+                                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                                {thisQ.options.map((optItem, oIdx) => (
+                                                  <div 
+                                                    key={oIdx} 
+                                                    className={`p-3 rounded-xl text-[10px] border flex items-center justify-between font-medium ${
+                                                      oIdx === thisQ.correctAnswer 
+                                                        ? 'bg-green-500/10 border-green-500/30 text-green-400' 
+                                                        : theme === 'dark' ? 'bg-white/5 border-white/5 text-white/70' : 'bg-slate-50 border-slate-200 text-slate-700'
+                                                    }`}
+                                                  >
+                                                    <div className="flex-1">
+                                                      <span className="font-bold mr-2">{String.fromCharCode(65 + oIdx)}.</span>
+                                                      <MarkdownRenderer content={optItem} />
+                                                    </div>
+                                                    {oIdx === thisQ.correctAnswer && <span className="text-green-400 text-[8px] font-black uppercase">CORRECT</span>}
+                                                  </div>
+                                                ))}
+                                              </div>
+
+                                              {thisQ.explanation && (
+                                                <div className={`p-3 rounded-xl text-[9px] border leading-normal border-dashed ${
+                                                  theme === 'dark' ? 'bg-white/5 border-white/10 text-white/50' : 'bg-slate-50 border-slate-200 text-slate-600'
+                                                }`}>
+                                                  <p className="font-black text-amber-500 uppercase tracking-widest text-[8px] mb-1">Because:</p>
+                                                  <MarkdownRenderer content={thisQ.explanation} />
+                                                </div>
+                                              )}
+                                            </div>
+                                          );
+                                        }
+
+                                        // Normal Editable form slots
+                                        return (
+                                          <div 
+                                            key={thisQ.id} 
+                                            className={`p-5 sm:p-6 rounded-3xl border text-left space-y-4 transition-all relative ${
+                                              theme === 'dark' ? 'bg-[#181524] border-white/10' : 'bg-white border-slate-200 shadow-sm'
+                                            }`}
+                                          >
+                                            <div className="flex justify-between items-center border-b border-neutral-100 dark:border-white/5 pb-2">
+                                              <span className="text-[10px] font-black text-[#DC2626] uppercase">
+                                                Question slot {relativeIndex + 1}
+                                              </span>
+                                              <button
+                                                onClick={() => {
+                                                  // delete this slot
+                                                  setExamQuestions(prev => prev.filter(itemQ => itemQ.id !== thisQ.id));
+                                                  const updatedSubjects = (examConfig.subjects || []).map(s => {
+                                                    if (s.name.trim().toLowerCase() === (thisQ.subject || "Mathematics").trim().toLowerCase()) {
+                                                      const currentCount = s.questionsToAnswer || 15;
+                                                      return { ...s, questionsToAnswer: Math.max(1, currentCount - 1) };
+                                                    }
+                                                    return s;
+                                                  });
+                                                  setExamConfig(prev => ({ ...prev, subjects: updatedSubjects }));
+                                                  setUserNotification("🗑️ Question slot removed.");
+                                                }}
+                                                className="text-red-400 hover:text-red-500 p-1 rounded transition-colors"
+                                              >
+                                                <Trash2 size={13} />
+                                              </button>
+                                            </div>
+
+                                            {/* Question Prompt textarea */}
+                                            <div className="space-y-1">
+                                              <p className={`text-[7px] font-black uppercase ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>Edit Question Inquiry text</p>
+                                              <textarea
+                                                value={thisQ.question}
+                                                placeholder="Enter question query here..."
+                                                onFocus={(e) => {
+                                                  if (e.target.value.trim().toLowerCase() === "enter question query here...") {
+                                                    const copy = [...examQuestions];
+                                                    const targetItem = copy.find(x => x.id === thisQ.id);
+                                                    if (targetItem) {
+                                                      targetItem.question = "";
+                                                      setExamQuestions(copy);
+                                                    }
+                                                  }
+                                                }}
+                                                onChange={(e) => {
+                                                  const copy = [...examQuestions];
+                                                  const targetItem = copy.find(x => x.id === thisQ.id);
+                                                  if (targetItem) {
+                                                    targetItem.question = e.target.value;
+                                                    setExamQuestions(copy);
+                                                  }
+                                                }}
+                                                className={`w-full h-16 border rounded-xl p-3 text-[10px] outline-none ${
+                                                  theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                                                }`}
+                                              />
+                                            </div>
+
+                                            {/* Options Grid */}
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                                              {thisQ.options.map((curOpt, optionIndex) => (
+                                                <div key={optionIndex} className="space-y-1">
+                                                  <div className="flex items-center justify-between pr-1">
+                                                    <span className={`text-[7px] font-black uppercase ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>
+                                                      Option {String.fromCharCode(65 + optionIndex)}
+                                                    </span>
+                                                    <button
+                                                      onClick={() => {
+                                                        const copy = [...examQuestions];
+                                                        const targetItem = copy.find(x => x.id === thisQ.id);
+                                                        if (targetItem) {
+                                                          targetItem.correctAnswer = optionIndex;
+                                                          setExamQuestions(copy);
+                                                        }
+                                                      }}
+                                                      className={`px-2 py-0.5 rounded text-[7px] font-black transition-all ${
+                                                        thisQ.correctAnswer === optionIndex 
+                                                          ? 'bg-green-500 text-white shadow-sm' 
+                                                          : 'bg-white/5 text-white/30 hover:bg-white/10'
+                                                      }`}
+                                                    >
+                                                      CORRECT
+                                                    </button>
+                                                  </div>
+                                                  <input
+                                                    type="text"
+                                                    value={curOpt}
+                                                    placeholder={`Option ${String.fromCharCode(65 + optionIndex)} text`}
+                                                    onFocus={(e) => {
+                                                      const defaultText = `option ${String.fromCharCode(65 + optionIndex).toLowerCase()} text`;
+                                                      const valStr = e.target.value.trim().toLowerCase();
+                                                      if (valStr === defaultText || valStr === "option a text" || valStr === "option b text" || valStr === "option c text" || valStr === "option d text") {
+                                                        const copy = [...examQuestions];
+                                                        const targetItem = copy.find(x => x.id === thisQ.id);
+                                                        if (targetItem) {
+                                                          targetItem.options[optionIndex] = "";
+                                                          setExamQuestions(copy);
+                                                        }
+                                                      }
+                                                    }}
+                                                    onChange={(e) => {
+                                                      const copy = [...examQuestions];
+                                                      const targetItem = copy.find(x => x.id === thisQ.id);
+                                                      if (targetItem) {
+                                                        targetItem.options[optionIndex] = e.target.value;
+                                                        setExamQuestions(copy);
+                                                      }
+                                                    }}
+                                                    className={`w-full border rounded-xl px-3 py-2 text-[10px] outline-none ${
+                                                      theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                                                    }`}
+                                                  />
+                                                </div>
+                                              ))}
+                                            </div>
+
+                                            {/* Explanation */}
+                                            <div className="space-y-1">
+                                              <p className={`text-[7px] font-black uppercase ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>Because</p>
+                                              <input
+                                                type="text"
+                                                value={thisQ.explanation || ""}
+                                                onChange={(e) => {
+                                                  const copy = [...examQuestions];
+                                                  const targetItem = copy.find(x => x.id === thisQ.id);
+                                                  if (targetItem) {
+                                                    targetItem.explanation = e.target.value;
+                                                    setExamQuestions(copy);
+                                                  }
+                                                }}
+                                                placeholder="Provide textbook logic reference explanation..."
+                                                className={`w-full border rounded-xl px-3.5 py-2.5 text-[10px] outline-none ${
+                                                  theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                                                }`}
+                                              />
+                                            </div>
+
+                                          </div>
+                                        );
+                                      })
+                                    )}
+                                  </div>
+
                                 </div>
+
                               </div>
-                            ))
-                          )}
-                        </div>
+
+                            </div>
+                          );
+                        })()}
+
                       </div>
-                    </div>
+                    )}
+
                   </div>
                 )}
               </div>

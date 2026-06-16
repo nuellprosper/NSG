@@ -1405,8 +1405,10 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, fileTo
     recognition.interimResults = false;
     
     setIsListening(stepIdx);
+    let hasResult = false;
     
     recognition.onresult = async (event: any) => {
+      hasResult = true;
       const transcript = event.results[0][0].transcript;
       setIsListening(null);
       analyzeTextWorking(stepIdx, transcript);
@@ -1415,7 +1417,13 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, fileTo
     recognition.onerror = (e: any) => {
       console.error("Speech Error:", e);
       setIsListening(null);
-      setUserNotification("Speech recognition failed.");
+      if (!hasResult && e.error !== 'no-speech' && e.error !== 'aborted') {
+        setUserNotification(`Speech recognition failed: ${e.error || "unknown"}`);
+      }
+    };
+
+    recognition.onend = () => {
+      setIsListening(null);
     };
 
     recognition.start();
@@ -1472,8 +1480,7 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, fileTo
   };
 
   const checkWorking = async (stepIdx: number, providedFile?: File) => {
-    const working = userWorkings[stepIdx];
-    const fileToUse = providedFile || working?.imageFile;
+    const fileToUse = providedFile || userWorkings[stepIdx]?.imageFile;
     
     if (!fileToUse) {
       setUserNotification("Please upload an image of your workings first.");
@@ -1483,10 +1490,18 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, fileTo
     const canProceed = await checkAndIncrementUsage('ASSIGNMENT');
     if (!canProceed) return;
 
-    setUserWorkings(prev => ({
-      ...prev,
-      [stepIdx]: { ...prev[stepIdx], isAnalyzing: true }
-    }));
+    setUserWorkings(prev => {
+      const current = prev[stepIdx] || {};
+      return {
+        ...prev,
+        [stepIdx]: { 
+          ...current, 
+          isAnalyzing: true,
+          imageFile: fileToUse,
+          imagePreview: current.imagePreview || URL.createObjectURL(fileToUse)
+        }
+      };
+    });
 
     try {
       const ai = getAiInstance();
@@ -1512,18 +1527,24 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, fileTo
         contents: { parts: [{ text: prompt }, { inlineData: imagePart.inlineData }] }
       });
 
-      setUserWorkings(prev => ({
-        ...prev,
-        [stepIdx]: { ...prev[stepIdx], isAnalyzing: false, analysis: response?.text || "" }
-      }));
-      setUserNotification("Working analyzed!");
+      setUserWorkings(prev => {
+        const current = prev[stepIdx] || {};
+        return {
+          ...prev,
+          [stepIdx]: { ...current, isAnalyzing: false, analysis: response?.text || "" }
+        };
+      });
+      setUserNotification("Working analyzed successfully!");
     } catch (err: any) {
       console.error("Check Working Error:", err);
-      setUserWorkings(prev => ({
-        ...prev,
-        [stepIdx]: { ...prev[stepIdx], isAnalyzing: false }
-      }));
-      setUserNotification("Analysis failed. Try again.");
+      setUserWorkings(prev => {
+        const current = prev[stepIdx] || {};
+        return {
+          ...prev,
+          [stepIdx]: { ...current, isAnalyzing: false }
+        };
+      });
+      setUserNotification("Could not analyze image. Please try again.");
     }
   };
 
@@ -2013,14 +2034,49 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, fileTo
 
               {/* --- INTERACTIVE PRACTICE PROBLEMS PANEL --- */}
               <div className="space-y-4 pt-4 text-left">
-                <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-white/5 pb-3">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="text-[#DC2626]" size={18} />
                     <h3 className={`text-xs font-black uppercase tracking-wider ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
-                      🎯 Generating Test Questions
+                      🎯 Interactive Practice Questions
                     </h3>
                   </div>
-                  {isGeneratingPractice && <span className="text-[9px] uppercase font-black text-[#DC2626] tracking-wider animate-pulse flex items-center gap-1.5"><RefreshCcw size={10} className="animate-spin" /> Forming Questions...</span>}
+                  <div className="flex items-center gap-2">
+                    {!isGeneratingPractice && practiceQuestions.length > 0 && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPracticeQuestions([]);
+                            setUserAnswers({});
+                            setCheckedAnswers({});
+                            setRevealedSolutions({});
+                            setActiveFeedbackModal(null);
+                            generatePractice(solution.title || "Assignment", solution.steps || [], solution.summary || "");
+                          }}
+                          className="px-3 py-1.5 bg-[#DC2626]/10 hover:bg-[#DC2626]/20 text-[#DC2626] border border-[#DC2626]/20 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-1 cursor-pointer"
+                        >
+                          <RefreshCcw size={10} /> Regenerate
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUserAnswers({});
+                            setCheckedAnswers({});
+                            setRevealedSolutions({});
+                          }}
+                          className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all border cursor-pointer ${theme === 'dark' ? 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10' : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'}`}
+                        >
+                          Reset Progress
+                        </button>
+                      </>
+                    )}
+                    {isGeneratingPractice && (
+                      <span className="text-[9px] uppercase font-black text-[#DC2626] tracking-wider animate-pulse flex items-center gap-1.5">
+                        <RefreshCcw size={10} className="animate-spin" /> Forming Questions...
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {isGeneratingPractice ? (
@@ -2058,7 +2114,16 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, fileTo
                               type="text"
                               placeholder="Type final answer..."
                               value={userAnswers[qIdx] || ""}
-                              onChange={e => setUserAnswers(prev => ({ ...prev, [qIdx]: e.target.value }))}
+                              onChange={e => {
+                                setUserAnswers(prev => ({ ...prev, [qIdx]: e.target.value }));
+                                if (checkedAnswers[qIdx]) {
+                                  setCheckedAnswers(prev => {
+                                    const copy = { ...prev };
+                                    delete copy[qIdx];
+                                    return copy;
+                                  });
+                                }
+                              }}
                               className={`flex-1 px-3 py-2 text-xs rounded-xl outline-none border ${theme === 'dark' ? 'bg-black/20 border-white/10 text-white focus:border-red-500' : 'bg-white border-slate-200 text-slate-900 focus:border-red-500'} font-bold transition-all min-w-0`}
                             />
                             <button
@@ -2068,6 +2133,22 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, fileTo
                             >
                               Grade
                             </button>
+                            {checkedAnswers[qIdx] && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setUserAnswers(prev => ({ ...prev, [qIdx]: "" }));
+                                  setCheckedAnswers(prev => {
+                                    const copy = { ...prev };
+                                    delete copy[qIdx];
+                                    return copy;
+                                  });
+                                }}
+                                className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase border transition-all shrink-0 cursor-pointer ${theme === 'dark' ? 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10' : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'}`}
+                              >
+                                Retry
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => setRevealedSolutions(prev => ({ ...prev, [qIdx]: !prev[qIdx] }))}
