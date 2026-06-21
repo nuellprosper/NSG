@@ -22,6 +22,9 @@
         "about": { "type": "string", "description": "User bio/about info" },
         "lastSeen": { "type": "string", "format": "date-time" },
         "status": { "type": "string", "enum": ["active", "deleted", "online", "offline"] },
+        "whatsappNumber": { "type": "string" },
+        "isWhatsAppVerified": { "type": "boolean" },
+        "verificationCode": { "type": "string", "description": "6-digit OTP verification code for WhatsApp linking" },
         "premiumUntil": { "type": "string", "format": "date-time" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }

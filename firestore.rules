@@ -72,6 +72,9 @@ service cloud.firestore {
              (!('bypassTakingPayment' in data) || data.bypassTakingPayment is bool) &&
              (!('lastSeen' in data) || (data.lastSeen is string || data.lastSeen is timestamp)) &&
              (!('pointResetCompleted' in data) || data.pointResetCompleted is bool) &&
+             (!('whatsappNumber' in data) || isValString(data.whatsappNumber, 128)) &&
+             (!('isWhatsAppVerified' in data) || data.isWhatsAppVerified is bool) &&
+             (!('verificationCode' in data) || isValString(data.verificationCode, 128)) &&
              (!('updatedAt' in data) || (data.updatedAt is string || data.updatedAt is timestamp));
     }
 
@@ -115,7 +118,7 @@ service cloud.firestore {
       allow create: if (isOwner(uid) || (request.auth == null && uid != null)) && isValidUser(incoming());
       allow update: if (isOwner(uid) || isAdmin()) && isValidUser(incoming()) && (
         // Action: Profile Update
-        (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'username', 'university', 'level', 'department', 'faculty', 'dob', 'matric', 'matricNumber', 'updatedAt', 'fullName', 'status', 'premiumUntil', 'bypassHostingPayment', 'bypassTakingPayment', 'bypassAllPayments', 'isPremium', 'about', 'lastSeen', 'email', 'points', 'streak', 'lastActive', 'rank', 'claimedQuests', 'invitedUsers', 'pointResetCompleted'])) ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'username', 'university', 'level', 'department', 'faculty', 'dob', 'matric', 'matricNumber', 'updatedAt', 'fullName', 'status', 'premiumUntil', 'bypassHostingPayment', 'bypassTakingPayment', 'bypassAllPayments', 'isPremium', 'about', 'lastSeen', 'email', 'points', 'streak', 'lastActive', 'rank', 'claimedQuests', 'invitedUsers', 'pointResetCompleted', 'whatsappNumber', 'isWhatsAppVerified', 'verificationCode'])) ||
         // Action: Presence Heartbeat
         (incoming().diff(existing()).affectedKeys().hasOnly(['lastSeen', 'status'])) ||
         // Action: Admin Role Update
