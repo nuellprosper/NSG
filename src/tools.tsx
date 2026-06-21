@@ -84,21 +84,62 @@ const DocumentAttachmentPreview = ({ href, name }: { href: string; name: string 
 };
 
 const MarkdownRenderer = ({ content, className = "", selectable = false }: { content: string, className?: string, selectable?: boolean }) => {
-  const processedContent = (content || "")
+  // Pre-process content to ensure LaTeX is correctly formatted for remark-math
+  // Handle both escaped \( \) and \[ \] as well as raw strings that AI might send
+  let processedContent = (content || "")
     .replace(/\\\\\((.*?)\\\\\)/g, '$$$1$')
     .replace(/\\\\\[(.*?)\\\\\]/g, '$$$$$1$$$$')
     .replace(/\\\((.*?)\\\)/g, '$$$1$')
-    .replace(/\\\[(.*?)\\\]/g, '$$$$$1$$$$')
-    .split('\n').map(line => {
-      const trimmed = line.trim();
-      if ((trimmed.includes('\\frac') || trimmed.includes('\\times') || trimmed.includes('\\sqrt') || (trimmed.includes('^') && trimmed.includes('='))) && !trimmed.includes('$')) {
-        return `$$${trimmed}$$`;
+    .replace(/\\\[(.*?)\\\]/g, '$$$$$1$$$$');
+
+  // Helper to auto-wrap only math expressions within a line to avoid wrapping text
+  const autoWrapMath = (text: string): string => {
+    if (!text) return "";
+    
+    // Protect existing math blocks
+    const protectedBlocks: string[] = [];
+    let processed = text.replace(/(\$\$[\s\S]*?\$\$|\$[\s\S]*?\$)/g, (match) => {
+      protectedBlocks.push(match);
+      return `__MATH_BLOCK_${protectedBlocks.length - 1}__`;
+    });
+
+    // Match raw math/LaTeX-like strings and wrap them
+    // Match strings containing subscripts, superscripts, operators, and specific LaTeX math words
+    processed = processed.replace(/(?:[0-9a-zA-Z_,\.\(\)\{\}\[\]\+\-\*\/\=\^\s]|\\(?![a-zA-Z]{4,}))*(?:\\(?:frac|cdot|left|right|times|sqrt|pi|rho|sigma|delta|Omega|alpha|beta|theta|mu|lambda|approx|neq|le|ge)[a-zA-Z]*|_[0-9a-zA-Z]+|\^[0-9a-zA-Z]+)(?:[0-9a-zA-Z_,\.\(\)\{\}\[\]\+\-\*\/\=\^\s]|\\(?![a-zA-Z]{4,}))*/g, (match) => {
+      const trimmed = match.trim();
+      if (!trimmed) return match;
+      if (trimmed.length < 3) return match;
+      if (trimmed.includes('\\') || trimmed.includes('_') || trimmed.includes('^') || trimmed.includes('=')) {
+        const words = trimmed.match(/[a-zA-Z]{4,}/g) || [];
+        const mathWords = ['frac', 'cdot', 'left', 'right', 'times', 'sqrt', 'approx', 'omega', 'alpha', 'beta', 'theta', 'delta', 'sigma', 'lambda', 'text', 'math'];
+        const nonMathWords = words.filter((w: string) => !mathWords.includes(w.toLowerCase()));
+        if (nonMathWords.length > 2) {
+          return match;
+        }
+        return ` $${trimmed}$ `;
       }
+      return match;
+    });
+
+    // Restore protected blocks
+    processed = processed.replace(/__MATH_BLOCK_(\d+)__/g, (_, idx) => {
+      return protectedBlocks[parseInt(idx, 10)];
+    });
+
+    return processed;
+  };
+
+  // Apply autoWrapMath to each line that doesn't already have math indicators
+  processedContent = processedContent.split('\n').map(line => {
+    const trimmed = line.trim();
+    if (trimmed.includes('$')) {
       return line;
-    }).join('\n');
+    }
+    return autoWrapMath(line);
+  }).join('\n');
 
   return (
-    <div className={`markdown-body overflow-x-auto select-text selection:bg-[#DC2626]/20 custom-scrollbar ${className}`}>
+    <div className={`markdown-body overflow-x-auto ${selectable ? 'select-text' : 'select-none'} selection:bg-[#DC2626]/20 custom-scrollbar ${className}`}>
       <ReactMarkdown 
         remarkPlugins={[remarkGfm, remarkMath]} 
         rehypePlugins={[rehypeKatex]}

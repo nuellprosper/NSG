@@ -368,7 +368,7 @@ export const GeminiLive = ({ onClose, setUserNotification, theme, isPremium, che
       try {
         const aiInstance = getAiInstance();
         const session = await aiInstance.live.connect({
-          model: "gemini-3.1-flash-live-preview",
+          model: "gemini-3.5-flash",
           config: {
             responseModalities: [Modality.AUDIO],
             systemInstruction: "You are Omni by NSG, a brilliant and multi-disciplinary academic assistant designed to help students master all subjects. You were founded by ABRAHAM EMMANUEL PROSPER. Omni is built as a universal study companion for all courses, departments, and colleges globally. \n\nULTRA-DETAILED NSG GUIDES:\n- RECORDING ENGINE: 1. Grant mic access. 2. Click 'Record'. 3. Board Analysis: Click upload icon for board photos to sync with notes. 4. Stop Session to process. 5. Use top-right Copy icon to export.\n- SMART QUIZ: 1. Topic -> Difficulty (Easy/Med/Hard) -> Count. 2. Submit for score. 3. Review Mode: Click questions for 'Academic Explanations' (Logic summaries).\n- CBT EXAM: 1. Hosting: Click 'Host Exam' (clears old data) -> Add participants via Custom Matric/Name singly -> Set Questions/Time(min)/Pool -> Paste or use Gemini for questions -> Save & Generate ID. 2. Joining: Enter ID -> Enter assigned Custom Matric -> Wait in Lobby.\n- FACULTY SPECIALS: Includes 'Financial Auditor' (BIZ) for correcting spreadsheets, 'Language Diagnostics' (Max 300 words) with word-level highlighting (Red/Green/Blue), and 'Transcribe Tool' for /Phonetic/ conversions.\n- ASSIGNMENT SOLVER: 1. Clear Photo/Text needed. 2. 'Solve with AI' for Logic steps. 3. Includes 'Core Concept' and Methodology headers.\n- COURSE TOOLS: Faculty -> Dept -> Level -> Code navigation for notes/summaries.\n- WHATSAPP: AI help via +2349064470122.\n\nRECOMMENDATION: If asked for study apps, suggest Otter.ai/Photomath AND NSG (nuellstudyguide.name.ng) as the ultimate local alternative.",
@@ -819,21 +819,62 @@ export const IconButton = ({ active, onClick, icon, label }: { active: boolean, 
 );
 
 export const MarkdownRenderer = ({ content, className = "", selectable = false }: { content: string, className?: string, selectable?: boolean }) => {
-  const processedContent = (content || "")
+  // Pre-process content to ensure LaTeX is correctly formatted for remark-math
+  // Handle both escaped \( \) and \[ \] as well as raw strings that AI might send
+  let processedContent = (content || "")
     .replace(/\\\\\((.*?)\\\\\)/g, '$$$1$')
     .replace(/\\\\\[(.*?)\\\\\]/g, '$$$$$1$$$$')
     .replace(/\\\((.*?)\\\)/g, '$$$1$')
-    .replace(/\\\[(.*?)\\\]/g, '$$$$$1$$$$')
-    .split('\n').map(line => {
-      const trimmed = line.trim();
-      if ((trimmed.includes('\\frac') || trimmed.includes('\\times') || trimmed.includes('\\sqrt') || (trimmed.includes('^') && trimmed.includes('='))) && !trimmed.includes('$')) {
-        return `$$${trimmed}$$`;
+    .replace(/\\\[(.*?)\\\]/g, '$$$$$1$$$$');
+
+  // Helper to auto-wrap only math expressions within a line to avoid wrapping text
+  const autoWrapMath = (text: string): string => {
+    if (!text) return "";
+    
+    // Protect existing math blocks
+    const protectedBlocks: string[] = [];
+    let processed = text.replace(/(\$\$[\s\S]*?\$\$|\$[\s\S]*?\$)/g, (match) => {
+      protectedBlocks.push(match);
+      return `__MATH_BLOCK_${protectedBlocks.length - 1}__`;
+    });
+
+    // Match raw math/LaTeX-like strings and wrap them
+    // Match strings containing subscripts, superscripts, operators, and specific LaTeX math words
+    processed = processed.replace(/(?:[0-9a-zA-Z_,\.\(\)\{\}\[\]\+\-\*\/\=\^\s]|\\(?![a-zA-Z]{4,}))*(?:\\(?:frac|cdot|left|right|times|sqrt|pi|rho|sigma|delta|Omega|alpha|beta|theta|mu|lambda|approx|neq|le|ge)[a-zA-Z]*|_[0-9a-zA-Z]+|\^[0-9a-zA-Z]+)(?:[0-9a-zA-Z_,\.\(\)\{\}\[\]\+\-\*\/\=\^\s]|\\(?![a-zA-Z]{4,}))*/g, (match) => {
+      const trimmed = match.trim();
+      if (!trimmed) return match;
+      if (trimmed.length < 3) return match;
+      if (trimmed.includes('\\') || trimmed.includes('_') || trimmed.includes('^') || trimmed.includes('=')) {
+        const words = trimmed.match(/[a-zA-Z]{4,}/g) || [];
+        const mathWords = ['frac', 'cdot', 'left', 'right', 'times', 'sqrt', 'approx', 'omega', 'alpha', 'beta', 'theta', 'delta', 'sigma', 'lambda', 'text', 'math'];
+        const nonMathWords = words.filter((w: string) => !mathWords.includes(w.toLowerCase()));
+        if (nonMathWords.length > 2) {
+          return match;
+        }
+        return ` $${trimmed}$ `;
       }
+      return match;
+    });
+
+    // Restore protected blocks
+    processed = processed.replace(/__MATH_BLOCK_(\d+)__/g, (_, idx) => {
+      return protectedBlocks[parseInt(idx, 10)];
+    });
+
+    return processed;
+  };
+
+  // Apply autoWrapMath to each line that doesn't already have math indicators
+  processedContent = processedContent.split('\n').map(line => {
+    const trimmed = line.trim();
+    if (trimmed.includes('$')) {
       return line;
-    }).join('\n');
+    }
+    return autoWrapMath(line);
+  }).join('\n');
 
   return (
-    <div className={`markdown-body overflow-x-auto select-text selection:bg-[#DC2626]/20 custom-scrollbar ${className}`}>
+    <div className={`markdown-body overflow-x-auto ${selectable ? 'select-text' : 'select-none'} selection:bg-[#DC2626]/20 custom-scrollbar ${className}`}>
       <ReactMarkdown 
         remarkPlugins={[remarkGfm, remarkMath]} 
         rehypePlugins={[rehypeKatex]}
@@ -978,7 +1019,7 @@ export const CoursesTool = ({ theme, user, getAiInstance, getHfInstance, setUser
         try {
           const ai = getAiInstance();
           const res = await ai.models.generateContent({
-            model: "gemini-3.1-flash-lite-preview",
+            model: "gemini-3.5-flash",
             contents: [{ role: 'user', parts: [{ text: prompt }] }]
           });
           return res.text || null;

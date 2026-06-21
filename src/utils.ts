@@ -94,7 +94,7 @@ export const getHfInstance = () => {
   return new HfInference(key);
 };
 
-export const MODEL_NAME = "gemini-3-flash-preview";
+export const MODEL_NAME = "gemini-3.5-flash";
 export const FLASH_MODEL = "gemini-3.5-flash";
 
 export const formatAiError = (error: any) => {
@@ -285,8 +285,8 @@ export const LIMITS = {
     PREMIUM: { WORDS: 150, DAILY: 15, IMAGES: 7 }
   },
   RECORD: {
-    NORMAL: { DURATION: 30 * 60, DAILY: 3 },
-    PREMIUM: { DURATION: 120 * 60, DAILY: 30 }
+    NORMAL: { DURATION: 90 * 60, DAILY: 3 },
+    PREMIUM: { DURATION: 180 * 60, DAILY: 30 }
   },
   LIVE_TUTOR: {
     NORMAL: { DURATION: 5 * 60, DAILY: 3 },

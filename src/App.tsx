@@ -18,7 +18,7 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { usePaystackPayment } from 'react-paystack';
-import { increment } from 'firebase/firestore';
+import { increment, deleteField } from 'firebase/firestore';
 import { toPng } from 'html-to-image';
 import axios from 'axios';
 import { 
@@ -157,6 +157,12 @@ export default function App() {
     about: ''
   });
   const [profileSubTab, setProfileSubTab] = useState<'profile' | 'stats'>('profile');
+
+  // WhatsApp verification states
+  const [whatsappInputNumber, setWhatsappInputNumber] = useState("");
+  const [whatsappSentOtp, setWhatsappSentOtp] = useState(false);
+  const [whatsappVerifyCode, setWhatsappVerifyCode] = useState("");
+  const [whatsappLoading, setWhatsappLoading] = useState(false);
 
   // Swipe gesture handlers for Profile subtabs
   const profileTouchStartX = useRef<number | null>(null);
@@ -1733,6 +1739,44 @@ export default function App() {
     }
   }, [isOnline, user]);
 
+  // Offline Sync for Notes
+  useEffect(() => {
+    if (isOnline && user) {
+      const syncOfflineNotes = async () => {
+        const offlineNotesData = localStorage.getItem('nsg_offline_notes');
+        if (offlineNotesData) {
+          try {
+            const notes = JSON.parse(offlineNotesData);
+            if (notes.length > 0) {
+              console.log(`📡 Syncing ${notes.length} offline notes to server...`);
+              for (const note of notes) {
+                try {
+                  const { id, isOffline, updatedAt, createdAt, ...cleanData } = note;
+                  const noteData = {
+                    ...cleanData,
+                    updatedAt: serverTimestamp()
+                  };
+                  if (id.startsWith('note-off-')) {
+                    noteData.createdAt = serverTimestamp();
+                    await addDoc(collection(db, 'notes'), noteData);
+                  } else {
+                    await updateDoc(doc(db, 'notes', id), noteData);
+                  }
+                } catch (err) {
+                  console.error("Note Sync Error:", err);
+                }
+              }
+              localStorage.setItem('nsg_offline_notes', '[]');
+            }
+          } catch (e) {
+            console.error("Error parsing offline notes data", e);
+          }
+        }
+      };
+      syncOfflineNotes();
+    }
+  }, [isOnline, user]);
+
   const [selectedSession, setSelectedSession] = useState<LectureSession | null>(null);
 
   // --- \u{1F4DD} QUIZ STATE ---
@@ -1853,6 +1897,8 @@ export default function App() {
   const [replyingTo, setReplyingTo] = useState<any | null>(null);
   const [showPodcastUploadMenu, setShowPodcastUploadMenu] = useState(false);
   const transcriptionNotesRef = useRef('');
+  const activeRecordingNoteIdRef = useRef<string | null>(null);
+  const finalRecordingTitleRef = useRef<string>("Untitled");
 
   // Helper to get unfinished items
   const unfinishedQuizzes: HomeHistoryItem[] = quizQuestions.length > 0 && quizState === 'active' ? [{ id: currentQuizId || 'current-quiz', title: truncateTitle(quizTopic || 'Ongoing Quiz'), type: 'quiz', progress: Math.round(((currentQuestionIndex + 1) / quizQuestions.length) * 100) }] : [];
@@ -2443,6 +2489,33 @@ export default function App() {
     }
   };
 
+  const formatNoteTimeDate = () => {
+    const d = new Date();
+    const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const dateStr = d.toLocaleDateString();
+    return `(${timeStr} / ${dateStr})`;
+  };
+
+  const generateAITitleForNote = async (text: string) => {
+    if (!text || !text.trim() || text === "Transcribing lecture content...") return "Untitled";
+    try {
+      const aiInstance = getAiInstance();
+      const res = await aiInstance.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: [{ parts: [{ text: `Based on the following transcription content, suggest a concise, descriptive heading or title. It must be strictly under 25 characters and summarize the core subject matter. Return ONLY the title text, nothing else. No punctuation, no quotes.\n\nCONTENT:\n${text.substring(0, 3000)}` }] }]
+      });
+      let title = res.text?.trim() || "";
+      title = title.replace(/^["']|["']$/g, '').trim();
+      if (title.length > 25) {
+        title = title.substring(0, 22) + "...";
+      }
+      return title || "Untitled";
+    } catch (e) {
+      console.error("AI title generation failed", e);
+      return "Untitled";
+    }
+  };
+
   const saveNote = async (content: string, title?: string, noteId?: string, attachments?: any[], podcastDialogue?: any[]) => {
     if (!user) return null;
     
@@ -2464,6 +2537,32 @@ export default function App() {
 
     setIsSavingNote(true);
     try {
+      if (!isOnline) {
+        let finalId = noteId || `note-off-${Date.now()}`;
+        const tempNote = {
+          ...noteData,
+          id: finalId,
+          isOffline: true,
+          updatedAt: { toMillis: () => Date.now() },
+          createdAt: { toMillis: () => Date.now() }
+        };
+
+        setUserNotes(prev => {
+          const filtered = prev.filter(n => n.id !== finalId);
+          const updatedList = [tempNote, ...filtered];
+          localStorage.setItem('nsg_cache_user_notes', circularSafeStringify(updatedList));
+          return updatedList;
+        });
+
+        const offlineNotesData = localStorage.getItem('nsg_offline_notes');
+        const offlineNotes = offlineNotesData ? JSON.parse(offlineNotesData) : [];
+        const updatedOfflineNotes = [...offlineNotes.filter((n: any) => n.id !== finalId), tempNote];
+        localStorage.setItem('nsg_offline_notes', JSON.stringify(updatedOfflineNotes));
+
+        setIsSavingNote(false);
+        return finalId;
+      }
+
       if (user?.uid) {
         updateDoc(doc(db, 'users', user.uid), {
           dailyNoteUsage: increment(1)
@@ -3435,6 +3534,13 @@ export default function App() {
           
           if (data.status === 'success') {
             setUserNotification(`Payment confirmed! Premium active.`);
+            const duration = plan === 'monthly' ? 30 : 365;
+            const newUntilDate = new Date();
+            newUntilDate.setDate(newUntilDate.getDate() + duration);
+            await updateDoc(doc(db, 'users', user.uid), {
+              premiumUntil: newUntilDate.toISOString(),
+              isPremium: true
+            }).catch(e => console.error("Could not sync premium client-side:", e));
             localStorage.removeItem('nsg_pending_payment_ref');
             localStorage.removeItem('nsg_pending_payment_plan');
           } else {
@@ -3838,7 +3944,21 @@ export default function App() {
     // Let's add them to Firestore for full persistence
     const unsubLectures = onSnapshot(query(collection(db, 'users', user.uid, 'lectureSessions'), limit(30)), (snapshot) => {
       const lectureData = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as LectureSession));
-      setSessions(lectureData.sort((a, b) => {
+      
+      let mergedData = [...lectureData];
+      try {
+        const offlineData = localStorage.getItem('nsg_offline_recordings');
+        if (offlineData) {
+          const offlineList = JSON.parse(offlineData) as LectureSession[];
+          const syncedIds = new Set(lectureData.map(l => l.id));
+          const unsyncedOffline = offlineList.filter(o => !syncedIds.has(o.id));
+          mergedData = [...mergedData, ...unsyncedOffline];
+        }
+      } catch (err) {
+        console.error("Error reading offline recordings custom snapshot", err);
+      }
+
+      setSessions(mergedData.sort((a, b) => {
         if (!!b.isPinned !== !!a.isPinned) {
           return b.isPinned ? 1 : -1;
         }
@@ -4232,6 +4352,40 @@ export default function App() {
       setIsAuthLoading(false);
     }
   };
+
+  const handleDirectWhatsAppSync = async () => {
+    if (!user) {
+      setUserNotification("You must be logged in to sync WhatsApp.");
+      return;
+    }
+    if (!whatsappInputNumber || whatsappInputNumber.length < 8) {
+      setUserNotification("Please enter a valid WhatsApp phone number (minimum 8 digits with country code).");
+      return;
+    }
+    setWhatsappLoading(true);
+    try {
+      const formattedPhone = whatsappInputNumber.replace(/\D/g, '');
+
+      // Directly update profile data server or client side
+      await updateDoc(doc(db, 'users', user.uid), {
+        whatsappNumber: formattedPhone,
+        isWhatsAppVerified: true
+      });
+
+      setUserNotification("WhatsApp linked & synchronized successfully!");
+    } catch (err: any) {
+      console.error("error syncing whatsapp:", err);
+      setUserNotification(err.message || "Failed to update WhatsApp link.");
+    } finally {
+      setWhatsappLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (currentUserData?.whatsappNumber && !whatsappInputNumber) {
+      setWhatsappInputNumber(currentUserData.whatsappNumber);
+    }
+  }, [currentUserData?.whatsappNumber]);
 
   const handleProfileUpdate = async (updates: any) => {
     if (!user) return;
@@ -5255,13 +5409,17 @@ ${session.fullAnalysis}
         await processorQueue.current;
         console.log("✅ Live transcription of segments completed.");
 
-        // AUTO-SAVE TO VAULT (NOTES TOOL) - AS REQUESTED
-        if (transcriptionNotesRef.current) {
-          await saveNote(
-            transcriptionNotesRef.current,
-            `Recording: ${new Date().toLocaleTimeString()} (${formatTime(recordingTime)})`
-          );
+        // Generate AI title
+        const aiTitle = await generateAITitleForNote(transcriptionNotesRef.current);
+        const finalTitle = aiTitle === "Untitled" ? "Untitled" : `${aiTitle} ${formatNoteTimeDate()}`;
+        finalRecordingTitleRef.current = finalTitle;
+
+        // Final save of Note to Notebook Vault/Cache - update the ID we saved initially
+        if (activeRecordingNoteIdRef.current) {
+          await saveNote(transcriptionNotesRef.current, finalTitle, activeRecordingNoteIdRef.current);
         }
+
+        setUserNotification("Transcription and note creation completed!");
       } catch (err) {
         console.error("Error stopping recording:", err);
       } finally {
@@ -5278,10 +5436,17 @@ ${session.fullAnalysis}
       lastFinalizedTranscriptRef.current = ''; // Reset the finalized cumulative string
       setAudioUrl(null);
       setRecordedBlob(null);
+      activeRecordingNoteIdRef.current = null;
+      finalRecordingTitleRef.current = "Untitled";
 
       const newSessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
       setCurrentRecordingSessionId(newSessionId);
       currentRecordingSessionIdRef.current = newSessionId;
+
+      // Immediately create placeholder note in Vault so we can update in real-time during recording
+      const initNoteId = await saveNote("Transcribing lecture content...", "Untitled");
+      activeRecordingNoteIdRef.current = initNoteId;
+
       try {
         requestWakeLock();
         const originalStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -5320,36 +5485,65 @@ ${session.fullAnalysis}
             console.error("Recording auto-download failed:", err);
           }
 
-          // AUTO SAVE RECORDING TO SERVERS
-          if (user) {
+          // AUTO SAVE RECORDING TO SERVERS/STORAGE
+          const sessionTitle = finalRecordingTitleRef.current === "Untitled" ? `Recording: ${new Date().toLocaleTimeString()}` : finalRecordingTitleRef.current;
+          
+          if (!isOnline) {
             try {
-              const sessionId = currentRecordingSessionIdRef.current || `session-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-              const audioPart = await fileToGenerativePart(blob);
-              
-              const pendingSession: LectureSession = {
-                id: sessionId,
-                title: `Recording: ${new Date().toLocaleTimeString()}`,
+              const offlineSession: LectureSession = {
+                id: newSessionId,
+                title: `${sessionTitle} (Offline)`,
                 date: new Date().toLocaleDateString(),
                 timestamp: Date.now(),
                 createdAt: Date.now(),
                 duration: formatTime(recordingTime),
                 imageCount: uploadedImages.length,
-                summary: "Recording captured. Analysis pending...",
+                summary: "Recording captured offline.",
+                fullAnalysis: "",
+                notes: transcriptionNotesRef.current || "No transcription available.",
+                images: [],
+                audioUrl: localUrl,
+                status: 'analyzed'
+              };
+
+              const offlineData = localStorage.getItem('nsg_offline_recordings');
+              const list = offlineData ? JSON.parse(offlineData) : [];
+              list.push(offlineSession);
+              localStorage.setItem('nsg_offline_recordings', JSON.stringify(list));
+
+              setUserNotification("Recording saved locally (Offline)!");
+              setSelectedSession(offlineSession);
+              setSessions(prev => [offlineSession, ...prev]);
+            } catch (err) {
+              console.error("Offline save failed", err);
+            }
+          } else if (user) {
+            try {
+              const audioPart = await fileToGenerativePart(blob);
+              const pendingSession: LectureSession = {
+                id: newSessionId,
+                title: sessionTitle,
+                date: new Date().toLocaleDateString(),
+                timestamp: Date.now(),
+                createdAt: Date.now(),
+                duration: formatTime(recordingTime),
+                imageCount: uploadedImages.length,
+                summary: "Recording captured. Real-time note synchronized to Vault.",
                 fullAnalysis: "",
                 notes: transcriptionNotesRef.current || "",
                 images: [],
                 audioUrl: localUrl,
                 audioBase64: audioPart.inlineData.data,
-                status: 'pending'
+                status: 'analyzed'
               };
               
               if (audioPart.inlineData.data.length < 1000000) {
-                await setDoc(doc(db, 'users', user.uid, 'lectureSessions', sessionId), pendingSession);
+                await setDoc(doc(db, 'users', user.uid, 'lectureSessions', newSessionId), pendingSession);
                 setUserNotification("Audio saved successfully to History!");
               } else {
                 const metadataOnly = { ...pendingSession, audioBase64: undefined };
-                await setDoc(doc(db, 'users', user.uid, 'lectureSessions', sessionId), metadataOnly);
-                setUserNotification("Audio too long for cloud sync. Use Download to save it permanently.");
+                await setDoc(doc(db, 'users', user.uid, 'lectureSessions', newSessionId), metadataOnly);
+                setUserNotification("Audio saved. Base64 omitted due to cloud document limits.");
               }
               setSelectedSession(pendingSession);
             } catch (err) {
@@ -5625,15 +5819,51 @@ ${session.fullAnalysis}
                         || await runWithTimeout("Together Cleanup", askTogetherCleanup)
                         || await runWithTimeout("HF Cleanup", askHFCleanup)
                         || await runWithTimeout("OpenRouter Cleanup", askOpenRouterCleanup);
+        
+        let cleanedPart = "";
         if (newPart && newPart.trim()) {
-          const cleanedPart = newPart.trim();
+          cleanedPart = newPart.trim();
+        } else {
+          cleanedPart = "not clear....";
+        }
+
+        // Avoid repeating duplicate "not clear...." consecutively
+        if (cleanedPart === "not clear...." && lastFinalizedTranscriptRef.current.endsWith("not clear....")) {
+          return;
+        }
+
+        const updatedText = lastFinalizedTranscriptRef.current + (lastFinalizedTranscriptRef.current ? " " : "") + cleanedPart;
+        
+        setTranscriptionNotes(updatedText);
+        transcriptionNotesRef.current = updatedText;
+        lastFinalizedTranscriptRef.current = updatedText;
+        
+        // Update the active real-time Note in custom Vault
+        if (activeRecordingNoteIdRef.current) {
+          saveNote(updatedText, "Untitled", activeRecordingNoteIdRef.current).catch(() => {});
+        }
+
+        if (isOnline && user && currentRecordingSessionIdRef.current) {
+          updateDoc(doc(db, 'users', user.uid, 'lectureSessions', currentRecordingSessionIdRef.current), {
+            notes: updatedText,
+            updatedAt: serverTimestamp()
+          }).catch(() => {});
+        }
+      } else {
+        // If no raw transcript at all, treat as unclear
+        const cleanedPart = "not clear....";
+        if (!lastFinalizedTranscriptRef.current.endsWith("not clear....")) {
           const updatedText = lastFinalizedTranscriptRef.current + (lastFinalizedTranscriptRef.current ? " " : "") + cleanedPart;
           
           setTranscriptionNotes(updatedText);
           transcriptionNotesRef.current = updatedText;
           lastFinalizedTranscriptRef.current = updatedText;
           
-          if (user && currentRecordingSessionIdRef.current) {
+          if (activeRecordingNoteIdRef.current) {
+            saveNote(updatedText, "Untitled", activeRecordingNoteIdRef.current).catch(() => {});
+          }
+
+          if (isOnline && user && currentRecordingSessionIdRef.current) {
             updateDoc(doc(db, 'users', user.uid, 'lectureSessions', currentRecordingSessionIdRef.current), {
               notes: updatedText,
               updatedAt: serverTimestamp()
@@ -6186,7 +6416,7 @@ ${session.fullAnalysis}
             try {
               const audioPart = await fileToGenerativePart(blob);
               const res = await aiInstance.models.generateContent({
-                model: "gemini-3.1-flash-lite-preview",
+                model: "gemini-3.5-flash",
                 contents: [{ parts: [audioPart, { text: "Transcribe this audio literally. Output ONLY text." }] }]
               });
               return res.text || null;
@@ -6413,7 +6643,7 @@ ${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\nopt
             userParts.push(await fileToGenerativePart(img.file));
           }
           const result = await aiInstance.models.generateContent({
-            model: "gemini-3.1-flash-lite-preview",
+            model: "gemini-3.5-flash",
             contents: [{ role: 'user', parts: [{ text: systemPrompt }] }, ...googleHistory, { role: 'user', parts: userParts }]
           });
           return result.text || null;
@@ -11357,6 +11587,65 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                             EDIT ACCOUNT INFO
                           </button>
                         </div>
+                      </div>
+                    </div>
+
+                    {/* WHATSAPP LINKING SYSTEM WIDGET */}
+                    <div className="bg-gradient-to-br from-[#1E1B2E] to-[#120F1F] p-6 rounded-[2.5rem] shadow-2xl space-y-4 text-left border border-green-500/10">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2.5 bg-emerald-500/10 rounded-2xl text-emerald-400">
+                            <span className="text-xl">💬</span>
+                          </div>
+                          <div>
+                            <h4 className="text-[10px] font-black uppercase tracking-widest text-white">WhatsApp Account Sync</h4>
+                            <p className="text-[8px] font-black uppercase tracking-[0.2em] text-emerald-400/80 mt-0.5">
+                              {currentUserData?.isWhatsAppVerified ? "🟢 SECURED & VERIFIED" : "🔴 NOT SYNCHRONIZED"}
+                            </p>
+                          </div>
+                        </div>
+                        {currentUserData?.isWhatsAppVerified && (
+                          <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-3 py-1 rounded-xl text-[8px] font-black uppercase tracking-widest">
+                            Linked
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="text-[10px] text-white/60 leading-relaxed font-bold uppercase tracking-wider">
+                        Link your active WhatsApp number to unlock continuous real-time study tracking, past quiz logs synchronization, and secure integration with OMNI - NSG's dynamic AI Oracle.
+                      </p>
+
+                      <div className="space-y-4">
+                        <div className="flex flex-col sm:flex-row gap-3">
+                          <div className="relative flex-1">
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-bold text-white/40">+</span>
+                            <input
+                              type="tel"
+                              placeholder="WhatsApp Number (e.g. 2348123456789)"
+                              value={whatsappInputNumber}
+                              onChange={(e) => setWhatsappInputNumber(e.target.value.replace(/\D/g, ''))}
+                              className="w-full pl-8 pr-4 py-3 bg-black/40 border border-white/10 rounded-xl text-xs text-white placeholder-white/30 focus:outline-none focus:border-green-500 font-mono transition-colors"
+                            />
+                          </div>
+                          <button
+                            onClick={handleDirectWhatsAppSync}
+                            disabled={whatsappLoading}
+                            className="px-5 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-[9px] font-black uppercase tracking-widest rounded-xl transition-all cursor-pointer shadow-lg shadow-emerald-600/10 active:scale-95 shrink-0"
+                          >
+                            {whatsappLoading ? "Syncing..." : "SAVE & SYNC LINE"}
+                          </button>
+                        </div>
+                        {currentUserData?.isWhatsAppVerified && currentUserData?.whatsappNumber && (
+                          <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+                            <div>
+                              <p className="text-[8px] font-black uppercase tracking-widest text-white/40">Verified WhatsApp Line</p>
+                              <p className="text-sm font-bold text-emerald-400 font-mono mt-0.5">+{currentUserData?.whatsappNumber}</p>
+                            </div>
+                            <span className="text-xs text-emerald-500 font-bold flex items-center gap-1 font-mono uppercase text-[9px] tracking-wider bg-emerald-500/10 px-2 line-clamp-1 py-1 rounded-lg">
+                              ✓ Live Connected / Editable Anytime
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
