@@ -111,7 +111,7 @@ export const CoursesTool = ({ theme, user, getAiInstance, getHfInstance, setUser
         try {
           const ai = getAiInstance();
           const res = await ai.models.generateContent({
-            model: "gemini-3.1-flash-lite-preview",
+            model: "gemini-3.5-flash",
             contents: [{ role: 'user', parts: [{ text: prompt }] }]
           });
           return res.text || null;
