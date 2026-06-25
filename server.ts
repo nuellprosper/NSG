@@ -187,7 +187,7 @@ async function getOmniResponse(userInput: string, phoneNumber: string, mediaData
       }
 
       const result = await genAI.models.generateContent({
-         model: "gemini-3.5-flash",
+         model: "gemini-3.1-flash",
          contents: contents
       });
       responseText = result.text || "";
@@ -255,7 +255,7 @@ async function transcribeAudio(audioBuffer: Buffer): Promise<string> {
   const tryGemini = async () => {
     if (!genAI) return null;
     const res = await genAI.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-3.1-flash",
       contents: [{ role: "user", parts: [{ inlineData: { data: audioBuffer.toString("base64"), mimeType: "audio/ogg" } }, { text: "Transcribe this audio." }] }]
     });
     return res.text || null;
@@ -265,7 +265,7 @@ async function transcribeAudio(audioBuffer: Buffer): Promise<string> {
     const transcript = await tryHF().catch(() => tryGroq()).catch(() => tryGemini()) || "";
     if (transcript && genAI) {
       const cleanup = await genAI.models.generateContent({
-        model: "gemini-3.5-flash",
+        model: "gemini-3.1-flash",
         contents: [{ role: "user", parts: [{ text: `Clean up this transcript: ${transcript}` }] }]
       });
       return cleanup.text || transcript;
@@ -656,7 +656,7 @@ Do not include conversational fillers, markdown fences (do not wrap with \`\`\`j
 
         try {
           const result = await genAI.models.generateContent({
-            model: "gemini-3.5-flash",
+            model: "gemini-3.1-flash",
             contents: [{ role: "user", parts: [{ text: sysPrompt }] }]
           });
           const responseText = result.text || "";
@@ -762,7 +762,7 @@ Filter extraneous text. Ensure 4 options for every parsed question. Reply ONLY w
 
         try {
           const result = await genAI.models.generateContent({
-            model: "gemini-3.5-flash",
+            model: "gemini-3.1-flash",
             contents: [{ role: "user", parts: [{ text: sysPrompt }] }]
           });
           const cleanText = (result.text || "").replace(/```json/gi, "").replace(/```/gi, "").trim();

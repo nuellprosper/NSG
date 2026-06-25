@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NSG | Nuell Study Guide</title>
+    <meta name="description" content="NSG (Nuell Study Guide) - Your ultimate AI-powered academic companion. Transcribe lectures, generate quizzes, and chat with AI tutors." />
+    
+    <!-- OpenGraph / Social Preview -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://nuellstudyguide.name.ng/" />
+    <meta property="og:title" content="NSG | Nuell Study Guide" />
+    <meta property="og:description" content="AI-Powered Study Assistant. Transcribe lectures, generate quizzes, and host professional exams with smart study metrics." />
+    <meta property="og:image" content="https://nuellstudyguide.name.ng/preview-card.png" />
+    <meta property="og:image:secure_url" content="https://nuellstudyguide.name.ng/preview-card.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:site_name" content="NSG" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="NSG | Nuell Study Guide" />
+    <meta name="twitter:description" content="AI-Powered Study Assistant. Transcribe lectures, generate quizzes, and host professional exams with smart study metrics." />
+    <meta name="twitter:image" content="https://nuellstudyguide.name.ng/preview-card.png" />
+
+    <!-- Google AdSense -->
+    <meta name="google-adsense-account" content="ca-pub-3216169026195971">
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3216169026195971" crossorigin="anonymous"></script>
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#13111C" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="NSG" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+
+    <!-- Service Worker Registration -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then(reg => console.log('SW registered:', reg))
+            .catch(err => console.log('SW registration failed:', err));
+        });
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
