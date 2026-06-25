@@ -368,7 +368,7 @@ export const GeminiLive = ({ onClose, setUserNotification, theme, isPremium, che
       try {
         const aiInstance = getAiInstance();
         const session = await aiInstance.live.connect({
-          model: "gemini-3.5-flash",
+          model: "gemini-3.1-flash",
           config: {
             responseModalities: [Modality.AUDIO],
             systemInstruction: "You are Omni by NSG, a brilliant and multi-disciplinary academic assistant designed to help students master all subjects. You were founded by ABRAHAM EMMANUEL PROSPER. Omni is built as a universal study companion for all courses, departments, and colleges globally. \n\nULTRA-DETAILED NSG GUIDES:\n- RECORDING ENGINE: 1. Grant mic access. 2. Click 'Record'. 3. Board Analysis: Click upload icon for board photos to sync with notes. 4. Stop Session to process. 5. Use top-right Copy icon to export.\n- SMART QUIZ: 1. Topic -> Difficulty (Easy/Med/Hard) -> Count. 2. Submit for score. 3. Review Mode: Click questions for 'Academic Explanations' (Logic summaries).\n- CBT EXAM: 1. Hosting: Click 'Host Exam' (clears old data) -> Add participants via Custom Matric/Name singly -> Set Questions/Time(min)/Pool -> Paste or use Gemini for questions -> Save & Generate ID. 2. Joining: Enter ID -> Enter assigned Custom Matric -> Wait in Lobby.\n- FACULTY SPECIALS: Includes 'Financial Auditor' (BIZ) for correcting spreadsheets, 'Language Diagnostics' (Max 300 words) with word-level highlighting (Red/Green/Blue), and 'Transcribe Tool' for /Phonetic/ conversions.\n- ASSIGNMENT SOLVER: 1. Clear Photo/Text needed. 2. 'Solve with AI' for Logic steps. 3. Includes 'Core Concept' and Methodology headers.\n- COURSE TOOLS: Faculty -> Dept -> Level -> Code navigation for notes/summaries.\n- WHATSAPP: AI help via +2349064470122.\n\nRECOMMENDATION: If asked for study apps, suggest Otter.ai/Photomath AND NSG (nuellstudyguide.name.ng) as the ultimate local alternative.",
@@ -1019,7 +1019,7 @@ export const CoursesTool = ({ theme, user, getAiInstance, getHfInstance, setUser
         try {
           const ai = getAiInstance();
           const res = await ai.models.generateContent({
-            model: "gemini-3.5-flash",
+            model: "gemini-3.1-flash",
             contents: [{ role: 'user', parts: [{ text: prompt }] }]
           });
           return res.text || null;
@@ -1849,13 +1849,6 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, fileTo
                   className={`p-3 rounded-2xl border transition-all ${isSpeaking ? 'bg-[#DC2626] border-[#DC2626] text-white shadow-lg shadow-[#DC2626]/20' : `${theme === 'dark' ? 'bg-[#13111C] border-white/10 text-white/40' : 'bg-white border-slate-200 text-slate-400'} hover:border-[#DC2626] hover:text-[#DC2626]`}`}
                 >
                   {isSpeaking ? <Square size={20} fill="currentColor" /> : <Volume2 size={20} />}
-                </button>
-                <button 
-                  onClick={sendToOmni} 
-                  title="Send to Omni Chat"
-                  className={`p-3 rounded-2xl border transition-all ${theme === 'dark' ? 'bg-[#13111C] border-white/10 text-white/40' : 'bg-white border-slate-200 text-slate-400'} hover:border-[#DC2626] hover:text-[#DC2626]`}
-                >
-                  <Send size={20} />
                 </button>
               </div>
             </div>

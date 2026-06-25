@@ -2374,44 +2374,19 @@ export default function App() {
         turns = 28;
       }
 
-      // Gather actual contents of attachments: images multimodally, text from documents
-      const attachmentParts: any[] = [];
+      // Gather actual contents of attachments: images, audios, docs via transcription
       const extractedTextPieces: string[] = [];
 
       if (selectedNote?.attachments && selectedNote.attachments.length > 0) {
-        setUserNotification("Analyzing actual document content & images for podcast...");
+        setUserNotification("Transcribing and analyzing note attachments with Google 3.1 Flash...");
         for (const att of selectedNote.attachments) {
           try {
-            const fileUrl = att.url;
-            if (!fileUrl) continue;
-
-            const res = await fetch(fileUrl);
-            const blob = await res.blob();
-            const mimeType = blob.type || att.type || '';
-
-            if (mimeType.startsWith('image/') || mimeType === 'application/pdf') {
-              const base64Data = await new Promise<string>((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                  const b64 = (reader.result as string).split(',')[1];
-                  resolve(b64);
-                };
-                reader.onerror = reject;
-                reader.readAsDataURL(blob);
-              });
-
-              attachmentParts.push({
-                inlineData: {
-                  data: base64Data,
-                  mimeType: mimeType
-                }
-              });
-            } else if (mimeType.startsWith('text/') || att.name?.toLowerCase().endsWith('.txt') || att.name?.toLowerCase().endsWith('.md')) {
-              const txt = await blob.text();
-              extractedTextPieces.push(`Actual Content of document source "${att.name}":\n---\n${txt}\n---`);
+            const txt = await transcribeAttachment(att);
+            if (txt) {
+              extractedTextPieces.push(txt);
             }
           } catch (e) {
-            console.error("Error reading attachment in podcast gen:", e);
+            console.error("Error transcribing attachment in podcast gen:", e);
           }
         }
       }
@@ -2458,13 +2433,9 @@ export default function App() {
       ... and so on. Make sure each line explicitly starts with either 'Omni: ' or 'Zeal: '.`;
 
       const askGemini = async () => {
-        const parts: any[] = [{ text: prompt }];
-        for (const p of attachmentParts) {
-          parts.push(p);
-        }
         const res = await ai.models.generateContent({
           model: MODEL_NAME,
-          contents: [{ role: 'user', parts }]
+          contents: [{ role: 'user', parts: [{ text: prompt }] }]
         });
         return res.text || null;
       };
@@ -4710,6 +4681,42 @@ export default function App() {
             if (sessionData.status === 'completed') {
               setUserNotification("You have already completed this exam.");
               return;
+            } else if (sessionData.status === 'in-progress') {
+              // Restore in-progress session state!
+              setStudentActiveQuestions(sessionData.studentActiveQuestions || []);
+              setExamAnswers(sessionData.examAnswers || {});
+              setExamTimer(sessionData.examTimer || (data.config?.duration || 60) * 60);
+              setActiveStudentSubject(sessionData.activeStudentSubject || "");
+              setCurrentExamIndex(0);
+              setExamFinished(false);
+              setExamLobbyState('exam');
+              setActiveExamId(targetExamId);
+              setActiveExamHostUid(data.hostUid || null);
+              
+              if (examTimerRef.current) clearInterval(examTimerRef.current);
+              examTimerRef.current = setInterval(() => {
+                setExamTimer(prev => {
+                  if (prev <= 1) {
+                    submitExam();
+                    return 0;
+                  }
+                  const newVal = prev - 1;
+                  try {
+                    const sKey = `nsg_exam_session_${targetExamId}_${student.matric}`;
+                    const curStr = localStorage.getItem(sKey);
+                    if (curStr) {
+                      const curObj = JSON.parse(curStr);
+                      curObj.examTimer = newVal;
+                      localStorage.setItem(sKey, circularSafeStringify(curObj));
+                    }
+                  } catch (e) {}
+                  return newVal;
+                });
+              }, 1000);
+
+              setUserNotification("🔄 Restored your active exam session!");
+              setIsAuthLoading(false);
+              return;
             }
           }
 
@@ -4760,7 +4767,11 @@ export default function App() {
         const subCount = isNaN(rawSitCount) || rawSitCount <= 0 ? (sub.questionsToAnswer || 15) : rawSitCount;
         // Shuffle the subject's pool and slice to needed count
         const sliced = shuffleArray(subPool).slice(0, subCount);
-        finalSelectedQuestions.push(...sliced);
+        const normalizedSliced = sliced.map(q => ({
+          ...q,
+          subject: sub.name // Force correct casing!
+        }));
+        finalSelectedQuestions.push(...normalizedSliced);
       });
     }
 
@@ -4772,7 +4783,7 @@ export default function App() {
       finalSelectedQuestions = shuffleArray(examQuestions).slice(0, examConfig.questionCount);
     }
 
-    setExamQuestions(finalSelectedQuestions);
+    setStudentActiveQuestions(finalSelectedQuestions);
     setExamTimer(examConfig.duration * 60);
     setExamLobbyState('exam');
     setExamAnswers({});
@@ -4783,7 +4794,8 @@ export default function App() {
     const distinctSubjects = (examConfig.subjects && examConfig.subjects.length > 0)
       ? examConfig.subjects.map(s => s.name)
       : (Array.from(new Set(finalSelectedQuestions.map(q => q.subject).filter(Boolean))) as string[]);
-    setActiveStudentSubject(distinctSubjects[0] || "");
+    const initialActiveSub = distinctSubjects[0] || "";
+    setActiveStudentSubject(initialActiveSub);
     
     // Mark as active
     setRegisteredStudents(prev => prev.map(s => 
@@ -4795,7 +4807,15 @@ export default function App() {
     channel.postMessage({ type: 'STATUS_UPDATE', matric: matricNumber, isActive: true });
     channel.close();
 
-    localStorage.setItem(`nsg_exam_session_${activeExamId}_${matricNumber}`, circularSafeStringify({ status: 'in-progress', startTime: Date.now() }));
+    const initialSession = {
+      status: 'in-progress',
+      startTime: Date.now(),
+      studentActiveQuestions: finalSelectedQuestions,
+      examAnswers: {},
+      examTimer: examConfig.duration * 60,
+      activeStudentSubject: initialActiveSub
+    };
+    localStorage.setItem(`nsg_exam_session_${activeExamId}_${matricNumber}`, circularSafeStringify(initialSession));
 
     examTimerRef.current = setInterval(() => {
       setExamTimer(prev => {
@@ -4803,13 +4823,25 @@ export default function App() {
           submitExam();
           return 0;
         }
+        const newVal = prev - 1;
+        // Auto-save timer tick
+        try {
+          const sKey = `nsg_exam_session_${activeExamId}_${matricNumber}`;
+          const curStr = localStorage.getItem(sKey);
+          if (curStr) {
+            const curObj = JSON.parse(curStr);
+            curObj.examTimer = newVal;
+            localStorage.setItem(sKey, circularSafeStringify(curObj));
+          }
+        } catch (e) {}
+
         // Refresh active status every 30 seconds
-        if (prev % 30 === 0) {
+        if (newVal % 30 === 0) {
           setRegisteredStudents(curr => curr.map(s => 
             s.matric.replace(/\s+/g, '').toLowerCase() === matricNumber.replace(/\s+/g, '').toLowerCase() ? { ...s, lastActive: Date.now(), isActive: true } : s
           ));
         }
-        return prev - 1;
+        return newVal;
       });
     }, 1000);
   };
@@ -4818,7 +4850,8 @@ export default function App() {
     if (examTimerRef.current) clearInterval(examTimerRef.current);
     
     let score = 0;
-    examQuestions.forEach((q, idx) => {
+    const questionsToGrade = studentActiveQuestions.length > 0 ? studentActiveQuestions : examQuestions;
+    questionsToGrade.forEach((q, idx) => {
       const studentAns = examAnswers[q.id] !== undefined ? examAnswers[q.id] : examAnswers[idx];
       const correctAns = sanitizeCorrectAnswer(q.correctAnswer);
       if (studentAns !== undefined && studentAns !== null) {
@@ -4840,15 +4873,15 @@ export default function App() {
       date: new Date().toLocaleDateString(),
       timestamp: Date.now(),
       score: score,
-      total: examQuestions.length
+      total: questionsToGrade.length
     });
 
     if (user) {
-      const p = Math.round((score / (examQuestions.length || 1)) * 100);
+      const p = Math.round((score / (questionsToGrade.length || 1)) * 100);
       addDoc(collection(db, 'notifications'), {
         to: user.uid,
         title: `🛡️ Professional CBT Exam Submitted!`,
-        message: `Congratulations ${studentName || currentUserData?.username || 'Scholar'}! You submitted CBT Exam "${examIdInput || 'CBT Mock'}" with a final score of ${score}/${examQuestions.length} (${p}%). Every milestone counts! 🔥🎓`,
+        message: `Congratulations ${studentName || currentUserData?.username || 'Scholar'}! You submitted CBT Exam "${examIdInput || 'CBT Mock'}" with a final score of ${score}/${questionsToGrade.length} (${p}%). Every milestone counts! 🔥🎓`,
         type: 'congrats',
         subtype: 'exam_complete',
         targetTab: 'tools',
@@ -4863,7 +4896,7 @@ export default function App() {
           matric: matricNumber,
           name: studentName,
           score: score,
-          total: examQuestions.length,
+          total: questionsToGrade.length,
           timestamp: new Date().toLocaleString(),
           hostUid: activeExamHostUid || undefined
         };
@@ -5102,7 +5135,14 @@ export default function App() {
   };
 
   const saveHostedExam = async () => {
-    if (!user || !hostExamId) return;
+    if (!user) {
+      setUserNotification("⚠️ Please sign in first to save your exam progress.");
+      return;
+    }
+    if (!hostExamId) {
+      setUserNotification("⚠️ No active Exam ID found. Please generate or select an Exam first.");
+      return;
+    }
     try {
       const examData = {
         id: hostExamId,
@@ -5115,10 +5155,10 @@ export default function App() {
         createdAt: new Date().toISOString()
       };
       await setDoc(doc(db, 'exams', hostExamId), examData);
-      setUserNotification("Exam hosted successfully! Copy the link to share.");
+      setUserNotification("💾 Exam progress saved to cloud successfully!");
     } catch (error) {
       console.error("Error saving exam:", error);
-      setUserNotification("Failed to save exam.");
+      setUserNotification("❌ Failed to save exam. Check your connection.");
     }
   };
 
@@ -6991,6 +7031,45 @@ Respond professionally, concisely, and use LaTeX for math.` }];
     await handleSendMessage(styledPrompt);
   };
 
+  const transcribeAttachment = async (att: { name: string, type: string, url: string }) => {
+    try {
+      if (!att.url) return "";
+      const res = await fetch(att.url);
+      const blob = await res.blob();
+      const mimeType = blob.type || att.type || '';
+      
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const b64 = (reader.result as string).split(',')[1];
+          resolve(b64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+
+      const aiInstance = getAiInstance();
+      const prompt = `You are an expert Google 3.1 Flash academic transcriber. 
+Please extract and transcribe all visible academic text, spoken words, content, diagrams, formulas, equations, or information from this file named "${att.name}". 
+Provide a highly detailed, clean, precise transcription. Return ONLY the transcribed content and findings.`;
+
+      const response = await aiInstance.models.generateContent({
+        model: FLASH_MODEL,
+        contents: [
+          { role: 'user', parts: [
+            { text: prompt },
+            { inlineData: { data: base64Data, mimeType: mimeType } }
+          ] }
+        ]
+      });
+
+      return `\n\n--- EXTRACTED TRANSCRIPTION FROM ATTACHMENT "${att.name}" (${att.type}) ---\n${response.text || ''}\n`;
+    } catch (e) {
+      console.error("Transcription error on attachment:", att.name, e);
+      return `\n\n[Failed to extract content from attachment "${att.name}"]\n`;
+    }
+  };
+
   const generateQuiz = async (
     customTopic?: string | React.MouseEvent<any>, 
     customCount?: number, 
@@ -7017,8 +7096,9 @@ Respond professionally, concisely, and use LaTeX for math.` }];
 
     const limits = isPremium ? LIMITS.QUIZ.PREMIUM : LIMITS.QUIZ.NORMAL;
     const wordCount = activeTopic.split(/\s+/).filter(Boolean).length;
-    if (wordCount > limits.WORDS) {
-      setUserNotification(`Prompt limit reached: ${isPremium ? 'Premium' : 'Free'} users can only enter up to ${limits.WORDS} words per prompt.`);
+    const maxWords = importedQuizNote ? 5000 : limits.WORDS;
+    if (wordCount > maxWords) {
+      setUserNotification(`Prompt limit reached: ${importedQuizNote ? 'Note quizzes' : (isPremium ? 'Premium' : 'Free')} can only support up to ${maxWords} words per prompt.`);
       return;
     }
 
@@ -7049,7 +7129,15 @@ Respond professionally, concisely, and use LaTeX for math.` }];
 
       let promptContext = "";
       if (importedQuizNote) {
-        promptContext += `Analyze the imported student study note titled "${importedQuizNote.title}" with the following content:\n"""\n${importedQuizNote.content}\n"""\n\n`;
+        let noteContent = importedQuizNote.content || "";
+        if (importedQuizNote.attachments && importedQuizNote.attachments.length > 0) {
+          setUserNotification("Transcribing image/audio/document attachments using Google 3.1 Flash...");
+          const transcriptions = await Promise.all(
+            importedQuizNote.attachments.map((att: any) => transcribeAttachment(att))
+          );
+          noteContent += "\n\n" + transcriptions.join("\n");
+        }
+        promptContext += `Analyze the imported student study note titled "${importedQuizNote.title}" with the following content (including extracted transcriptions of attached materials):\n"""\n${noteContent}\n"""\n\n`;
       }
       
       if (activeTopic.trim()) {
@@ -8605,6 +8693,8 @@ Respond professionally, concisely, and use LaTeX for math.` }];
               setShowPodcastUploadMenu={setShowPodcastUploadMenu}
               selectedNote={selectedNote}
               setSelectedNote={setSelectedNote}
+              importedQuizNote={importedQuizNote}
+              setImportedQuizNote={setImportedQuizNote}
               userNotes={userNotes}
               setUserNotes={setUserNotes}
               saveNote={saveNote}
@@ -10089,7 +10179,7 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                         </div>
                       ) : studentName ? (
                         <div className={`p-6 ${theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'} rounded-3xl border space-y-4 text-center`}>
-                          <div className="w-16 h-16 bg-[#DC2626] rounded-full flex items-center justify-center text-white font-black text-2xl mx-auto shadow-lg shadow-[#DC2626]/20">{studentName.charAt(0)}</div>
+                          <div className="w-16 h-16 bg-[#DC2626] rounded-full flex items-center justify-center text-white font-black text-2xl mx-auto shadow-lg shadow-[#DC2626]/20">{(studentName || '?').charAt(0)}</div>
                           <div>
                             <p className={`text-[10px] font-black ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} uppercase tracking-widest`}>Authenticated Student</p>
                             <p className={`text-xl font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{studentName}</p>
@@ -10165,7 +10255,7 @@ Respond professionally, concisely, and use LaTeX for math.` }];
               {examLobbyState === 'briefing' && (
                 <div className={`${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-5 sm:p-8 rounded-3xl border space-y-6 shadow-sm`}>
                   <div className={`flex items-center gap-4 p-4 ${theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'} rounded-2xl border`}>
-                    <div className="w-12 h-12 bg-[#DC2626] rounded-full flex items-center justify-center text-white font-black text-xl">{studentName.charAt(0)}</div>
+                    <div className="w-12 h-12 bg-[#DC2626] rounded-full flex items-center justify-center text-white font-black text-xl">{(studentName || '?').charAt(0)}</div>
                     <div><p className={`font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'} uppercase tracking-tighter`}>{studentName}</p><p className={`text-[10px] ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'} font-mono`}>{matricNumber}</p></div>
                   </div>
                   <div className="space-y-4">
@@ -10191,21 +10281,38 @@ Respond professionally, concisely, and use LaTeX for math.` }];
               )}
 
               {examLobbyState === 'exam' && (() => {
-                const distinctStudentSubjects = Array.from(new Set(examQuestions.map(q => q.subject || "Mathematics").filter(Boolean))) as string[];
+                const activeQuestionsPool = studentActiveQuestions.length > 0 ? studentActiveQuestions : examQuestions;
+                
+                // Keep the exact configured order of subjects if present, filtering to those that have questions
+                const distinctStudentSubjects = (examConfig.subjects && examConfig.subjects.length > 0)
+                  ? examConfig.subjects.map(s => s.name).filter(name => activeQuestionsPool.some(q => (q.subject || "Mathematics").trim().toLowerCase() === name.trim().toLowerCase()))
+                  : Array.from(new Set(activeQuestionsPool.map(q => q.subject || "Mathematics").filter(Boolean))) as string[];
+
                 const activeSub = activeStudentSubject || distinctStudentSubjects[0] || "Mathematics";
-                const activeSubjectQuestions = activeSub ? examQuestions.filter(q => (q.subject || "Mathematics").trim().toLowerCase() === activeSub.trim().toLowerCase()) : examQuestions;
+                const activeSubjectQuestions = activeSub ? activeQuestionsPool.filter(q => (q.subject || "Mathematics").trim().toLowerCase() === activeSub.trim().toLowerCase()) : activeQuestionsPool;
                 const currentQuestion = activeSubjectQuestions[currentExamIndex] || activeSubjectQuestions[0];
                 
                 const handleNextQuestion = () => {
                   if (currentExamIndex < activeSubjectQuestions.length - 1) {
                     setCurrentExamIndex(currentExamIndex + 1);
                   } else {
-                    const nextSubIdx = distinctStudentSubjects.indexOf(activeSub) + 1;
+                    const currentSubIdx = distinctStudentSubjects.findIndex(s => s.trim().toLowerCase() === activeSub.trim().toLowerCase());
+                    const nextSubIdx = currentSubIdx + 1;
                     if (nextSubIdx < distinctStudentSubjects.length) {
                       const nextSubName = distinctStudentSubjects[nextSubIdx];
                       setActiveStudentSubject(nextSubName);
                       setCurrentExamIndex(0);
                       setUserNotification(`Moved to next subject: ${nextSubName}`);
+                      // Save active subject
+                      try {
+                        const sKey = `nsg_exam_session_${activeExamId}_${matricNumber}`;
+                        const curStr = localStorage.getItem(sKey);
+                        if (curStr) {
+                          const curObj = JSON.parse(curStr);
+                          curObj.activeStudentSubject = nextSubName;
+                          localStorage.setItem(sKey, circularSafeStringify(curObj));
+                        }
+                      } catch (e) {}
                     }
                   }
                 };
@@ -10214,19 +10321,31 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                   if (currentExamIndex > 0) {
                     setCurrentExamIndex(currentExamIndex - 1);
                   } else {
-                    const prevSubIdx = distinctStudentSubjects.indexOf(activeSub) - 1;
+                    const currentSubIdx = distinctStudentSubjects.findIndex(s => s.trim().toLowerCase() === activeSub.trim().toLowerCase());
+                    const prevSubIdx = currentSubIdx - 1;
                     if (prevSubIdx >= 0) {
                       const prevSubName = distinctStudentSubjects[prevSubIdx];
-                      const prevSubQuestions = examQuestions.filter(q => (q.subject || "Mathematics").trim().toLowerCase() === prevSubName.trim().toLowerCase());
+                      const prevSubQuestions = activeQuestionsPool.filter(q => (q.subject || "Mathematics").trim().toLowerCase() === prevSubName.trim().toLowerCase());
                       setActiveStudentSubject(prevSubName);
                       setCurrentExamIndex(Math.max(0, prevSubQuestions.length - 1));
                       setUserNotification(`Moved to previous subject: ${prevSubName}`);
+                      // Save active subject
+                      try {
+                        const sKey = `nsg_exam_session_${activeExamId}_${matricNumber}`;
+                        const curStr = localStorage.getItem(sKey);
+                        if (curStr) {
+                          const curObj = JSON.parse(curStr);
+                          curObj.activeStudentSubject = prevSubName;
+                          localStorage.setItem(sKey, circularSafeStringify(curObj));
+                        }
+                      } catch (e) {}
                     }
                   }
                 };
 
-                const isFirstSubAndQuestion = currentExamIndex === 0 && distinctStudentSubjects.indexOf(activeSub) === 0;
-                const isLastSubAndQuestion = currentExamIndex === activeSubjectQuestions.length - 1 && distinctStudentSubjects.indexOf(activeSub) === distinctStudentSubjects.length - 1;
+                const currentSubIdx = distinctStudentSubjects.findIndex(s => s.trim().toLowerCase() === activeSub.trim().toLowerCase());
+                const isFirstSubAndQuestion = currentExamIndex === 0 && currentSubIdx === 0;
+                const isLastSubAndQuestion = currentExamIndex === activeSubjectQuestions.length - 1 && currentSubIdx === distinctStudentSubjects.length - 1;
 
                 return (
                   <div className="space-y-4 sm:space-y-6">
@@ -10293,6 +10412,16 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                             onClick={() => {
                               setActiveStudentSubject(subName);
                               setCurrentExamIndex(0);
+                              // Save active subject
+                              try {
+                                const sKey = `nsg_exam_session_${activeExamId}_${matricNumber}`;
+                                const curStr = localStorage.getItem(sKey);
+                                if (curStr) {
+                                  const curObj = JSON.parse(curStr);
+                                  curObj.activeStudentSubject = subName;
+                                  localStorage.setItem(sKey, circularSafeStringify(curObj));
+                                }
+                              } catch (e) {}
                             }}
                             className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wide border transition-all ${
                               activeSub.trim().toLowerCase() === subName.trim().toLowerCase()
@@ -10343,7 +10472,20 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                             return (
                               <button 
                                 key={idx} 
-                                onClick={() => setExamAnswers({ ...examAnswers, [currentQuestion.id]: idx })} 
+                                onClick={() => {
+                                  const updatedAnswers = { ...examAnswers, [currentQuestion.id]: idx };
+                                  setExamAnswers(updatedAnswers);
+                                  // Save to localStorage
+                                  try {
+                                    const sKey = `nsg_exam_session_${activeExamId}_${matricNumber}`;
+                                    const curStr = localStorage.getItem(sKey);
+                                    if (curStr) {
+                                      const curObj = JSON.parse(curStr);
+                                      curObj.examAnswers = updatedAnswers;
+                                      localStorage.setItem(sKey, circularSafeStringify(curObj));
+                                    }
+                                  } catch (e) {}
+                                }} 
                                 className={`w-full text-left p-4 rounded-2xl border transition-all ${isSelected ? 'border-[#DC2626] bg-[#DC2626]/5 text-[#DC2626]' : `${theme === 'dark' ? 'bg-white/5 border-white/10 text-white/80' : 'bg-slate-50 border-slate-200 text-slate-700'}`}`}
                               >
                                 <div className="flex items-start gap-3">
@@ -10379,8 +10521,8 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                   </div>
                   <div className={`py-6 border-y ${theme === 'dark' ? 'border-white/5' : 'border-slate-100'}`}>
                     <p className={`text-[10px] font-black ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} uppercase tracking-widest mb-1`}>Final Score</p>
-                    <p className="text-5xl font-black text-[#DC2626]">{examScore} / {examQuestions.length}</p>
-                    <p className={`text-sm font-bold mt-2 ${theme === 'dark' ? 'text-white' : 'text-slate-700'}`}>{Math.round((examScore / (examQuestions.length || 1)) * 100)}% Proficiency</p>
+                    <p className="text-5xl font-black text-[#DC2626]">{examScore} / {(studentActiveQuestions.length > 0 ? studentActiveQuestions : examQuestions).length}</p>
+                    <p className={`text-sm font-bold mt-2 ${theme === 'dark' ? 'text-white' : 'text-slate-700'}`}>{Math.round((examScore / ((studentActiveQuestions.length > 0 ? studentActiveQuestions : examQuestions).length || 1)) * 100)}% Proficiency</p>
                   </div>
                   <div className="flex flex-col gap-3">
                     <button 
@@ -10408,7 +10550,7 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                   </div>
 
                   <div className="space-y-4">
-                    {examQuestions.map((q, qIdx) => {
+                    {(studentActiveQuestions.length > 0 ? studentActiveQuestions : examQuestions).map((q, qIdx) => {
                       const userAns = examAnswers[q.id] !== undefined ? examAnswers[q.id] : examAnswers[qIdx];
                       const isCorrect = userAns !== undefined && userAns !== null && sanitizeCorrectAnswer(userAns) === sanitizeCorrectAnswer(q.correctAnswer);
                       
@@ -10561,6 +10703,11 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                 uploadToCloudinary={uploadToCloudinary}
                 setUserNotification={setUserNotification}
                 onChatSelect={(isActive) => setIsChatRoomActive(isActive)}
+                setAppActiveTab={(tab) => setActiveTab(tab as any)}
+                setToolsSubTab={(subTab) => setToolsSubTab(subTab as any)}
+                setImportedQuizNote={setImportedQuizNote}
+                setQuizTopic={setQuizTopic}
+                generateQuiz={generateQuiz}
               />
             ) : (
               <motion.div 
@@ -10658,8 +10805,8 @@ Respond professionally, concisely, and use LaTeX for math.` }];
             </div>
           )}
 
-          {/* AI CHAT TAB */}
-          {activeTab === 'ai' && (
+          {/* AI CHAT TAB REMOVED */}
+          {false && activeTab === 'ai' && (
             <motion.div 
               key="ai" 
               initial={{opacity:0}} 
@@ -13738,7 +13885,7 @@ Respond professionally, concisely, and use LaTeX for math.` }];
                           <div key={group.id} className="bg-white/[0.02] border border-white/5 p-6 rounded-[2rem] flex items-center justify-between">
                             <div className="flex items-center gap-4 truncate">
                               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#DC2626] to-red-900 flex items-center justify-center text-white font-black text-lg">
-                                {group.photoURL ? <img src={group.photoURL} className="w-full h-full object-cover rounded-2xl" /> : group.name.charAt(0)}
+                                {group.photoURL ? <img src={group.photoURL} className="w-full h-full object-cover rounded-2xl" /> : (group.name || '?').charAt(0)}
                               </div>
                               <div className="truncate">
                                 <p className="font-black text-white text-sm uppercase tracking-tight italic truncate">{group.name}</p>

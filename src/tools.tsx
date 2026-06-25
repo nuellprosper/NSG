@@ -9,7 +9,7 @@ import {
   Brain, History, Download, Play, 
   ChevronRight, Sparkles, Trash2, Settings, UserPlus, CreditCard, Edit2, FilePlus,
   ChevronUp, ChevronDown, Bold, ThumbsUp, Volume2, Square, Send, Pin, CreditCard as Clock,
-  ArrowLeft, RefreshCcw, Camera, Award, ShieldCheck, BookOpen, FileText, Zap, Info,
+  ArrowLeft, RefreshCcw, Camera, Award, ShieldCheck, BookOpen, FileText, Zap, Info, AlertTriangle,
   Share2, Trophy, Search, Check, X, ArrowLeft as ChevronLeft, GraduationCap, Users, User, Clock as ClockIcon,
   Activity, Video, Copy, PlusCircle, Plus, Italic, List, XCircle, CheckCircle2,
   Undo2, Redo2, Save, CornerDownRight, Menu, ExternalLink
@@ -273,6 +273,8 @@ export const ToolsPage = (props: any) => {
     setShowPodcastUploadMenu,
     selectedNote,
     setSelectedNote,
+    importedQuizNote,
+    setImportedQuizNote,
     userNotes,
     setUserNotes,
     saveNote,
@@ -374,6 +376,7 @@ export const ToolsPage = (props: any) => {
   const [showNoteInsertMenu, setShowNoteInsertMenu] = useState(false);
   const [activeNotebookTab, setActiveNotebookTab] = useState<'write' | 'sources'>('write');
   const [noteToDelete, setNoteToDelete] = useState<any | null>(null);
+  const [showSubmitConfirmLocal, setShowSubmitConfirmLocal] = useState(false);
 
   // Navigation stack for back button tracking
   const [navigationHistory, setNavigationHistory] = useState<string[]>(['menu']);
@@ -687,6 +690,23 @@ export const ToolsPage = (props: any) => {
                   </button>
                   <button 
                     onClick={() => {
+                      if (setImportedQuizNote && setToolsSubTab && generateQuiz) {
+                        setImportedQuizNote(selectedNote);
+                        if (setQuizTopic) {
+                          setQuizTopic(selectedNote.content || '');
+                        }
+                        setToolsSubTab('quiz');
+                        setTimeout(() => {
+                          generateQuiz(selectedNote.content || selectedNote.title || 'Note Quiz', 10, 'Medium');
+                        }, 150);
+                      }
+                    }} 
+                    className="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-1.5 bg-[#DC2626] hover:bg-[#DC2626]/90 text-white shadow-md cursor-pointer"
+                  >
+                    <Trophy size={12} /> Generate Quiz
+                  </button>
+                  <button 
+                    onClick={() => {
                       const newContent = prompt('Edit note title:', selectedNote.title);
                       if (newContent) setSelectedNoteTitle(newContent);
                     }}
@@ -704,185 +724,185 @@ export const ToolsPage = (props: any) => {
           </div>
 
           {selectedNote ? (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {(isPodcastActive || isTeacherMode) && (
-                <div className="lg:col-span-1 space-y-6">
-                  {isPodcastActive && (
-                    <div className="flex-1 flex flex-col bg-[#050811] border border-white/10 rounded-3xl overflow-hidden shadow-2xl h-[82vh] min-h-0">
-                      <div className="p-4 border-b border-white/10 flex items-center justify-between shrink-0 bg-white/2">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-green-500/10 rounded-xl flex items-center justify-center animate-pulse">
-                            <Volume2 className="text-green-400" size={16} />
-                          </div>
-                          <div>
-                            <h3 className="text-xs font-black text-white uppercase tracking-widest">Omni & Zeal</h3>
-                            <p className="text-[8px] text-green-500 font-bold uppercase tracking-widest">Podcast Chat Active</p>
-                          </div>
-                        </div>
-                        <button onClick={() => setIsPodcastActive(false)} className="text-white/40 hover:text-white shrink-0">
-                          <X size={16} />
-                        </button>
-                      </div>
-                      
-                      <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar bg-[#08070F]">
-                        {podcastDialogue.length === 0 ? (
-                          <div className="h-full flex flex-col items-center justify-center text-center p-8 space-y-6">
-                            <div className="relative">
-                              <div className="absolute inset-0 bg-blue-500/20 blur-3xl rounded-full" />
-                              <div className="relative w-24 h-24 bg-gradient-to-br from-blue-600 to-purple-600 rounded-full flex items-center justify-center border-4 border-white/10 shadow-2xl">
-                                <Brain size={40} className="text-white animate-pulse" />
-                              </div>
-                            </div>
-                            <div className="space-y-2">
-                              <h4 className="text-lg font-black text-white uppercase tracking-tight">Podcast Analysis</h4>
-                              <p className="text-xs text-white/40 max-w-xs mx-auto">Omni and Zeal are ready to discuss your source content.</p>
-                            </div>
-                            <button 
-                              onClick={() => generatePodcastDiscussion(selectedNote.content)}
-                              disabled={isGeneratingPodcast}
-                              className="px-8 py-4 bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black rounded-2xl text-[10px] uppercase tracking-widest hover:scale-110 active:scale-95 transition-all disabled:opacity-50 shadow-xl shadow-[#DC2626]/20"
-                            >
-                              {isGeneratingPodcast ? 'Analyzing...' : 'Create Podcast'}
-                            </button>
-                          </div>
-                        ) : (
-                          podcastDialogue.map((d: any, idx: number) => (
-                            <motion.div 
-                              key={d.id || idx} 
-                              initial={{ opacity: 0, y: 10 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              className={`flex flex-col ${d.char === 'User' ? 'items-end' : 'items-start'}`}
-                            >
-                              <div className={`max-w-[90%] p-4 rounded-3xl text-xs leading-relaxed relative group ${d.char === 'User' ? 'bg-[#DC2626] text-white shadow-lg shadow-[#DC2626]/10' : 'bg-white/5 text-white/95 border border-white/10'}`}>
-                                <div className="flex items-center justify-between gap-6 mb-2">
-                                  <span className={`text-[8px] font-black uppercase tracking-widest ${d.char === 'User' ? 'text-white/60' : (d.char === 'Omni' ? 'text-blue-400' : 'text-purple-400')}`}>{d.char}</span>
-                                  {d.char !== 'User' && (
-                                    <button 
-                                      onClick={() => {
-                                        setReplyingTo(d);
-                                        const inp = document.getElementById('tools-podcast-chat-input');
-                                        if (inp) inp.focus();
-                                      }}
-                                      className="opacity-0 group-hover:opacity-100 transition-opacity bg-white/10 hover:bg-white/20 px-2 py-0.5 rounded-lg text-[8px] font-black uppercase tracking-tighter"
-                                    >
-                                      Tag & Reply
-                                    </button>
-                                  )}
-                                </div>
-                                
-                                {d.replyTo && (
-                                  <div className="mb-2 p-2 bg-white/5 border-l-2 border-white/20 rounded-xl text-[9px] opacity-60 italic max-h-12 overflow-hidden truncate">
-                                    {d.replyTo}
-                                  </div>
-                                )}
-
-                                <p className="leading-relaxed font-sans">{d.text}</p>
-                              </div>
-                            </motion.div>
-                          ))
-                        )}
-                        {isGeneratingPodcast && (
-                          <div className="flex items-center gap-2 text-white/20 ml-2">
-                            <div className="animate-bounce">●</div>
-                            <div className="animate-bounce delay-75">●</div>
-                            <div className="animate-bounce delay-150">●</div>
-                          </div>
-                        )}
-                      </div>
-                      
-                      <div className="p-4 border-t border-white/10 bg-[#050811] shrink-0">
-                        {replyingTo && (
-                          <div className="mb-3 p-3 bg-[#DC2626]/10 border border-[#DC2626]/20 rounded-2xl flex items-center justify-between">
-                            <div className="flex items-center gap-3 overflow-hidden">
-                              <div className="p-1.5 bg-[#DC2626]/20 rounded-lg">
-                                <CornerDownRight size={12} className="text-[#DC2626]" />
-                              </div>
-                              <div className="overflow-hidden">
-                                <p className="text-[8px] font-black text-[#DC2626] uppercase tracking-widest">Tagging {replyingTo.char}</p>
-                                <p className="text-[10px] text-white/60 truncate line-clamp-1">{replyingTo.text}</p>
-                              </div>
-                            </div>
-                            <button onClick={() => setReplyingTo(null)} className="p-2 text-white/20 hover:text-white shrink-0">
-                              <X size={14} />
-                            </button>
-                          </div>
-                        )}
-
-                        <div className="relative">
-                          <div className="absolute left-3 top-1/2 -translate-y-1/2">
-                            <button 
-                              onClick={() => setShowPodcastUploadMenu(!showPodcastUploadMenu)}
-                              className={`p-1.5 rounded-lg transition-all ${showPodcastUploadMenu ? 'bg-[#DC2626] text-white shadow-lg' : 'bg-white/5 text-white/40 hover:text-white'}`}
-                            >
-                              <Plus size={16} />
-                            </button>
-                            
-                            <AnimatePresence>
-                              {showPodcastUploadMenu && (
-                                <>
-                                  <div className="fixed inset-0 z-40" onClick={() => setShowPodcastUploadMenu(false)} />
-                                  <motion.div 
-                                    initial={{ y: 20, opacity: 0, scale: 0.9 }}
-                                    animate={{ y: -160, opacity: 1, scale: 1 }}
-                                    exit={{ y: 20, opacity: 0, scale: 0.9 }}
-                                    className="absolute left-0 w-44 bg-[#0F172A] border border-white/10 rounded-2xl p-1 shadow-2xl z-50 flex flex-col gap-1 ring-1 ring-white/10"
-                                  >
-                                    <label className="flex items-center gap-2.5 p-2 bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer group">
-                                      <div className="p-1.5 bg-blue-500/10 rounded-lg"><ImageIcon size={14} className="text-blue-400" /></div>
-                                      <span className="text-[8px] font-black text-white uppercase tracking-widest">Image Source</span>
-                                      <input type="file" className="hidden" accept="image/*" onChange={(e) => { uploadNoteFile(e, 'image'); setShowPodcastUploadMenu(false); }} />
-                                    </label>
-                                    <label className="flex items-center gap-2.5 p-2 bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer group">
-                                      <div className="p-1.5 bg-green-500/10 rounded-lg"><Mic size={14} className="text-green-400" /></div>
-                                      <span className="text-[8px] font-black text-white uppercase tracking-widest">Voice Memo</span>
-                                      <input type="file" className="hidden" accept="audio/*" onChange={(e) => { uploadNoteFile(e, 'audio'); setShowPodcastUploadMenu(false); }} />
-                                    </label>
-                                    <label className="flex items-center gap-2.5 p-2 bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer group">
-                                      <div className="p-1.5 bg-yellow-500/10 rounded-lg"><FileText size={14} className="text-yellow-400" /></div>
-                                      <span className="text-[8px] font-black text-white uppercase tracking-widest">Document</span>
-                                      <input type="file" className="hidden" accept=".pdf,.doc,.docx,.txt" onChange={(e) => { uploadNoteFile(e, 'doc'); setShowPodcastUploadMenu(false); }} />
-                                    </label>
-                                  </motion.div>
-                                </>
-                              )}
-                            </AnimatePresence>
-                          </div>
-
-                          <input 
-                            id="tools-podcast-chat-input"
-                            autoComplete="off"
-                            placeholder="Chat with Omni & Zeal..."
-                            className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-12 py-3 text-xs text-white outline-none focus:border-blue-500/50 transition-all placeholder:text-white/20"
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                const target = e.target as HTMLInputElement;
-                                if (target.value.trim()) {
-                                  handlePodcastInput(target.value);
-                                  target.value = '';
-                                }
-                              }
-                            }}
-                          />
-                          <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                            <button 
-                              onClick={() => {
-                                const input = document.getElementById('tools-podcast-chat-input') as HTMLInputElement;
-                                if (input && input.value.trim()) {
-                                  handlePodcastInput(input.value);
-                                  input.value = '';
-                                }
-                              }}
-                              className="p-1.5 bg-[#DC2626] text-white rounded-lg shadow-lg hover:scale-110 active:scale-95 transition-all"
-                            >
-                              <Send size={14} />
-                            </button>
-                          </div>
+            isPodcastActive ? (
+              // FULL SCREEN PODCAST PAGE
+              <div className="w-full max-w-4xl mx-auto flex flex-col bg-[#050811] border border-white/10 rounded-3xl overflow-hidden shadow-2xl h-[82vh] min-h-0">
+                <div className="p-4 border-b border-white/10 flex items-center justify-between shrink-0 bg-white/2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-green-500/10 rounded-xl flex items-center justify-center animate-pulse">
+                      <Volume2 className="text-green-400" size={16} />
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-black text-white uppercase tracking-widest">Omni & Zeal</h3>
+                      <p className="text-[8px] text-green-500 font-bold uppercase tracking-widest">Podcast Chat Active</p>
+                    </div>
+                  </div>
+                  <button onClick={() => setIsPodcastActive(false)} className="text-white/40 hover:text-white shrink-0">
+                    <X size={16} />
+                  </button>
+                </div>
+                
+                <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar bg-[#08070F]">
+                  {podcastDialogue.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center text-center p-8 space-y-6">
+                      <div className="relative">
+                        <div className="absolute inset-0 bg-blue-500/20 blur-3xl rounded-full" />
+                        <div className="relative w-24 h-24 bg-gradient-to-br from-blue-600 to-purple-600 rounded-full flex items-center justify-center border-4 border-white/10 shadow-2xl">
+                          <Brain size={40} className="text-white animate-pulse" />
                         </div>
                       </div>
+                      <div className="space-y-2">
+                        <h4 className="text-lg font-black text-white uppercase tracking-tight">Podcast Analysis</h4>
+                        <p className="text-xs text-white/40 max-w-xs mx-auto">Omni and Zeal are ready to discuss your source content.</p>
+                      </div>
+                      <button 
+                        onClick={() => generatePodcastDiscussion(selectedNote.content)}
+                        disabled={isGeneratingPodcast}
+                        className="px-8 py-4 bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black rounded-2xl text-[10px] uppercase tracking-widest hover:scale-110 active:scale-95 transition-all disabled:opacity-50 shadow-xl shadow-[#DC2626]/20"
+                      >
+                        {isGeneratingPodcast ? 'Analyzing...' : 'Create Podcast'}
+                      </button>
+                    </div>
+                  ) : (
+                    podcastDialogue.map((d: any, idx: number) => (
+                      <motion.div 
+                        key={d.id || idx} 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className={`flex flex-col ${d.char === 'User' ? 'items-end' : 'items-start'}`}
+                      >
+                        <div className={`max-w-[90%] p-4 rounded-3xl text-xs leading-relaxed relative group ${d.char === 'User' ? 'bg-[#DC2626] text-white shadow-lg shadow-[#DC2626]/10' : 'bg-white/5 text-white/95 border border-white/10'}`}>
+                          <div className="flex items-center justify-between gap-6 mb-2">
+                            <span className={`text-[8px] font-black uppercase tracking-widest ${d.char === 'User' ? 'text-white/60' : (d.char === 'Omni' ? 'text-blue-400' : 'text-purple-400')}`}>{d.char}</span>
+                            {d.char !== 'User' && (
+                              <button 
+                                onClick={() => {
+                                  setReplyingTo(d);
+                                  const inp = document.getElementById('tools-podcast-chat-input');
+                                  if (inp) inp.focus();
+                                }}
+                                className="opacity-0 group-hover:opacity-100 transition-opacity bg-white/10 hover:bg-white/20 px-2 py-0.5 rounded-lg text-[8px] font-black uppercase tracking-tighter"
+                              >
+                                Tag & Reply
+                              </button>
+                            )}
+                          </div>
+                          
+                          {d.replyTo && (
+                            <div className="mb-2 p-2 bg-white/5 border-l-2 border-white/20 rounded-xl text-[9px] opacity-60 italic max-h-12 overflow-hidden truncate">
+                              {d.replyTo}
+                            </div>
+                          )}
+
+                          <p className="leading-relaxed font-sans">{d.text}</p>
+                        </div>
+                      </motion.div>
+                    ))
+                  )}
+                  {isGeneratingPodcast && (
+                    <div className="flex items-center gap-2 text-white/20 ml-2">
+                      <div className="animate-bounce">●</div>
+                      <div className="animate-bounce delay-75">●</div>
+                      <div className="animate-bounce delay-150">●</div>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="p-4 border-t border-white/10 bg-[#050811] shrink-0">
+                  {replyingTo && (
+                    <div className="mb-3 p-3 bg-[#DC2626]/10 border border-[#DC2626]/20 rounded-2xl flex items-center justify-between">
+                      <div className="flex items-center gap-3 overflow-hidden">
+                        <div className="p-1.5 bg-[#DC2626]/20 rounded-lg">
+                          <CornerDownRight size={12} className="text-[#DC2626]" />
+                        </div>
+                        <div className="overflow-hidden">
+                          <p className="text-[8px] font-black text-[#DC2626] uppercase tracking-widest">Tagging {replyingTo.char}</p>
+                          <p className="text-[10px] text-white/60 truncate line-clamp-1">{replyingTo.text}</p>
+                        </div>
+                      </div>
+                      <button onClick={() => setReplyingTo(null)} className="p-2 text-white/20 hover:text-white shrink-0">
+                        <X size={14} />
+                      </button>
                     </div>
                   )}
 
-                  {isTeacherMode && (
+                  <div className="relative">
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2">
+                      <button 
+                        onClick={() => setShowPodcastUploadMenu(!showPodcastUploadMenu)}
+                        className={`p-1.5 rounded-lg transition-all ${showPodcastUploadMenu ? 'bg-[#DC2626] text-white shadow-lg' : 'bg-white/5 text-white/40 hover:text-white'}`}
+                      >
+                        <Plus size={16} />
+                      </button>
+                      
+                      <AnimatePresence>
+                        {showPodcastUploadMenu && (
+                          <>
+                            <div className="fixed inset-0 z-40" onClick={() => setShowPodcastUploadMenu(false)} />
+                            <motion.div 
+                              initial={{ y: 20, opacity: 0, scale: 0.9 }}
+                              animate={{ y: -160, opacity: 1, scale: 1 }}
+                              exit={{ y: 20, opacity: 0, scale: 0.9 }}
+                              className="absolute left-0 w-44 bg-[#0F172A] border border-white/10 rounded-2xl p-1 shadow-2xl z-50 flex flex-col gap-1 ring-1 ring-white/10"
+                            >
+                              <label className="flex items-center gap-2.5 p-2 bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer group">
+                                <div className="p-1.5 bg-blue-500/10 rounded-lg"><ImageIcon size={14} className="text-blue-400" /></div>
+                                <span className="text-[8px] font-black text-white uppercase tracking-widest">Image Source</span>
+                                <input type="file" className="hidden" accept="image/*" onChange={(e) => { uploadNoteFile(e, 'image'); setShowPodcastUploadMenu(false); }} />
+                              </label>
+                              <label className="flex items-center gap-2.5 p-2 bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer group">
+                                <div className="p-1.5 bg-green-500/10 rounded-lg"><Mic size={14} className="text-green-400" /></div>
+                                <span className="text-[8px] font-black text-white uppercase tracking-widest">Voice Memo</span>
+                                <input type="file" className="hidden" accept="audio/*" onChange={(e) => { uploadNoteFile(e, 'audio'); setShowPodcastUploadMenu(false); }} />
+                              </label>
+                              <label className="flex items-center gap-2.5 p-2 bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer group">
+                                <div className="p-1.5 bg-yellow-500/10 rounded-lg"><FileText size={14} className="text-yellow-400" /></div>
+                                <span className="text-[8px] font-black text-white uppercase tracking-widest">Document</span>
+                                <input type="file" className="hidden" accept=".pdf,.doc,.docx,.txt" onChange={(e) => { uploadNoteFile(e, 'doc'); setShowPodcastUploadMenu(false); }} />
+                              </label>
+                            </motion.div>
+                          </>
+                        )}
+                      </AnimatePresence>
+                    </div>
+
+                    <input 
+                      id="tools-podcast-chat-input"
+                      autoComplete="off"
+                      placeholder="Chat with Omni & Zeal..."
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-12 py-3 text-xs text-white outline-none focus:border-blue-500/50 transition-all placeholder:text-white/20"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const target = e.target as HTMLInputElement;
+                          if (target.value.trim()) {
+                            handlePodcastInput(target.value);
+                            target.value = '';
+                          }
+                        }
+                      }}
+                    />
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                      <button 
+                        onClick={() => {
+                          const input = document.getElementById('tools-podcast-chat-input') as HTMLInputElement;
+                          if (input && input.value.trim()) {
+                            handlePodcastInput(input.value);
+                            input.value = '';
+                          }
+                        }}
+                        className="p-1.5 bg-[#DC2626] text-white rounded-lg shadow-lg hover:scale-110 active:scale-95 transition-all"
+                      >
+                        <Send size={14} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              // ORIGINAL GRID VIEW FOR NOTE & TEACHER MODE
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {isTeacherMode && (
+                  <div className="lg:col-span-1 space-y-6">
                     <div className="p-6 bg-[#0E0B16] border border-white/10 rounded-3xl space-y-6 relative overflow-hidden shadow-2xl">
                       <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-purple-500/10 to-transparent rounded-full translate-x-12 -translate-y-12" />
                       <div className="flex items-center gap-3">
@@ -913,11 +933,10 @@ export const ToolsPage = (props: any) => {
                         )}
                       </div>
                     </div>
-                  )}
-                </div>
-              )}
+                  </div>
+                )}
 
-              <div className={(isPodcastActive || isTeacherMode) ? 'lg:col-span-2' : 'col-span-full'}>
+                <div className={isTeacherMode ? 'lg:col-span-2' : 'col-span-full'}>
                 <div className="flex flex-col h-[82vh] bg-[#0E0B16] border border-white/10 rounded-3xl overflow-hidden relative shadow-2xl">
                   <div className="p-4 border-b border-white/5 bg-white/[0.02] backdrop-blur-md flex items-center justify-between shrink-0 relative z-20">
                     <div className="flex gap-1.5 bg-white/5 p-1 rounded-xl">
@@ -1138,6 +1157,7 @@ export const ToolsPage = (props: any) => {
                 </div>
               </div>
             </div>
+          )
           ) : (
             <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 custom-scrollbar bg-[#13111C]">
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 pb-20">
@@ -1318,8 +1338,8 @@ export const ToolsPage = (props: any) => {
                           className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm outline-none focus:border-[#DC2626]/50 transition-all text-white min-h-[100px] resize-none"
                         />
                         <div className="absolute bottom-3 right-3 flex items-center gap-2">
-                          <p className={`text-[8px] font-black uppercase ${quizTopic.split(/\s+/).filter(Boolean).length > (isPremium ? 150 : 30) ? 'text-red-500' : 'text-white/20'}`}>
-                            {quizTopic.split(/\s+/).filter(Boolean).length} / {isPremium ? 150 : 30} Words
+                          <p className={`text-[8px] font-black uppercase ${quizTopic.split(/\s+/).filter(Boolean).length > (importedQuizNote ? 5000 : (isPremium ? 150 : 30)) ? 'text-red-500' : 'text-white/20'}`}>
+                            {quizTopic.split(/\s+/).filter(Boolean).length} / {importedQuizNote ? 5000 : (isPremium ? 150 : 30)} Words
                           </p>
                         </div>
                       </div>
@@ -1652,7 +1672,7 @@ export const ToolsPage = (props: any) => {
                     </div>
                   ) : studentName ? (
                     <div className={`p-6 ${theme === 'dark' ? 'bg-white/5' : 'bg-slate-50'} rounded-3xl border space-y-4 text-center`}>
-                      <div className="w-16 h-16 bg-[#DC2626] rounded-full flex items-center justify-center text-white font-black text-2xl mx-auto shadow-lg shadow-[#DC2626]/20">{studentName.charAt(0)}</div>
+                      <div className="w-16 h-16 bg-[#DC2626] rounded-full flex items-center justify-center text-white font-black text-2xl mx-auto shadow-lg shadow-[#DC2626]/20">{(studentName || '?').charAt(0)}</div>
                       <div>
                         <p className={`text-[10px] font-black ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} uppercase tracking-widest`}>Authenticated Student</p>
                         <p className={`text-xl font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{studentName}</p>
@@ -1728,7 +1748,7 @@ export const ToolsPage = (props: any) => {
           {examLobbyState === 'briefing' && (
             <div className={`${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-5 sm:p-8 rounded-3xl border space-y-6 shadow-sm`}>
               <div className="flex items-center gap-4 p-4 bg-white/5 rounded-2xl border border-white/10">
-                <div className="w-12 h-12 bg-[#DC2626] rounded-full flex items-center justify-center text-white font-black text-xl">{studentName.charAt(0)}</div>
+                <div className="w-12 h-12 bg-[#DC2626] rounded-full flex items-center justify-center text-white font-black text-xl">{(studentName || '?').charAt(0)}</div>
                 <div><p className="font-black text-white uppercase tracking-tighter">{studentName}</p><p className="text-[10px] text-white/40 font-mono">{matricNumber}</p></div>
               </div>
               <div className="space-y-4">
@@ -1755,55 +1775,167 @@ export const ToolsPage = (props: any) => {
 
           {examLobbyState === 'exam' && examQuestions && examQuestions.length > 0 && (
             <div className="space-y-4 sm:space-y-6">
-              <div className={`flex items-center justify-between ${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-3 sm:p-4 rounded-2xl border shadow-sm sticky top-16 sm:top-20 z-30`}>
-                <div className="flex items-center gap-2 text-[#DC2626] font-black">
-                  <Clock size={16} className="sm:size-[18px]" />
-                  <span className="font-mono text-base sm:text-lg">{Math.floor(examTimer / 60)}:{(examTimer % 60).toString().padStart(2, '0')}</span>
-                </div>
-                <div className="text-center"><p className="text-[8px] sm:text-[10px] font-black text-white/30 uppercase">Question</p><p className="text-xs sm:text-sm font-black text-white">{currentExamIndex + 1} / {examQuestions.length}</p></div>
-                <button onClick={submitExam} disabled={Object.keys(examAnswers).length < (examQuestions.length * 0.5)} className="bg-[#DC2626] text-white px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-[8px] sm:text-[10px] font-black uppercase tracking-widest disabled:opacity-30">Submit</button>
-              </div>
+              {showSubmitConfirmLocal ? (
+                /* Dedicated Confirmation Page */
+                <div className={`${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-5 sm:p-8 rounded-3xl border space-y-6 sm:space-y-8 shadow-sm`}>
+                  <div className="text-center space-y-3">
+                    <div className="w-14 h-14 bg-[#DC2626]/10 rounded-full flex items-center justify-center mx-auto text-[#DC2626]">
+                      <ShieldCheck size={32} />
+                    </div>
+                    <div className="space-y-1">
+                      <h3 className={`text-lg sm:text-xl font-black uppercase tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                        Review & Submit Exam
+                      </h3>
+                      <p className={`text-[10px] sm:text-xs ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}>
+                        Review your progress. Click any question card below to resume answering, or submit now.
+                      </p>
+                    </div>
+                  </div>
 
-              <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
-                {examQuestions.map((_: any, idx: number) => (
-                  <button
-                    key={idx}
-                    onClick={() => setCurrentExamIndex(idx)}
-                    className={`flex-shrink-0 w-8 h-8 rounded-lg text-[10px] font-black border transition-all ${
-                      currentExamIndex === idx 
-                        ? 'bg-[#DC2626] border-[#DC2626] text-white' 
-                        : examAnswers[idx] !== undefined 
-                          ? 'bg-green-500/20 border-green-500/30 text-green-500' 
-                          : 'bg-white/5 border-white/10 text-white/40'
-                    }`}
-                  >
-                    {idx + 1}
-                  </button>
-                ))}
-              </div>
+                  {/* Progress Cards */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className={`p-3.5 rounded-2xl border text-center ${theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
+                      <p className={`text-[8px] sm:text-[9px] font-black uppercase tracking-wider ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>Total</p>
+                      <p className={`text-xl sm:text-2xl font-black mt-0.5 ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{examQuestions.length}</p>
+                    </div>
+                    <div className={`p-3.5 rounded-2xl border text-center ${theme === 'dark' ? 'bg-green-500/5 border-green-500/20' : 'bg-green-50 border-green-100'}`}>
+                      <p className="text-[8px] sm:text-[9px] font-black uppercase tracking-wider text-green-500">Answered</p>
+                      <p className="text-xl sm:text-2xl font-black mt-0.5 text-green-500">
+                        {examQuestions.filter((_, idx) => examAnswers[idx] !== undefined && examAnswers[idx] !== null).length}
+                      </p>
+                    </div>
+                    <div className={`p-3.5 rounded-2xl border text-center ${theme === 'dark' ? 'bg-[#DC2626]/5 border-[#DC2626]/15' : 'bg-red-50 border-red-100'}`}>
+                      <p className="text-[8px] sm:text-[9px] font-black uppercase tracking-wider text-[#DC2626]">Unanswered</p>
+                      <p className="text-xl sm:text-2xl font-black mt-0.5 text-[#DC2626]">
+                        {examQuestions.length - examQuestions.filter((_, idx) => examAnswers[idx] !== undefined && examAnswers[idx] !== null).length}
+                      </p>
+                    </div>
+                  </div>
 
-              <div className={`${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-5 sm:p-8 rounded-3xl border space-y-6 sm:space-y-8 shadow-sm`}>
-                <MarkdownRenderer 
-                  content={examQuestions[currentExamIndex].question}
-                  className="text-base sm:text-lg font-bold leading-tight text-white"
-                />
-                <div className="space-y-3">
-                  {examQuestions[currentExamIndex].options.map((option: string, idx: number) => (
-                    <button key={idx} onClick={() => setExamAnswers({ ...examAnswers, [currentExamIndex]: idx })} className={`w-full text-left p-4 rounded-2xl border transition-all ${examAnswers[currentExamIndex] === idx ? 'border-[#DC2626] bg-[#DC2626]/5 text-[#DC2626]' : 'bg-white/5 border-white/10 text-white/80'}`}>
-                      <div className="flex items-start gap-3">
-                        <MarkdownRenderer 
-                          content={option}
-                          className="flex-1 text-xs sm:text-sm font-medium"
-                        />
-                      </div>
+                  {/* Question Index Grid */}
+                  <div className="space-y-3">
+                    <h4 className={`text-[9px] font-black uppercase tracking-wider ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>
+                      Question Navigator Map
+                    </h4>
+                    <div className="grid grid-cols-5 sm:grid-cols-10 gap-2 max-h-48 overflow-y-auto p-2 border border-dashed border-white/5 rounded-2xl custom-scrollbar bg-white/[0.01]">
+                      {examQuestions.map((_: any, idx: number) => {
+                        const isAnswered = examAnswers[idx] !== undefined && examAnswers[idx] !== null;
+                        return (
+                          <button
+                            key={idx}
+                            onClick={() => {
+                              setCurrentExamIndex(idx);
+                              setShowSubmitConfirmLocal(false);
+                            }}
+                            className={`py-2.5 rounded-xl text-xs font-black border transition-all flex flex-col items-center justify-center gap-0.5 ${
+                              isAnswered 
+                                ? 'bg-green-500/10 border-green-500/30 text-green-500 hover:bg-green-500/20' 
+                                : `${theme === 'dark' ? 'bg-white/5 border-white/10 text-white/40' : 'bg-slate-50 border-slate-200 text-slate-500'} hover:bg-white/[0.08]`
+                            }`}
+                          >
+                            <span>{idx + 1}</span>
+                            <span className="text-[7px] uppercase font-black tracking-tighter opacity-60">
+                              {isAnswered ? "DONE" : "OMIT"}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Alerts & Submission Warnings */}
+                  <div className={`p-4 rounded-2xl border text-left flex items-start gap-3 ${theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-amber-50/50 border-amber-200'}`}>
+                    <AlertTriangle className="text-[#DC2626] shrink-0 mt-0.5" size={16} />
+                    <div className="space-y-1">
+                      <p className={`text-[10px] font-black uppercase tracking-wider ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                        Submit Confirmation Warning
+                      </p>
+                      <p className={`text-[10px] leading-relaxed ${theme === 'dark' ? 'text-white/50' : 'text-slate-500'}`}>
+                        Check your questions list above. You can click any square to go back to that question. If you are ready, press the confirm button below.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Submission Action buttons */}
+                  <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                    <button 
+                      onClick={() => setShowSubmitConfirmLocal(false)}
+                      className={`flex-1 py-3.5 rounded-2xl text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all border ${
+                        theme === 'dark' ? 'bg-white/5 border-white/10 text-white/70 hover:bg-white/15' : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      Cancel & Return
                     </button>
-                  ))}
+                    <button 
+                      onClick={() => {
+                        setShowSubmitConfirmLocal(false);
+                        submitExam();
+                      }}
+                      className="flex-1 py-3.5 rounded-2xl bg-[#DC2626] hover:bg-[#DC2626]/90 text-white text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-[#DC2626]/15"
+                    >
+                      Yes, Submit Exam Now
+                    </button>
+                  </div>
                 </div>
-                <div className="flex justify-between pt-4">
-                  <button onClick={() => setCurrentExamIndex((prev: number) => Math.max(0, prev - 1))} disabled={currentExamIndex === 0} className="p-3 text-white/40 hover:text-[#DC2626] disabled:opacity-20"><ArrowLeft size={24} /></button>
-                  <button onClick={() => setCurrentExamIndex((prev: number) => Math.min(examQuestions.length - 1, prev + 1))} disabled={currentExamIndex === examQuestions.length - 1} className="p-3 text-white/40 hover:text-[#DC2626] disabled:opacity-20"><ChevronRight size={24} /></button>
-                </div>
-              </div>
+              ) : (
+                /* Normal Question Answering */
+                <>
+                  <div className={`flex items-center justify-between ${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-3 sm:p-4 rounded-2xl border shadow-sm sticky top-16 sm:top-20 z-30`}>
+                    <div className="flex items-center gap-2 text-[#DC2626] font-black">
+                      <Clock size={16} className="sm:size-[18px]" />
+                      <span className="font-mono text-base sm:text-lg">{Math.floor(examTimer / 60)}:{(examTimer % 60).toString().padStart(2, '0')}</span>
+                    </div>
+                    <div className="text-center"><p className="text-[8px] sm:text-[10px] font-black text-white/30 uppercase">Question</p><p className="text-xs sm:text-sm font-black text-white">{currentExamIndex + 1} / {examQuestions.length}</p></div>
+                    <button 
+                      onClick={() => setShowSubmitConfirmLocal(true)} 
+                      className="bg-[#DC2626] hover:bg-[#DC2626]/90 text-white px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-[8px] sm:text-[10px] font-black uppercase tracking-widest transition-all shadow-md shadow-[#DC2626]/15"
+                    >
+                      Submit
+                    </button>
+                  </div>
+
+                  <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
+                    {examQuestions.map((_: any, idx: number) => (
+                      <button
+                        key={idx}
+                        onClick={() => setCurrentExamIndex(idx)}
+                        className={`flex-shrink-0 w-8 h-8 rounded-lg text-[10px] font-black border transition-all ${
+                          currentExamIndex === idx 
+                            ? 'bg-[#DC2626] border-[#DC2626] text-white' 
+                            : examAnswers[idx] !== undefined 
+                              ? 'bg-green-500/20 border-green-500/30 text-green-500' 
+                              : 'bg-white/5 border-white/10 text-white/40'
+                        }`}
+                      >
+                        {idx + 1}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className={`${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-5 sm:p-8 rounded-3xl border space-y-6 sm:space-y-8 shadow-sm`}>
+                    <MarkdownRenderer 
+                      content={examQuestions[currentExamIndex].question}
+                      className="text-base sm:text-lg font-bold leading-tight text-white"
+                    />
+                    <div className="space-y-3">
+                      {examQuestions[currentExamIndex].options.map((option: string, idx: number) => (
+                        <button key={idx} onClick={() => setExamAnswers({ ...examAnswers, [currentExamIndex]: idx })} className={`w-full text-left p-4 rounded-2xl border transition-all ${examAnswers[currentExamIndex] === idx ? 'border-[#DC2626] bg-[#DC2626]/5 text-[#DC2626]' : 'bg-white/5 border-white/10 text-white/80'}`}>
+                          <div className="flex items-start gap-3">
+                            <MarkdownRenderer 
+                              content={option}
+                              className="flex-1 text-xs sm:text-sm font-medium"
+                            />
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex justify-between pt-4">
+                      <button onClick={() => setCurrentExamIndex((prev: number) => Math.max(0, prev - 1))} disabled={currentExamIndex === 0} className="p-3 text-white/40 hover:text-[#DC2626] disabled:opacity-20"><ArrowLeft size={24} /></button>
+                      <button onClick={() => setCurrentExamIndex((prev: number) => Math.min(examQuestions.length - 1, prev + 1))} disabled={currentExamIndex === examQuestions.length - 1} className="p-3 text-white/40 hover:text-[#DC2626] disabled:opacity-20"><ChevronRight size={24} /></button>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
 

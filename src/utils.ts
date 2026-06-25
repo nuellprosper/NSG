@@ -94,8 +94,8 @@ export const getHfInstance = () => {
   return new HfInference(key);
 };
 
-export const MODEL_NAME = "gemini-3.1-flash-lite";
-export const FLASH_MODEL = "gemini-3.1-flash-lite";
+export const MODEL_NAME = "gemini-3.1-flash";
+export const FLASH_MODEL = "gemini-3.1-flash";
 
 export const formatAiError = (error: any) => {
   const message = error.message || "Unknown error";
