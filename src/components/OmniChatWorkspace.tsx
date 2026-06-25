@@ -112,6 +112,11 @@ interface OmniChatWorkspaceProps {
   theme: 'dark' | 'light';
   userNotes?: any[];
   onOpenNote?: (id: string, title?: string, content?: string) => void;
+  setAppActiveTab?: (tab: string) => void;
+  setToolsSubTab?: (subTab: string) => void;
+  setImportedQuizNote?: (note: any) => void;
+  setQuizTopic?: (topic: string) => void;
+  generateQuiz?: (customTopic?: string, customCount?: number, customDifficulty?: any) => Promise<void>;
 }
 
 export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
@@ -130,7 +135,12 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
   userHandle,
   theme,
   userNotes = [],
-  onOpenNote
+  onOpenNote,
+  setAppActiveTab,
+  setToolsSubTab,
+  setImportedQuizNote,
+  setQuizTopic,
+  generateQuiz
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -333,10 +343,10 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
             {isThinking && (
               <div className="w-full py-8 px-6 md:px-12 flex gap-4 text-left">
                 <div className="w-7 h-7 rounded-lg bg-zinc-950 border border-red-500/20 shrink-0 flex items-center justify-center animate-spin">
-                  <Sparkles size={14} className="text-red-500" />
+                  <Brain size={14} className="text-red-500" />
                 </div>
                 <div className="flex-1">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-[#DC2626] mb-1">Omni Streaming Engines Active</p>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-[#DC2626] mb-1">Responding</p>
                   <div className="flex gap-1.5 items-center py-2">
                     <span className="w-1.5 h-1.5 bg-[#DC2626] rounded-full animate-bounce [animation-delay:-0.3s]" />
                     <span className="w-1.5 h-1.5 bg-[#DC2626] rounded-full animate-bounce [animation-delay:-0.15s]" />
@@ -384,7 +394,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
               onClick={onStopGeneration}
               className="px-4 py-2 bg-red-650 hover:bg-red-600 border border-red-500/30 text-white rounded-full font-black text-[9px] uppercase tracking-widest transition-all hover:shadow-[0_0_15px_rgba(220,38,38,0.4)] flex items-center gap-2"
             >
-              <StopCircle size={12} className="animate-spin" /> Halt Assembly System
+              <StopCircle size={12} className="animate-spin" /> Stop
             </motion.button>
           )}
         </AnimatePresence>
@@ -460,7 +470,19 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                 </button>
                 <button
                   onClick={() => {
-                    setInputText(`Please generate an interactive practice quiz on the following study note:\nTitle: ${selectedImportedNote.title}\nContent:\n"""\n${selectedImportedNote.content}\n"""\n\nYou MUST end your response exactly with this structured trigger: [[GENERATE_QUIZ: ${selectedImportedNote.title}, 10]] so I can launch the interactive CBT quiz player.`);
+                    if (setAppActiveTab && setToolsSubTab && setImportedQuizNote && generateQuiz) {
+                      setImportedQuizNote(selectedImportedNote);
+                      if (setQuizTopic) {
+                        setQuizTopic(selectedImportedNote.content || '');
+                      }
+                      setAppActiveTab('tools');
+                      setToolsSubTab('quiz');
+                      setTimeout(() => {
+                        generateQuiz(selectedImportedNote.content || selectedImportedNote.title || 'Note Quiz', 10, 'Medium');
+                      }, 150);
+                    } else {
+                      setInputText(`Please generate an interactive practice quiz on the following study note:\nTitle: ${selectedImportedNote.title}\nContent:\n"""\n${selectedImportedNote.content}\n"""\n\nYou MUST end your response exactly with this structured trigger: [[GENERATE_QUIZ: ${selectedImportedNote.title}, 10]] so I can launch the interactive CBT quiz player.`);
+                    }
                     setSelectedImportedNote(null);
                   }}
                   className="px-3 py-2 rounded-xl bg-[#DC2626]/20 border border-[#DC2626]/30 text-red-400 font-bold text-[10px] uppercase tracking-wider hover:bg-[#DC2626]/35 transition-all text-center cursor-pointer"

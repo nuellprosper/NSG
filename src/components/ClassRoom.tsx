@@ -280,7 +280,7 @@ export const ClassRoom: React.FC<ClassRoomProps> = ({
                 <div className="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto custom-scrollbar">
                   {participants.map((p, idx) => (
                     <div key={idx} className="flex items-center gap-2 bg-white/[0.03] border border-white/5 p-2 rounded-xl">
-                      <div className="w-5 h-5 rounded-lg bg-pink-500/10 flex items-center justify-center font-black text-[9px] text-[#DC2626]">@{p.charAt(0).toUpperCase()}</div>
+                      <div className="w-5 h-5 rounded-lg bg-pink-500/10 flex items-center justify-center font-black text-[9px] text-[#DC2626]">@{(p || '?').charAt(0).toUpperCase()}</div>
                       <span className="text-[8px] font-black text-white/80 uppercase truncate">@{p}</span>
                     </div>
                   ))}

@@ -177,10 +177,16 @@ interface ChatRoomProps {
   onChatSelect?: (isActive: boolean) => void;
   userNotes?: any[];
   onOpenNote?: (noteId: string, noteTitle?: string, noteContent?: string) => void;
+  setAppActiveTab?: (tab: string) => void;
+  setToolsSubTab?: (subTab: string) => void;
+  setImportedQuizNote?: (note: any) => void;
+  setQuizTopic?: (topic: string) => void;
+  generateQuiz?: (customTopic?: string, customCount?: number, customDifficulty?: any) => Promise<void>;
 }
 
 export const ChatRoom: React.FC<ChatRoomProps> = ({ 
-  theme, user, userHandle, onTagOmni, uploadToCloudinary, setUserNotification, onChatSelect, userNotes = [], onOpenNote
+  theme, user, userHandle, onTagOmni, uploadToCloudinary, setUserNotification, onChatSelect, userNotes = [], onOpenNote,
+  setAppActiveTab, setToolsSubTab, setImportedQuizNote, setQuizTopic, generateQuiz
 }) => {
   const [activeTab, setActiveTab] = useState<'chats' | 'groups' | 'calls'>('chats');
   const [subFilter, setSubFilter] = useState<'all' | 'unread' | 'secured' | 'groups' | 'calls'>('all');
@@ -2243,6 +2249,11 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
               theme={theme}
               userNotes={userNotes}
               onOpenNote={onOpenNote}
+              setAppActiveTab={setAppActiveTab}
+              setToolsSubTab={setToolsSubTab}
+              setImportedQuizNote={setImportedQuizNote}
+              setQuizTopic={setQuizTopic}
+              generateQuiz={generateQuiz}
             />
           ) : (
             <PeerChatWorkspace

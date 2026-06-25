@@ -72,7 +72,7 @@ export const AILibrary: React.FC<{
   });
 
   // AI Helpers
-  const MODEL_NAME = "gemini-3.5-flash";
+  const MODEL_NAME = "gemini-3.1-flash";
   
   const getAiInstance = () => {
     const key = process.env.GEMINI_API_KEY;

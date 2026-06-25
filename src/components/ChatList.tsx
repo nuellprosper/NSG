@@ -89,7 +89,7 @@ export const ChatList: React.FC<ChatListProps> = ({
 
   // Apply search/sub-filters
   const filteredChats = processedChats.filter(chat => {
-    const chatName = getChatName(chat).toLowerCase();
+    const chatName = (getChatName(chat) || '').toLowerCase();
     const queryMatch = chatName.includes(searchQuery.toLowerCase());
     if (!queryMatch) return false;
 
@@ -339,7 +339,7 @@ export const ChatList: React.FC<ChatListProps> = ({
                     <img referrerPolicy="no-referrer" src={getChatPhoto(chat)} alt="" className="w-full h-full object-cover" />
                   ) : (
                     <span className="text-white font-black text-sm uppercase tracking-tighter">
-                      {getChatName(chat).charAt(0)}
+                      {(getChatName(chat) || '?').charAt(0)}
                     </span>
                   )}
                 </div>

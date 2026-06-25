@@ -111,7 +111,7 @@ export const CoursesTool = ({ theme, user, getAiInstance, getHfInstance, setUser
         try {
           const ai = getAiInstance();
           const res = await ai.models.generateContent({
-            model: "gemini-3.5-flash",
+            model: "gemini-3.1-flash",
             contents: [{ role: 'user', parts: [{ text: prompt }] }]
           });
           return res.text || null;
@@ -798,13 +798,6 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, setUse
                   className={`p-3 rounded-2xl border transition-all ${isSpeaking ? 'bg-[#DC2626] border-[#DC2626] text-white shadow-lg shadow-[#DC2626]/20' : `${theme === 'dark' ? 'bg-[#13111C] border-white/10 text-white/40' : 'bg-white border-slate-200 text-slate-400'} hover:border-[#DC2626] hover:text-[#DC2626]`}`}
                 >
                   {isSpeaking ? <Square size={20} fill="currentColor" /> : <Volume2 size={20} />}
-                </button>
-                <button 
-                  onClick={sendToOmni} 
-                  title="Send to Omni Chat"
-                  className={`p-3 rounded-2xl border transition-all ${theme === 'dark' ? 'bg-[#13111C] border-white/10 text-white/40' : 'bg-white border-slate-200 text-slate-400'} hover:border-[#DC2626] hover:text-[#DC2626]`}
-                >
-                  <Send size={20} />
                 </button>
               </div>
             </div>

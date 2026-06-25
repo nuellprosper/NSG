@@ -352,7 +352,7 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
                   <img referrerPolicy="no-referrer" src={targetUserData.photoURL} alt="" className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full bg-[#DC2626] flex items-center justify-center font-black text-sm uppercase text-white">
-                    {chat.name.charAt(0)}
+                    {(chat.name || '?').charAt(0)}
                   </div>
                 )}
               </div>
@@ -822,7 +822,7 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
                       <img referrerPolicy="no-referrer" src={targetUserData.photoURL} alt="" className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-white/5 bg-zinc-900 text-2xl font-black">
-                        {chat.name.charAt(0)}
+                        {(chat.name || '?').charAt(0)}
                       </div>
                     )}
                   </div>
@@ -935,7 +935,7 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
                       {targetUserData?.photoURL ? (
                         <img referrerPolicy="no-referrer" src={targetUserData.photoURL} alt="" className="w-full h-full object-cover" />
                       ) : (
-                        <span className="text-2xl font-black text-white">{chat.name.charAt(0)}</span>
+                        <span className="text-2xl font-black text-white">{(chat.name || '?').charAt(0)}</span>
                       )}
                     </div>
                   </div>

@@ -207,7 +207,7 @@ export const TDTool = ({ theme, getAiInstance, onClose }: any) => {
       promptParts.unshift({ text: systemPrompt });
 
       const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+        model: "gemini-3.1-flash",
         contents: { parts: promptParts },
         config: {
           responseMimeType: "application/json"
