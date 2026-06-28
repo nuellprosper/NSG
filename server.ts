@@ -65,7 +65,42 @@ const db = getFirestore(adminApp, firebaseConfig.firestoreDatabaseId || undefine
 
 // Initialize AI SDKs
 const hf = new HfInference(process.env.HUGGINGFACE_API_KEY);
-const genAI = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }) : null;
+const rawGenAI = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }) : null;
+if (rawGenAI && rawGenAI.models && typeof rawGenAI.models.generateContent === 'function') {
+  const originalGenerateContent = rawGenAI.models.generateContent.bind(rawGenAI.models);
+  rawGenAI.models.generateContent = async (...args: any[]) => {
+    let lastError: any = null;
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      try {
+        return await originalGenerateContent(...args);
+      } catch (err: any) {
+        lastError = err;
+        const errMsg = String(err.message || err);
+        console.warn(`[Server AI Attempt ${attempt} failed]:`, errMsg);
+        
+        const containsBusy = errMsg.toLowerCase().includes("model") || 
+                             errMsg.toLowerCase().includes("spikes") || 
+                             errMsg.toLowerCase().includes("experiencing") ||
+                             errMsg.toLowerCase().includes("rate limit") ||
+                             errMsg.toLowerCase().includes("quota") ||
+                             errMsg.toLowerCase().includes("busy");
+                             
+        if (attempt < 4) {
+          await new Promise(resolve => setTimeout(resolve, 800 * attempt));
+          continue;
+        }
+        
+        if (containsBusy) {
+          throw new Error("(the Ai is busy try again sooner)");
+        } else {
+          throw new Error("something went wrong, click the generate button again");
+        }
+      }
+    }
+    throw lastError || new Error("something went wrong, click the generate button again");
+  };
+}
+const genAI = rawGenAI;
 const groq = process.env.GROQ_API_KEY ? new Groq({ apiKey: process.env.GROQ_API_KEY }) : null;
 
 const HF_MODELS = {
@@ -187,7 +222,7 @@ async function getOmniResponse(userInput: string, phoneNumber: string, mediaData
       }
 
       const result = await genAI.models.generateContent({
-         model: "gemini-3.1-flash",
+         model: "gemini-3.1-flash-lite",
          contents: contents
       });
       responseText = result.text || "";
@@ -255,7 +290,7 @@ async function transcribeAudio(audioBuffer: Buffer): Promise<string> {
   const tryGemini = async () => {
     if (!genAI) return null;
     const res = await genAI.models.generateContent({
-      model: "gemini-3.1-flash",
+      model: "gemini-3.1-flash-lite",
       contents: [{ role: "user", parts: [{ inlineData: { data: audioBuffer.toString("base64"), mimeType: "audio/ogg" } }, { text: "Transcribe this audio." }] }]
     });
     return res.text || null;
@@ -265,7 +300,7 @@ async function transcribeAudio(audioBuffer: Buffer): Promise<string> {
     const transcript = await tryHF().catch(() => tryGroq()).catch(() => tryGemini()) || "";
     if (transcript && genAI) {
       const cleanup = await genAI.models.generateContent({
-        model: "gemini-3.1-flash",
+        model: "gemini-3.1-flash-lite",
         contents: [{ role: "user", parts: [{ text: `Clean up this transcript: ${transcript}` }] }]
       });
       return cleanup.text || transcript;
@@ -656,7 +691,7 @@ Do not include conversational fillers, markdown fences (do not wrap with \`\`\`j
 
         try {
           const result = await genAI.models.generateContent({
-            model: "gemini-3.1-flash",
+            model: "gemini-3.1-flash-lite",
             contents: [{ role: "user", parts: [{ text: sysPrompt }] }]
           });
           const responseText = result.text || "";
@@ -762,7 +797,7 @@ Filter extraneous text. Ensure 4 options for every parsed question. Reply ONLY w
 
         try {
           const result = await genAI.models.generateContent({
-            model: "gemini-3.1-flash",
+            model: "gemini-3.1-flash-lite",
             contents: [{ role: "user", parts: [{ text: sysPrompt }] }]
           });
           const cleanText = (result.text || "").replace(/```json/gi, "").replace(/```/gi, "").trim();
@@ -1320,21 +1355,28 @@ app.post("/api/admin/broadcast-list", async (req, res) => {
   const { secret, recipients, subjectTemplate, bodyTemplate } = req.body;
   if (secret !== 'GOD_MODE') return res.status(403).json({ error: "Unauthorized" });
   
-  let sentCount = 0;
+  if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
+    return res.json({ success: true, count: 0 });
+  }
+
   try {
-    for (const user of recipients) {
+    // Send emails in parallel to adhere to Vercel/serverless execution limits and avoid timeouts
+    const emailPromises = recipients.map(async (user: any) => {
+      if (!user.email) return;
       const body = bodyTemplate.replace(/{{name}}/g, user.name);
-      await sendMailSafely({
+      return sendMailSafely({
         from: process.env.EMAIL_USER,
         to: user.email,
         subject: subjectTemplate,
         html: body
       });
-      sentCount++;
-    }
-    res.json({ success: true, count: sentCount });
+    });
+
+    const results = await Promise.allSettled(emailPromises);
+    const sentCount = results.filter(r => r.status === "fulfilled").length;
+    res.json({ success: true, count: sentCount, total: recipients.length });
   } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message, count: sentCount });
+    res.status(500).json({ success: false, error: error.message || "Failed to broadcast emails", count: 0 });
   }
 });
 
