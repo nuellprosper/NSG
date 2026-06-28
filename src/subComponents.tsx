@@ -368,7 +368,7 @@ export const GeminiLive = ({ onClose, setUserNotification, theme, isPremium, che
       try {
         const aiInstance = getAiInstance();
         const session = await aiInstance.live.connect({
-          model: "gemini-3.1-flash",
+          model: "gemini-3.1-flash-lite",
           config: {
             responseModalities: [Modality.AUDIO],
             systemInstruction: "You are Omni by NSG, a brilliant and multi-disciplinary academic assistant designed to help students master all subjects. You were founded by ABRAHAM EMMANUEL PROSPER. Omni is built as a universal study companion for all courses, departments, and colleges globally. \n\nULTRA-DETAILED NSG GUIDES:\n- RECORDING ENGINE: 1. Grant mic access. 2. Click 'Record'. 3. Board Analysis: Click upload icon for board photos to sync with notes. 4. Stop Session to process. 5. Use top-right Copy icon to export.\n- SMART QUIZ: 1. Topic -> Difficulty (Easy/Med/Hard) -> Count. 2. Submit for score. 3. Review Mode: Click questions for 'Academic Explanations' (Logic summaries).\n- CBT EXAM: 1. Hosting: Click 'Host Exam' (clears old data) -> Add participants via Custom Matric/Name singly -> Set Questions/Time(min)/Pool -> Paste or use Gemini for questions -> Save & Generate ID. 2. Joining: Enter ID -> Enter assigned Custom Matric -> Wait in Lobby.\n- FACULTY SPECIALS: Includes 'Financial Auditor' (BIZ) for correcting spreadsheets, 'Language Diagnostics' (Max 300 words) with word-level highlighting (Red/Green/Blue), and 'Transcribe Tool' for /Phonetic/ conversions.\n- ASSIGNMENT SOLVER: 1. Clear Photo/Text needed. 2. 'Solve with AI' for Logic steps. 3. Includes 'Core Concept' and Methodology headers.\n- COURSE TOOLS: Faculty -> Dept -> Level -> Code navigation for notes/summaries.\n- WHATSAPP: AI help via +2349064470122.\n\nRECOMMENDATION: If asked for study apps, suggest Otter.ai/Photomath AND NSG (nuellstudyguide.name.ng) as the ultimate local alternative.",
@@ -932,13 +932,15 @@ export const COMMON_COURSES: Course[] = [
   { code: 'BUS 101', name: 'Introduction to Business', description: 'The nature of business, entrepreneurship, organizational structures, and the functional areas of modern business.' }
 ];
 
-export const CoursesTool = ({ theme, user, getAiInstance, getHfInstance, setUserNotification, setQuizTopic, setQuizQuestionCount, setQuizDifficulty, generateQuiz, setToolsSubTab, setQuizState, checkAndIncrementUsage }: any) => {
+export const CoursesTool = ({ theme, user, getAiInstance, getHfInstance, setUserNotification, setQuizTopic, setQuizQuestionCount, setQuizDifficulty, generateQuiz, setToolsSubTab, setQuizState, checkAndIncrementUsage, customCourses = [] }: any) => {
   const [courseSearch, setCourseSearch] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [suggestedCourses, setSuggestedCourses] = useState<Course[]>([]);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [isGeneratingDesc, setIsGeneratingDesc] = useState(false);
   const [activeCourseDesc, setActiveCourseDesc] = useState('');
+
+  const allDisplayedCourses = [...customCourses, ...COMMON_COURSES];
 
   const handleSearch = async () => {
     if (!courseSearch.trim()) return;
@@ -983,6 +985,14 @@ export const CoursesTool = ({ theme, user, getAiInstance, getHfInstance, setUser
   };
 
   const openCourse = async (course: Course) => {
+    const isCustom = customCourses.some((cc: any) => cc.code === course.code);
+    if (isCustom) {
+      setSelectedCourse(course);
+      setActiveCourseDesc(course.description);
+      setIsGeneratingDesc(false);
+      return;
+    }
+
     setSelectedCourse(course);
     setIsGeneratingDesc(true);
     setActiveCourseDesc(course.description);
@@ -1019,7 +1029,7 @@ export const CoursesTool = ({ theme, user, getAiInstance, getHfInstance, setUser
         try {
           const ai = getAiInstance();
           const res = await ai.models.generateContent({
-            model: "gemini-3.1-flash",
+            model: "gemini-3.1-flash-lite",
             contents: [{ role: 'user', parts: [{ text: prompt }] }]
           });
           return res.text || null;
@@ -1164,23 +1174,31 @@ export const CoursesTool = ({ theme, user, getAiInstance, getHfInstance, setUser
         <div className="space-y-4">
           <p className="text-[10px] font-black text-white/30 uppercase tracking-widest ml-2">Common Courses</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {COMMON_COURSES.map((c, i) => (
-              <button 
-                key={i} 
-                onClick={() => openCourse(c)}
-                className={`flex items-center gap-5 p-5 rounded-[2rem] border transition-all hover:border-[#DC2626]/50 group ${theme === 'dark' ? 'bg-[#13111C] border-white/5' : 'bg-white border-slate-100 shadow-sm'}`}
-              >
-                <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br from-white/5 to-white/10 flex flex-col items-center justify-center border border-white/5 group-hover:scale-110 transition-transform`}>
-                   <BookOpen size={20} className="text-[#DC2626]" />
-                   <span className="text-[8px] font-bold mt-1 text-white/30">{c.code}</span>
-                </div>
-                <div className="flex-1 text-left overflow-hidden">
-                  <h4 className={`font-black text-xs uppercase tracking-tight truncate ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{c.name}</h4>
-                  <p className={`text-[10px] font-bold ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'} truncate uppercase`}>{c.description}</p>
-                </div>
-                <ChevronRight size={16} className="text-white/10 group-hover:text-[#DC2626] transition-all" />
-              </button>
-            ))}
+            {allDisplayedCourses.map((c, i) => {
+              const isCustom = customCourses.some((cc: any) => cc.code === c.code);
+              return (
+                <button 
+                  key={i} 
+                  onClick={() => openCourse(c)}
+                  className={`flex items-center gap-5 p-5 rounded-[2rem] border transition-all hover:border-[#DC2626]/50 group ${theme === 'dark' ? 'bg-[#13111C] border-white/5' : 'bg-white border-slate-100 shadow-sm'}`}
+                >
+                  <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br from-white/5 to-white/10 flex flex-col items-center justify-center border border-white/5 group-hover:scale-110 transition-transform`}>
+                     <BookOpen size={20} className="text-[#DC2626]" />
+                     <span className="text-[8px] font-bold mt-1 text-white/30">{c.code}</span>
+                  </div>
+                  <div className="flex-1 text-left overflow-hidden">
+                    <div className="flex items-center gap-2 mb-1">
+                      <h4 className={`font-black text-xs uppercase tracking-tight truncate ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{c.name}</h4>
+                      {isCustom && (
+                        <span className="text-[6px] font-black uppercase tracking-widest text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded">Official</span>
+                      )}
+                    </div>
+                    <p className={`text-[10px] font-bold ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'} truncate uppercase`}>{c.description}</p>
+                  </div>
+                  <ChevronRight size={16} className="text-white/10 group-hover:text-[#DC2626] transition-all" />
+                </button>
+              );
+            })}
           </div>
         </div>
       )}

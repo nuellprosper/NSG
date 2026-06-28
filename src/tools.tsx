@@ -8,7 +8,7 @@ import {
   Mic, StopCircle, Upload, FileAudio, Image as ImageIcon, 
   Brain, History, Download, Play, 
   ChevronRight, Sparkles, Trash2, Settings, UserPlus, CreditCard, Edit2, FilePlus,
-  ChevronUp, ChevronDown, Bold, ThumbsUp, Volume2, Square, Send, Pin, CreditCard as Clock,
+  ChevronUp, ChevronDown, Bold, ThumbsUp, Volume2, VolumeX, Square, Send, Pin, CreditCard as Clock,
   ArrowLeft, RefreshCcw, Camera, Award, ShieldCheck, BookOpen, FileText, Zap, Info, AlertTriangle,
   Share2, Trophy, Search, Check, X, ArrowLeft as ChevronLeft, GraduationCap, Users, User, Clock as ClockIcon,
   Activity, Video, Copy, PlusCircle, Plus, Italic, List, XCircle, CheckCircle2,
@@ -287,6 +287,10 @@ export const ToolsPage = (props: any) => {
     setQuizQuestionCount,
     quizDifficulty,
     setQuizDifficulty,
+    quizImages,
+    setQuizImages,
+    handleQuizImageUpload,
+    removeQuizImage,
     isGeneratingQuiz,
     generateQuiz,
     examLobbyState,
@@ -334,6 +338,9 @@ export const ToolsPage = (props: any) => {
     uploadNoteFile,
     notePreviewMode,
     setNotePreviewMode,
+    podcastSpeechIndex,
+    stopPodcastSpeech,
+    playPodcastDialogueLine,
     scrollContainerRef,
     handleNoteScroll,
     setSelectedNoteTitle,
@@ -425,21 +432,7 @@ export const ToolsPage = (props: any) => {
   };
   const FormatTime = formatTime;
 
-  const handleQuizImageUpload = (e: any) => {
-    const files = Array.from(e.target.files);
-    files.forEach((file: any) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setQuizImages((prev: any) => [...prev, { id: Date.now().toString(), preview: reader.result, file }]);
-      };
-      reader.readAsDataURL(file);
-    });
-  };
 
-  const [quizImages, setQuizImages] = useState<any[]>([]);
-  const removeQuizImage = (id: string) => {
-    setQuizImages(prev => prev.filter(img => img.id !== id));
-  };
 
   const toolItems = useMemo(() => [
     { id: 'record', title: 'Record Lecture', icon: Mic, color: 'from-red-600 to-red-400', desc: 'AI-Powered Recording' },
@@ -666,10 +659,15 @@ export const ToolsPage = (props: any) => {
             <div className="flex items-center gap-2">
               {!selectedNote && (
                 <button 
-                  onClick={() => saveNote()} 
+                  onClick={() => {
+                    setSelectedNote({ title: '', content: '', attachments: [], createdAt: new Date() });
+                    if (typeof setNotePreviewMode === 'function') {
+                      setNotePreviewMode(false);
+                    }
+                  }} 
                   className="px-3.5 py-1.5 bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black text-[10px] rounded-xl shadow-lg shadow-[#DC2626]/20 transition-all uppercase tracking-wider flex items-center gap-1"
                 >
-                  <PlusCircle size={12} /> New Source
+                  <PlusCircle size={12} /> New
                 </button>
               )}
               {selectedNote && (
@@ -733,22 +731,51 @@ export const ToolsPage = (props: any) => {
                       <Volume2 className="text-green-400" size={16} />
                     </div>
                     <div>
-                      <h3 className="text-xs font-black text-white uppercase tracking-widest">Omni & Zeal</h3>
+                      <h3 className="text-xs font-black text-white uppercase tracking-widest">Omni &amp; Zeal</h3>
                       <p className="text-[8px] text-green-500 font-bold uppercase tracking-widest">Podcast Chat Active</p>
                     </div>
                   </div>
-                  <button onClick={() => setIsPodcastActive(false)} className="text-white/40 hover:text-white shrink-0">
-                    <X size={16} />
-                  </button>
+                  <div className="flex items-center gap-4">
+                    {podcastDialogue.length > 0 && (
+                      <div className="flex items-center gap-2">
+                        {podcastSpeechIndex !== null ? (
+                          <button 
+                            onClick={stopPodcastSpeech}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600/20 border border-red-600/30 text-red-500 hover:bg-red-600/30 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all animate-pulse shadow-lg shadow-red-500/10 cursor-pointer"
+                            title="Stop Audio Discussion"
+                          >
+                            <Volume2 size={12} className="animate-bounce" />
+                            <span>Stop</span>
+                          </button>
+                        ) : (
+                          <button 
+                            onClick={() => playPodcastDialogueLine(0, podcastDialogue)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 border border-white/10 text-white/60 hover:text-white hover:bg-white/10 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                            title="Listen to Podcast"
+                          >
+                            <VolumeX size={12} />
+                            <span>Speak</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    <button onClick={() => setIsPodcastActive(false)} className="text-white/40 hover:text-white shrink-0">
+                      <X size={16} />
+                    </button>
+                  </div>
                 </div>
                 
                 <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar bg-[#08070F]">
                   {podcastDialogue.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center text-center p-8 space-y-6">
-                      <div className="relative">
-                        <div className="absolute inset-0 bg-blue-500/20 blur-3xl rounded-full" />
-                        <div className="relative w-24 h-24 bg-gradient-to-br from-blue-600 to-purple-600 rounded-full flex items-center justify-center border-4 border-white/10 shadow-2xl">
-                          <Brain size={40} className="text-white animate-pulse" />
+                      <div className="flex items-center justify-center gap-4 relative">
+                        <div className="absolute inset-0 bg-red-500/10 blur-3xl rounded-full" />
+                        <div className="relative w-16 h-16 bg-black border-2 border-red-500/50 rounded-2xl flex items-center justify-center shadow-2xl shadow-red-500/20">
+                          <Brain size={28} className="text-red-500 drop-shadow-[0_0_10px_#EF4444] animate-pulse" />
+                        </div>
+                        <span className="text-red-500/30 text-lg font-bold font-mono">&amp;</span>
+                        <div className="relative w-16 h-16 bg-black border-2 border-red-950/50 rounded-2xl flex items-center justify-center shadow-2xl">
+                          <span className="font-display font-black text-red-800 text-2xl">Z</span>
                         </div>
                       </div>
                       <div className="space-y-2">
@@ -866,28 +893,36 @@ export const ToolsPage = (props: any) => {
                       </AnimatePresence>
                     </div>
 
-                    <input 
+                    <textarea 
                       id="tools-podcast-chat-input"
                       autoComplete="off"
-                      placeholder="Chat with Omni & Zeal..."
-                      className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-12 py-3 text-xs text-white outline-none focus:border-blue-500/50 transition-all placeholder:text-white/20"
+                      placeholder="Chat with Omni &amp; Zeal..."
+                      className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-12 py-3 text-xs text-white outline-none focus:border-blue-500/50 transition-all placeholder:text-white/20 resize-none h-[42px] min-h-[42px] max-h-[112px] custom-scrollbar leading-relaxed"
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          const target = e.target as HTMLInputElement;
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          const target = e.target as HTMLTextAreaElement;
                           if (target.value.trim()) {
                             handlePodcastInput(target.value);
                             target.value = '';
+                            target.style.height = '42px';
                           }
                         }
+                      }}
+                      onInput={(e) => {
+                        const target = e.target as HTMLTextAreaElement;
+                        target.style.height = 'auto';
+                        target.style.height = `${Math.min(target.scrollHeight, 112)}px`;
                       }}
                     />
                     <div className="absolute right-2 top-1/2 -translate-y-1/2">
                       <button 
                         onClick={() => {
-                          const input = document.getElementById('tools-podcast-chat-input') as HTMLInputElement;
+                          const input = document.getElementById('tools-podcast-chat-input') as HTMLTextAreaElement;
                           if (input && input.value.trim()) {
                             handlePodcastInput(input.value);
                             input.value = '';
+                            input.style.height = '42px';
                           }
                         }}
                         className="p-1.5 bg-[#DC2626] text-white rounded-lg shadow-lg hover:scale-110 active:scale-95 transition-all"
@@ -1338,8 +1373,8 @@ export const ToolsPage = (props: any) => {
                           className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm outline-none focus:border-[#DC2626]/50 transition-all text-white min-h-[100px] resize-none"
                         />
                         <div className="absolute bottom-3 right-3 flex items-center gap-2">
-                          <p className={`text-[8px] font-black uppercase ${quizTopic.split(/\s+/).filter(Boolean).length > (importedQuizNote ? 5000 : (isPremium ? 150 : 30)) ? 'text-red-500' : 'text-white/20'}`}>
-                            {quizTopic.split(/\s+/).filter(Boolean).length} / {importedQuizNote ? 5000 : (isPremium ? 150 : 30)} Words
+                          <p className={`text-[8px] font-black uppercase ${quizTopic.split(/\s+/).filter(Boolean).length > (importedQuizNote ? 5000 : (isPremium ? 20000 : 300)) ? 'text-red-500' : 'text-white/20'}`}>
+                            {quizTopic.split(/\s+/).filter(Boolean).length} / {importedQuizNote ? 5000 : (isPremium ? 20000 : 300)} Words
                           </p>
                         </div>
                       </div>
@@ -1525,35 +1560,143 @@ export const ToolsPage = (props: any) => {
             </div>
           )}
 
-          {quizState === 'finished' && (
-            <div className={`${theme === 'dark' ? 'bg-[#13111C]' : 'bg-white'} p-10 rounded-3xl border text-center space-y-8 shadow-sm`}>
-              <div className="w-24 h-24 bg-[#DC2626]/10 rounded-full flex items-center justify-center mx-auto relative">
-                <Trophy size={48} className="text-[#DC2626]" />
-                <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ repeat: Infinity, duration: 2 }} className="absolute inset-0 bg-[#DC2626]/5 rounded-full" />
+          {quizState === 'finished' && (() => {
+            const percentage = Math.round((quizScore / (quizQuestions.length || 1)) * 100);
+            
+            let colorTheme = {
+              bg: 'bg-emerald-500/10',
+              text: 'text-emerald-500',
+              border: 'border-emerald-500/20',
+              glow: 'shadow-emerald-500/20',
+              grade: 'A+',
+              phrase: 'Academic Legend! You completely understand this topic! 👑🧠',
+              badgeColor: 'bg-gradient-to-r from-emerald-500 to-green-600',
+            };
+
+            if (percentage >= 80) {
+              colorTheme = {
+                bg: 'bg-emerald-500/10',
+                text: 'text-emerald-500',
+                border: 'border-emerald-500/20',
+                glow: 'shadow-emerald-500/20',
+                grade: 'A',
+                phrase: 'Magnificent performance! Keep striving for perfection! 🏆✨',
+                badgeColor: 'bg-gradient-to-r from-emerald-500 to-green-600',
+              };
+            } else if (percentage >= 60) {
+              colorTheme = {
+                bg: 'bg-amber-500/10',
+                text: 'text-amber-500',
+                border: 'border-amber-500/20',
+                glow: 'shadow-amber-500/20',
+                grade: 'B',
+                phrase: 'Solid work! Just a few gaps left to conquer. 📚💪',
+                badgeColor: 'bg-gradient-to-r from-amber-500 to-yellow-600',
+              };
+            } else if (percentage >= 40) {
+              colorTheme = {
+                bg: 'bg-blue-500/10',
+                text: 'text-blue-500',
+                border: 'border-blue-500/20',
+                glow: 'shadow-blue-500/20',
+                grade: 'C',
+                phrase: 'Passable result. Focus on the wrong answers to grow! 📊💡',
+                badgeColor: 'bg-gradient-to-r from-blue-500 to-indigo-600',
+              };
+            } else {
+              colorTheme = {
+                bg: 'bg-red-500/10',
+                text: 'text-red-500',
+                border: 'border-red-500/20',
+                glow: 'shadow-red-500/20',
+                grade: 'F',
+                phrase: 'You can do better! Revise the notes, study harder, and try again! 💡❌',
+                badgeColor: 'bg-gradient-to-r from-red-500 to-rose-600',
+              };
+            }
+
+            return (
+              <div className={`${theme === 'dark' ? 'bg-[#13111C] border-white/10' : 'bg-white border-slate-200'} p-8 sm:p-10 rounded-3xl border text-center space-y-8 shadow-2xl relative overflow-hidden`}>
+                <div className="absolute top-0 left-0 w-48 h-48 bg-gradient-to-br from-red-500/10 to-blue-500/0 rounded-full blur-3xl pointer-events-none" />
+                <div className="absolute bottom-0 right-0 w-48 h-48 bg-gradient-to-tl from-[#DC2626]/10 to-blue-500/0 rounded-full blur-3xl pointer-events-none" />
+
+                <div className="space-y-4 relative">
+                  <div className="w-24 h-24 bg-gradient-to-tr from-[#DC2626] to-red-500 rounded-full flex items-center justify-center mx-auto shadow-2xl shadow-red-500/30 relative">
+                    <Trophy size={48} className="text-white" />
+                    <motion.div animate={{ scale: [1, 1.25, 1] }} transition={{ repeat: Infinity, duration: 2.5 }} className="absolute inset-0 bg-red-500/20 rounded-full -z-10" />
+                  </div>
+                  <div>
+                    <span className={`px-4 py-1 text-[10px] font-black uppercase tracking-widest text-white rounded-full ${colorTheme.badgeColor} shadow-md`}>
+                      Grade {colorTheme.grade}
+                    </span>
+                    <h3 className={`text-3xl font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'} uppercase tracking-tighter mt-3`}>
+                      Assessment Report
+                    </h3>
+                    <p className={`${theme === 'dark' ? 'text-white/50' : 'text-slate-500'} text-xs font-medium`}>
+                      Generated for {quizTopic || 'General Material'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className={`p-5 rounded-2xl border ${theme === 'dark' ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-100'} flex flex-col justify-between text-left`}>
+                    <div>
+                      <p className={`text-[10px] font-black ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'} uppercase tracking-wider`}>Overall Proficiency</p>
+                      <h4 className="text-4xl font-black text-[#DC2626] mt-2">{percentage}%</h4>
+                    </div>
+                    <div className="w-full bg-slate-200 dark:bg-white/10 h-2.5 rounded-full overflow-hidden mt-4">
+                      <motion.div 
+                        initial={{ width: 0 }} 
+                        animate={{ width: `${percentage}%` }} 
+                        transition={{ duration: 1 }} 
+                        className="bg-gradient-to-r from-[#DC2626] to-red-400 h-full rounded-full" 
+                      />
+                    </div>
+                  </div>
+
+                  <div className={`p-5 rounded-2xl border ${theme === 'dark' ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-100'} text-left space-y-1`}>
+                    <p className={`text-[10px] font-black ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'} uppercase tracking-wider`}>Correct Answers</p>
+                    <div className="flex items-baseline gap-2 mt-2">
+                      <span className="text-4xl font-black text-emerald-500">{quizScore}</span>
+                      <span className={`text-lg font-bold ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>/ {quizQuestions.length || 1}</span>
+                    </div>
+                    <p className={`text-[10px] font-medium ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} pt-1`}>
+                      {quizQuestions.length - quizScore} questions missed
+                    </p>
+                  </div>
+                </div>
+
+                <div className={`p-5 rounded-2xl border ${colorTheme.bg} ${colorTheme.border} text-left flex items-start gap-3 shadow-lg ${colorTheme.glow}`}>
+                  <span className="text-2xl select-none mt-0.5">💡</span>
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-black text-red-500 uppercase tracking-widest">Omni Study Advisor</p>
+                    <p className={`text-xs font-bold leading-relaxed ${theme === 'dark' ? 'text-white/90' : 'text-slate-800'}`}>
+                      {colorTheme.phrase}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <button onClick={shareQuiz} className="w-full bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-white/60 font-bold py-4 rounded-2xl text-xs hover:bg-slate-200 dark:hover:bg-white/10 transition-all flex items-center justify-center gap-2 border border-transparent dark:border-white/5">
+                      <Share2 size={16} /> SHARE LINK
+                    </button>
+                    <button onClick={handleShareResult} className="w-full bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-white/60 font-bold py-4 rounded-2xl text-xs hover:bg-slate-200 dark:hover:bg-white/10 transition-all flex items-center justify-center gap-2 border border-transparent dark:border-white/5">
+                      <Share2 size={16} /> SHARE STATS
+                    </button>
+                  </div>
+
+                  <button onClick={() => setQuizState('review')} className="w-full bg-[#DC2626] text-white font-black py-4 rounded-2xl text-xs sm:text-sm shadow-xl shadow-[#DC2626]/20 hover:bg-[#DC2626]/90 transition-all flex items-center justify-center gap-2">
+                    <Search size={18} /> CHECK RESULTS & DETAILED EXPLANATIONS
+                  </button>
+                  
+                  <button onClick={() => setQuizState('idle')} className="w-full bg-white/5 text-white/40 font-bold py-3 rounded-2xl text-xs hover:bg-white/10 transition-all">
+                    TRY ANOTHER TOPIC
+                  </button>
+                </div>
               </div>
-              <div>
-                <h3 className={`text-2xl font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'} uppercase tracking-tighter`}>Assessment Complete</h3>
-                <p className={`${theme === 'dark' ? 'text-white/40' : 'text-slate-500'} text-xs sm:text-sm mt-1`}>You've successfully finished the quiz.</p>
-              </div>
-              <div className="py-8 border-y border-white/5">
-                <p className="text-[10px] font-black text-white/30 uppercase tracking-widest mb-1">Your Score</p>
-                <p className="text-6xl font-black text-[#DC2626]">{quizScore} / {quizQuestions.length || 1}</p>
-                <p className="text-xs font-bold text-white/30 mt-2 uppercase tracking-widest">{Math.round((quizScore / (quizQuestions.length || 1)) * 100)}% Proficiency</p>
-              </div>
-              <div className="flex flex-col gap-3">
-                <button onClick={shareQuiz} className="w-full bg-white/5 text-white/60 font-bold py-4 rounded-2xl text-xs sm:text-sm hover:bg-white/10 transition-all flex items-center justify-center gap-2">
-                  <Share2 size={18} /> SHARE QUIZ LINK
-                </button>
-                <button onClick={handleShareResult} className="w-full bg-red-500 hover:bg-red-500/90 text-white font-black py-4 rounded-2xl text-xs sm:text-sm shadow-xl shadow-red-500/20 transition-all flex items-center justify-center gap-2">
-                  <Share2 size={18} /> SHARE SCORE CARD
-                </button>
-                <button onClick={() => setQuizState('review')} className="w-full bg-[#DC2626] text-white font-black py-4 rounded-2xl text-xs sm:text-sm shadow-xl shadow-[#DC2626]/20 hover:bg-[#DC2626]/90 transition-all flex items-center justify-center gap-2">
-                  <Search size={18} /> CHECK RESULTS
-                </button>
-                <button onClick={() => setQuizState('idle')} className="w-full bg-white/5 text-white/60 font-bold py-4 rounded-2xl text-xs sm:text-sm hover:bg-white/10 transition-all">TRY ANOTHER TOPIC</button>
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           {quizState === 'review' && quizQuestions && (
             <div className="space-y-6">

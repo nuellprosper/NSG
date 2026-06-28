@@ -3,44 +3,32 @@ import { HfInference } from "@huggingface/inference";
 import axios from 'axios';
 
 export const getUserRank = (points: number) => {
-  if (points >= 22500) return "Elite League";
-  if (points >= 18000) return "Champion League";
-  if (points >= 14000) return "Obsidian League";
-  if (points >= 10500) return "Ruby League";
-  if (points >= 7500) return "Diamond League";
-  if (points >= 5000) return "Emerald League";
-  if (points >= 3000) return "Sapphire League";
-  if (points >= 1500) return "Gold League";
-  if (points >= 500) return "Silver League";
+  if (points >= 341000) return "Pearl League";
+  if (points >= 85000) return "Ruby League";
+  if (points >= 21000) return "Platinum League";
+  if (points >= 5000) return "Gold League";
+  if (points >= 1000) return "Silver League";
   return "Bronze League";
 };
 
 export const getScholarTierInfo = (points: number) => {
   const rank = getUserRank(points);
-  if (rank === "Elite League") return { color: "text-red-500", bg: "bg-red-500/10", border: "border-red-500/20", icon: "👑", badgeStyle: "shadow-[0_0_15px_rgba(239,68,68,0.25)] text-red-500 border-red-500/30 bg-red-950/40" };
-  if (rank === "Champion League") return { color: "text-purple-400", bg: "bg-purple-500/10", border: "border-purple-500/20", icon: "💎", badgeStyle: "shadow-[0_0_15px_rgba(168,85,247,0.25)] text-purple-400 border-purple-500/30 bg-purple-950/40" };
-  if (rank === "Obsidian League") return { color: "text-slate-200", bg: "bg-slate-500/10", border: "border-slate-500/20", icon: "🕶️", badgeStyle: "text-slate-100 border-slate-700/30 bg-slate-950/50" };
+  if (rank === "Pearl League") return { color: "text-pink-300", bg: "bg-pink-500/10", border: "border-pink-500/20", icon: "🦪", badgeStyle: "shadow-[0_0_15px_rgba(244,143,177,0.3)] text-pink-300 border-pink-300/30 bg-pink-950/40" };
   if (rank === "Ruby League") return { color: "text-rose-500", bg: "bg-rose-500/10", border: "border-rose-500/20", icon: "🌹", badgeStyle: "shadow-[0_0_12px_rgba(244,63,94,0.2)] text-rose-500 border-rose-500/30 bg-rose-950/40" };
-  if (rank === "Diamond League") return { color: "text-cyan-400", bg: "bg-cyan-500/10", border: "border-cyan-500/20", icon: "🔮", badgeStyle: "text-cyan-400 border-cyan-500/30 bg-cyan-950/40" };
-  if (rank === "Emerald League") return { color: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/20", icon: "🍀", badgeStyle: "text-emerald-400 border-emerald-500/30 bg-emerald-950/40" };
-  if (rank === "Sapphire League") return { color: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/20", icon: "🐳", badgeStyle: "text-blue-400 border-blue-500/30 bg-blue-950/40" };
+  if (rank === "Platinum League") return { color: "text-cyan-400", bg: "bg-cyan-500/10", border: "border-cyan-500/20", icon: "🛡️", badgeStyle: "shadow-[0_0_15px_rgba(34,211,238,0.25)] text-cyan-400 border-cyan-500/30 bg-cyan-950/40" };
   if (rank === "Gold League") return { color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20", icon: "🏆", badgeStyle: "shadow-[0_0_15px_rgba(251,191,36,0.25)] text-amber-400 border-amber-500/30 bg-amber-950/40" };
   if (rank === "Silver League") return { color: "text-slate-350", bg: "bg-slate-300/10", border: "border-slate-300/20", icon: "🥈", badgeStyle: "text-slate-300 border-slate-400/30 bg-slate-900/40" };
-  return { color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20", icon: "⭐️", badgeStyle: "text-orange-400 border-orange-500/30 bg-orange-950/40" };
+  return { color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20", icon: "🥉", badgeStyle: "text-orange-400 border-orange-500/30 bg-orange-950/40" };
 };
 
 export const getScholarLeagueInfo = (points: number) => {
   const rank = getUserRank(points);
-  if (rank === "Elite League") return { text: "Elite League", emoji: "👑", textColor: "text-red-500", bgClass: "bg-red-500/10" };
-  if (rank === "Champion League") return { text: "Champion League", emoji: "💎", textColor: "text-purple-400", bgClass: "bg-purple-500/10" };
-  if (rank === "Obsidian League") return { text: "Obsidian League", emoji: "🕶️", textColor: "text-slate-200", bgClass: "bg-slate-500/10" };
+  if (rank === "Pearl League") return { text: "Pearl League", emoji: "🦪", textColor: "text-pink-300", bgClass: "bg-pink-500/10" };
   if (rank === "Ruby League") return { text: "Ruby League", emoji: "🌹", textColor: "text-rose-500", bgClass: "bg-rose-500/10" };
-  if (rank === "Diamond League") return { text: "Diamond League", emoji: "🔮", textColor: "text-cyan-400", bgClass: "bg-cyan-500/10" };
-  if (rank === "Emerald League") return { text: "Emerald League", emoji: "🍀", textColor: "text-emerald-400", bgClass: "bg-emerald-500/10" };
-  if (rank === "Sapphire League") return { text: "Sapphire League", emoji: "🐳", textColor: "text-blue-400", bgClass: "bg-blue-400/10" };
+  if (rank === "Platinum League") return { text: "Platinum League", emoji: "🛡️", textColor: "text-cyan-400", bgClass: "bg-cyan-400/10" };
   if (rank === "Gold League") return { text: "Gold League", emoji: "🏆", textColor: "text-amber-400", bgClass: "bg-amber-500/10" };
   if (rank === "Silver League") return { text: "Silver League", emoji: "🥈", textColor: "text-slate-350", bgClass: "bg-slate-300/10" };
-  return { text: "Bronze League", emoji: "⭐️", textColor: "text-orange-400", bgClass: "bg-orange-500/10" };
+  return { text: "Bronze League", emoji: "🥉", textColor: "text-orange-400", bgClass: "bg-orange-500/10" };
 };
 
 export const getApiKey = () => {
@@ -85,7 +73,45 @@ export const handleHfErrorGlobal = (error: any, label: string) => {
 export const getAiInstance = () => {
   const key = getApiKey();
   if (!key) throw new Error("Gemini API Key is missing. Please set GEMINI_API_KEY in your environment.");
-  return new GoogleGenAI({ apiKey: key });
+  const instance = new GoogleGenAI({ apiKey: key });
+  
+  if (instance.models && typeof instance.models.generateContent === 'function') {
+    const originalGenerateContent = instance.models.generateContent.bind(instance.models);
+    instance.models.generateContent = async (...args: any[]) => {
+      let lastError: any = null;
+      for (let attempt = 1; attempt <= 4; attempt++) {
+        try {
+          return await originalGenerateContent(...args);
+        } catch (err: any) {
+          lastError = err;
+          const errMsg = String(err.message || err);
+          console.warn(`[AI Attempt ${attempt} failed]:`, errMsg);
+          
+          const containsBusy = errMsg.toLowerCase().includes("model") || 
+                               errMsg.toLowerCase().includes("spikes") || 
+                               errMsg.toLowerCase().includes("experiencing") ||
+                               errMsg.toLowerCase().includes("rate limit") ||
+                               errMsg.toLowerCase().includes("quota") ||
+                               errMsg.toLowerCase().includes("busy");
+                               
+          if (attempt < 4) {
+            // Wait a short delay before retrying
+            await new Promise(resolve => setTimeout(resolve, 800 * attempt));
+            continue;
+          }
+          
+          // Final attempt failed, handle the error
+          if (containsBusy) {
+            throw new Error("(the Ai is busy try again sooner)");
+          } else {
+            throw new Error("something went wrong, click the generate button again");
+          }
+        }
+      }
+      throw lastError || new Error("something went wrong, click the generate button again");
+    };
+  }
+  return instance;
 };
 
 export const getHfInstance = () => {
@@ -94,8 +120,8 @@ export const getHfInstance = () => {
   return new HfInference(key);
 };
 
-export const MODEL_NAME = "gemini-3.1-flash";
-export const FLASH_MODEL = "gemini-3.1-flash";
+export const MODEL_NAME = "gemini-3.1-flash-lite";
+export const FLASH_MODEL = "gemini-3.1-flash-lite";
 
 export const formatAiError = (error: any) => {
   const message = error.message || "Unknown error";
@@ -281,8 +307,8 @@ export const LIMITS = {
     PREMIUM: { IMAGES: 3, DAILY: 7 }
   },
   QUIZ: {
-    NORMAL: { WORDS: 30, DAILY: 4, IMAGES: 2 },
-    PREMIUM: { WORDS: 150, DAILY: 15, IMAGES: 7 }
+    NORMAL: { WORDS: 300, DAILY: 4, IMAGES: 2 },
+    PREMIUM: { WORDS: 20000, DAILY: 15, IMAGES: 7 }
   },
   RECORD: {
     NORMAL: { DURATION: 90 * 60, DAILY: 3 },

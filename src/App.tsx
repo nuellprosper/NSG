@@ -8,7 +8,7 @@ import {
   Database, Zap, Cpu, CheckCircle2, XCircle, RefreshCcw, ArrowLeft, FileText, AlertCircle, RotateCcw,
   Sun, Moon, ArrowDown, PlusCircle, Copy, User, Users, Clock, Lock, Unlock, Shield, ShieldCheck, AlertTriangle, FileDown, LayoutDashboard, ListChecks, Bell, GraduationCap, LayoutGrid, Home,
   Pin, Edit3, Share2, Trophy, LogOut, Plus, Menu, Camera, Monitor, X, Activity, MessageSquare, BookOpen, Calendar, Send, Save, MicOff, Video, AtSign, Paperclip,
-  Search, Check, CheckCheck, Info, Volume2, Square, Mail, ArrowRight, BoxSelect, Globe, MapPin, Terminal, RefreshCw, Eye, EyeOff, HelpCircle
+  Search, Check, CheckCheck, Info, Volume2, VolumeX, Square, Mail, ArrowRight, BoxSelect, Globe, MapPin, Terminal, RefreshCw, Eye, EyeOff, HelpCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, Type, Modality, ThinkingLevel } from "@google/genai";
@@ -29,6 +29,7 @@ import {
 } from './firebase';
 
 import { AILibrary } from './components/AILibrary';
+import { speakText } from './lib/tts';
 import { ChatRoom } from './components/ChatRoom';
 import { ClassRoom } from './components/ClassRoom';
 import { CommunityPage } from './components/CommunityPage';
@@ -45,6 +46,8 @@ import {
 import { 
   UNIVERSITIES, FACULTIES, DEPARTMENTS 
 } from './constants/academic.ts';
+
+import { DID_YOU_KNOW_WORDS } from './constants/didYouKnow';
 
 import { 
   getUserRank, getScholarTierInfo, getScholarLeagueInfo,
@@ -581,25 +584,106 @@ export default function App() {
   const [authInviteCode, setAuthInviteCode] = useState('');
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [usernameStatus, setUsernameStatus] = useState<{available: boolean, message: string} | null>(null);
+  const [showUniSearchModal, setShowUniSearchModal] = useState(false);
+  const [uniSearchQuery, setUniSearchQuery] = useState('');
   const [passwordStrength, setPasswordStrength] = useState({ score: 0, feedback: '', color: 'bg-white/10' });
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareName, setShareName] = useState('');
   const shareCardRef = useRef<HTMLDivElement>(null);
+  const hasShownWelcomeNotification = useRef(false);
   const [showWelcome, setShowWelcome] = useState(false);
   const [showGodMode, setShowGodMode] = useState(false);
-  const [godTab, setGodTab] = useState<'dashboard' | 'users' | 'groups' | 'marketing' | 'blog' | 'reports'>('dashboard');
+  const [godTab, setGodTab] = useState<'dashboard' | 'users' | 'groups' | 'marketing' | 'blog' | 'reports' | 'courses'>('dashboard');
   const [reports, setReports] = useState<any[]>([]);
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [godModeNotification, setGodModeNotification] = useState<string | null>(null);
   const [editingUser, setEditingUser] = useState<any | null>(null);
+  const [editingGroup, setEditingGroup] = useState<any | null>(null);
+  const [godUserSearch, setGodUserSearch] = useState('');
+  const [newCourseCode, setNewCourseCode] = useState('');
+  const [newCourseName, setNewCourseName] = useState('');
+  const [newCourseDesc, setNewCourseDesc] = useState('');
+  const [editingCourseId, setEditingCourseId] = useState<string | null>(null);
+  const [godUserFilter, setGodUserFilter] = useState<'all' | 'premium' | 'free' | 'online' | 'banned'>('all');
   const [legalPage, setLegalPage] = useState<'about' | 'terms' | 'contact' | 'privacy' | null>(null);
   const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 1024);
+  const [activePhoneNotifs, setActivePhoneNotifs] = useState<any[]>([]);
+  const [customCourses, setCustomCourses] = useState<any[]>([]);
+
+  useEffect(() => {
+    const q = query(collection(db, 'courses'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const coursesList = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setCustomCourses(coursesList);
+    }, (err) => {
+      console.error("Error fetching custom courses:", err);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const triggerPhoneNotification = (title: string, body: string, type: 'quiz' | 'note' | 'assignment' | 'welcome') => {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); 
+      osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.1); 
+      gain.gain.setValueAtTime(0.04, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.3);
+    } catch (e) {}
+
+    const id = Date.now().toString();
+    const newNotif = {
+      id,
+      title,
+      body,
+      type,
+    };
+    setActivePhoneNotifs(prev => [newNotif, ...prev]);
+
+    setTimeout(() => {
+      setActivePhoneNotifs(prev => prev.filter(n => n.id !== id));
+    }, 8000);
+
+    if (Notification.permission === 'granted') {
+      try {
+        new Notification(title, {
+          body,
+          icon: '/icon.svg'
+        });
+      } catch (e) {}
+    }
+  };
 
   useEffect(() => {
     const handleResize = () => setIsDesktop(window.innerWidth >= 1024);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  useEffect(() => {
+    if (currentUserData && !hasShownWelcomeNotification.current) {
+      hasShownWelcomeNotification.current = true;
+      const randomIndex = Math.floor(Math.random() * DID_YOU_KNOW_WORDS.length);
+      const wordOfTheDay = DID_YOU_KNOW_WORDS[randomIndex];
+      
+      setTimeout(() => {
+        triggerPhoneNotification(
+          "Welcome back 😊",
+          `Word of the Day: ${wordOfTheDay}`,
+          'welcome'
+        );
+      }, 3000);
+    }
+  }, [currentUserData]);
 
   // Password Strength Logic
   useEffect(() => {
@@ -905,8 +989,13 @@ export default function App() {
 
   useEffect(() => {
     if (showGodMode && user?.email === "nuellkelechi@gmail.com") {
-      const unsubscribe = onSnapshot(query(collection(db, 'users'), limit(100)), (snapshot) => {
+      const unsubscribe = onSnapshot(query(collection(db, 'users'), limit(250)), (snapshot) => {
         const usersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        usersList.sort((a: any, b: any) => {
+          const tA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const tB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return tB - tA;
+        });
         setAllUsers(usersList);
       }, (err) => handleFirestoreError(err, FirestoreOperation.LIST, 'users'));
 
@@ -976,9 +1065,35 @@ export default function App() {
       orderBy('timestamp', 'desc'),
       limit(40)
     );
+    let isFirstEmission = true;
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const activitiesList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setGlobalActivities(activitiesList);
+
+      if (isFirstEmission) {
+        isFirstEmission = false;
+        return;
+      }
+
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === 'added') {
+          const data = change.doc.data();
+          if (data.userId && data.userId !== user.uid) {
+            let notificationType: 'quiz' | 'note' | 'assignment' = 'quiz';
+            if (data.type?.includes('note') || data.type === 'class_complete') {
+              notificationType = 'note';
+            } else if (data.type?.includes('assignment')) {
+              notificationType = 'assignment';
+            }
+            
+            triggerPhoneNotification(
+              "NSG Community Activity 🎓",
+              data.text || `${data.username || 'Scholar'} updated their workspace!`,
+              notificationType
+            );
+          }
+        }
+      });
     }, (err) => {
       console.error("Error loading global activities:", err);
     });
@@ -1323,6 +1438,53 @@ export default function App() {
     }
   };
 
+  const handleSaveCourse = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCourseCode.trim() || !newCourseName.trim() || !newCourseDesc.trim()) {
+      setGodModeNotification("Please fill in all course fields.");
+      return;
+    }
+
+    try {
+      const courseData = {
+        code: newCourseCode.trim().toUpperCase(),
+        name: newCourseName.trim(),
+        description: newCourseDesc.trim(),
+        updatedAt: serverTimestamp ? serverTimestamp() : new Date()
+      };
+
+      if (editingCourseId) {
+        await updateDoc(doc(db, 'courses', editingCourseId), courseData);
+        setGodModeNotification("Course updated successfully!");
+      } else {
+        await addDoc(collection(db, 'courses'), {
+          ...courseData,
+          createdAt: serverTimestamp ? serverTimestamp() : new Date()
+        });
+        setGodModeNotification("Course saved successfully!");
+      }
+
+      setNewCourseCode('');
+      setNewCourseName('');
+      setNewCourseDesc('');
+      setEditingCourseId(null);
+    } catch (err: any) {
+      console.error("Error saving course:", err);
+      setGodModeNotification(`Failed to save course: ${err.message || 'Unknown error'}`);
+    }
+  };
+
+  const handleDeleteCourse = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this course from the curriculum?")) return;
+    try {
+      await deleteDoc(doc(db, 'courses', id));
+      setGodModeNotification("Course deleted successfully.");
+    } catch (err: any) {
+      console.error("Error deleting course:", err);
+      setGodModeNotification(`Failed to delete course: ${err.message}`);
+    }
+  };
+
   const handleReaction = async (postId: string, emoji: string) => {
     if (!user) {
       setShowAuthModal(true);
@@ -1415,6 +1577,24 @@ export default function App() {
     }
   };
 
+  const handleEditGroup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingGroup) return;
+    try {
+      await updateDoc(doc(db, 'chats', editingGroup.id), {
+        name: editingGroup.name || '',
+        description: editingGroup.description || '',
+        photoURL: editingGroup.photoURL || ''
+      });
+      setEditingGroup(null);
+      setGodModeNotification("Group cluster reconfigured successfully");
+      setTimeout(() => setGodModeNotification(null), 3000);
+    } catch (error) {
+      console.error("Error editing group:", error);
+      setGodModeNotification("Failed to update group cluster");
+    }
+  };
+
   // --- \u{1F399}\u{FE0F} RECORDING ENGINE ---
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -1467,7 +1647,7 @@ export default function App() {
   // --- DAILY STUDY QUESTS DETAILS (Dynamic 10 League progressive tasks!) ---
   const dailyQuests = useMemo(() => {
     const points = currentUserData?.points || 0;
-    const leagueName = getUserRank(points);
+    const leagueName = getUserRank(points) as string;
 
     if (leagueName === "Bronze League") {
       return [
@@ -1481,7 +1661,7 @@ export default function App() {
           chest: "🎤",
           buttonLabel: "BOOST NOW",
           targetTab: "tools",
-          targetSubTab: "voice"
+          targetSubTab: "record"
         },
         {
           id: "bronze_quiz_score",
@@ -1532,7 +1712,7 @@ export default function App() {
           chest: "🎤",
           buttonLabel: "BOOST NOW",
           targetTab: "tools",
-          targetSubTab: "voice"
+          targetSubTab: "record"
         },
         {
           id: "silver_notes",
@@ -1585,7 +1765,7 @@ export default function App() {
           chest: "🐳",
           buttonLabel: "TRANSCRIBE NOW",
           targetTab: "tools",
-          targetSubTab: "voice"
+          targetSubTab: "record"
         },
         {
           id: "sapphire_cbt",
@@ -1653,7 +1833,7 @@ export default function App() {
           chest: "🌹",
           buttonLabel: "RECORD NOW",
           targetTab: "tools",
-          targetSubTab: "voice"
+          targetSubTab: "record"
         }
       ];
     } else if (leagueName === "Obsidian League") {
@@ -1889,6 +2069,63 @@ export default function App() {
   const [isUploadingNoteFile, setIsUploadingNoteFile] = useState(false);
   const [notePreviewMode, setNotePreviewMode] = useState(false);
   const [isPodcastActive, setIsPodcastActive] = useState(false);
+  const [podcastSpeechIndex, setPodcastSpeechIndex] = useState<number | null>(null);
+
+  const stopPodcastSpeech = () => {
+    setPodcastSpeechIndex(null);
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+  };
+
+  const playPodcastDialogueLine = (index: number, dialogue: any[]) => {
+    if (index < 0 || index >= dialogue.length) {
+      setPodcastSpeechIndex(null);
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+      return;
+    }
+
+    setPodcastSpeechIndex(index);
+    const line = dialogue[index];
+    const voiceId = line.char.toLowerCase() === 'zeal' ? 'zeal' : 'omni';
+    
+    speakText(
+      line.text,
+      voiceId,
+      () => {},
+      () => {
+        setPodcastSpeechIndex(current => {
+          if (current === index) {
+            const nextIndex = index + 1;
+            setTimeout(() => {
+              setPodcastSpeechIndex(latestIndex => {
+                if (latestIndex === null) return null;
+                playPodcastDialogueLine(nextIndex, dialogue);
+                return nextIndex;
+              });
+            }, 800);
+          }
+          return current;
+        });
+      }
+    );
+  };
+
+  useEffect(() => {
+    if (!isPodcastActive) {
+      stopPodcastSpeech();
+    }
+  }, [isPodcastActive]);
+
+  useEffect(() => {
+    return () => {
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
   const [podcastDialogue, setPodcastDialogue] = useState<{ id: string, char: 'Omni' | 'Zeal' | 'User', text: string, replyTo?: string }[]>([]);
   const [isGeneratingPodcast, setIsGeneratingPodcast] = useState(false);
   const [isTeacherMode, setIsTeacherMode] = useState(false);
@@ -2468,6 +2705,8 @@ export default function App() {
         if (selectedNote?.id) {
            saveNote(selectedNote.content, selectedNote.title, selectedNote.id, selectedNote.attachments, newDialogue);
         }
+        // Start automatic voice playback
+        playPodcastDialogueLine(0, newDialogue);
       } else {
         setUserNotification("Failed to parse the podcast.");
       }
@@ -2570,16 +2809,16 @@ export default function App() {
           setSelectedNote({ ...selectedNote, id: finalId });
         }
 
-        // Publish to global activities feed as completed class study session
+        // Publish to global activities feed
         const nameHandle = currentUserData?.username || currentUserData?.displayName || 'Scholar';
         addDoc(collection(db, 'activities'), {
-          type: 'class_complete',
-          text: `${nameHandle} completed a class with four others, start a five reading streak with ${nameHandle}`,
+          type: 'note_saved',
+          text: `${nameHandle} saved a study note on "${title || 'Untitled Note'}", try yours!`,
           username: nameHandle,
           userId: user.uid,
           userPhoto: currentUserData?.photoURL || '',
-          timestamp: serverTimestamp(),
-          topic: title || 'Studies'
+          timestamp: serverTimestamp() || new Date(),
+          topic: title || 'Untitled Note'
         }).catch(err => console.error("Error creating activity post:", err));
       }
       return finalId;
@@ -6589,6 +6828,10 @@ ${session.fullAnalysis}
     
     setChatHistory(newHistory);
     setChatInput('');
+    const mainChatInputEl = document.getElementById('main-chat-textarea') as HTMLTextAreaElement;
+    if (mainChatInputEl) {
+      mainChatInputEl.style.height = '38px';
+    }
     setIsTyping(true);
 
     try {
@@ -7096,7 +7339,7 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
 
     const limits = isPremium ? LIMITS.QUIZ.PREMIUM : LIMITS.QUIZ.NORMAL;
     const wordCount = activeTopic.split(/\s+/).filter(Boolean).length;
-    const maxWords = importedQuizNote ? 5000 : limits.WORDS;
+    const maxWords = importedQuizNote ? Math.max(5000, limits.WORDS) : limits.WORDS;
     if (wordCount > maxWords) {
       setUserNotification(`Prompt limit reached: ${importedQuizNote ? 'Note quizzes' : (isPremium ? 'Premium' : 'Free')} can only support up to ${maxWords} words per prompt.`);
       return;
@@ -7161,6 +7404,8 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
         
         ${promptContext}
         
+        CRITICAL RULE: The generated questions and options must be completely self-contained. Under NO circumstances should any question or option ever mention, refer to, or contain phrases like "as shown in the image", "in the picture", "according to the diagram", "shown below", or any reference to attachments/images. Keep the questions independent of visual attachment references so that they are fully answerable with only the text displayed in the question itself.
+
         Do not introduce any unrelated mathematical expressions, technical formulas, physics symbols, or engineering concepts unless the requested topic specifically calls for mathematics, exact sciences, or engineering subjects.
         Difficulty Level: ${activeDifficulty}.
         
@@ -7238,6 +7483,20 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
           difficulty: activeDifficulty
         };
         addToFinishedHistory(historyItem);
+
+        if (user) {
+          const finalTopic = activeTopic || data.quizTitle || 'Visual Materials Quiz';
+          const nameHandle = currentUserData?.username || currentUserData?.displayName || 'Scholar';
+          addDoc(collection(db, 'activities'), {
+            type: 'quiz_generated',
+            text: `${nameHandle} generated a quiz on "${finalTopic}", try yours!`,
+            username: nameHandle,
+            userId: user.uid,
+            userPhoto: currentUserData?.photoURL || '',
+            timestamp: serverTimestamp() || new Date(),
+            topic: finalTopic
+          }).catch((err) => console.error("Error saving global activity:", err));
+        }
       }
     } catch (error) {
       console.error("Quiz Generation Error:", error);
@@ -7407,18 +7666,26 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
         const percent = Math.round((finalScore / (quizQuestions.length || 1)) * 100);
         const nameHandle = currentUserData?.username || currentUserData?.displayName || 'Scholar';
         
+        const titleText = percent < 40 ? `💡 You can do better!` : `🏆 Magnificent Quiz Score!`;
+        const messageText = percent < 40 
+          ? `Keep trying, ${nameHandle}! You completed "${quizTopic || 'General Study'}" Quiz with ${finalScore}/${quizQuestions.length} (${percent}%). Don't give up, you can do better! 💪📚`
+          : `Congratulations ${nameHandle}! You finished "${quizTopic || 'General Study'}" Quiz with ${finalScore}/${quizQuestions.length} (${percent}%). Outstanding determination! 🎉👏`;
+
         // Push a beautiful notification!
         addDoc(collection(db, 'notifications'), {
           to: user.uid,
-          title: `🏆 Magnificent Quiz Score!`,
-          message: `Congratulations ${nameHandle}! You finished "${quizTopic || 'General Study'}" Quiz with ${finalScore}/${quizQuestions.length} (${percent}%). Outstanding determination! 🎉👏`,
-          type: 'congrats',
+          title: titleText,
+          message: messageText,
+          type: percent < 40 ? 'warning' : 'congrats',
           subtype: 'quiz_complete',
           targetTab: 'tools',
           targetSubTab: 'quiz',
           timestamp: serverTimestamp() || new Date(),
           read: false
         }).catch(err => console.error("Error creating completion notification:", err));
+
+        // Trigger on-screen phone-style push notification
+        triggerPhoneNotification(titleText, messageText, 'quiz');
 
         let actType = 'quiz_complete';
         let customText = `${nameHandle} completed a quiz on "${quizTopic || 'General Study'}", try yours!`;
@@ -7476,6 +7743,62 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
       <EmailPreviewModal />
       <AIChallengeModal />
       <AnalysisLoadingOverlay />
+
+      {/* FLOATING PHONE PUSH NOTIFICATION SYSTEM */}
+      <div className="fixed top-4 right-4 z-[9999] w-full max-w-[360px] pointer-events-none flex flex-col gap-3 px-4 sm:px-0">
+        <AnimatePresence>
+          {activePhoneNotifs.map((notif) => (
+            <motion.div
+              key={notif.id}
+              initial={{ opacity: 0, y: -50, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.85, transition: { duration: 0.15 } }}
+              className="pointer-events-auto w-full bg-[#1A1825]/95 dark:bg-[#12111A]/98 text-white p-4 rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.5)] border border-white/10 backdrop-blur-md flex flex-col gap-3 transition-all hover:border-red-500/30"
+            >
+              <div className="flex items-center justify-between w-full">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 bg-red-500 rounded-lg flex items-center justify-center text-xs font-black shadow-md shadow-red-500/20">
+                    NSG
+                  </div>
+                  <span className="text-[10px] font-black tracking-wider text-slate-300 uppercase">NSG STUDY GUIDE</span>
+                  <span className="text-[8px] text-slate-500 font-mono">• now</span>
+                </div>
+                <button
+                  onClick={() => setActivePhoneNotifs(prev => prev.filter(n => n.id !== notif.id))}
+                  className="text-slate-500 hover:text-white transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+
+              <div className="space-y-1">
+                <p className="text-xs font-bold text-white tracking-tight">{notif.title}</p>
+                <p className="text-[11px] text-slate-300 leading-normal">{notif.body}</p>
+              </div>
+
+              {notif.type !== 'welcome' && (
+                <button
+                  onClick={() => {
+                    setActivePhoneNotifs(prev => prev.filter(n => n.id !== notif.id));
+                    if (notif.type === 'quiz') {
+                      setActiveTab('tools');
+                      setToolsSubTab('quiz');
+                    } else if (notif.type === 'note') {
+                      setActiveTab('class');
+                    } else if (notif.type === 'assignment') {
+                      setActiveTab('tools');
+                      setToolsSubTab('assignment');
+                    }
+                  }}
+                  className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:opacity-95 text-white text-[10px] font-black py-2.5 rounded-xl uppercase tracking-wider transition-all shadow-lg shadow-red-500/10 active:scale-95 text-center"
+                >
+                  🎯 TRY YOURS NOW
+                </button>
+              )}
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
 
       {/* AUTH LOADING OVERLAY */}
       <AnimatePresence>
@@ -7551,11 +7874,96 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                       </p>
                     )}
 
-                    <div className="space-y-1">
-                      <select value={authUniversity} onChange={(e) => setAuthUniversity(e.target.value)} required className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-3 text-xs text-white/70 focus:border-[#DC2626]/50 transition-all outline-none appearance-none">
-                        <option value="" disabled className="bg-zinc-900 overflow-y-scroll max-h-40">Select University</option>
-                        {UNIVERSITIES.map(u => <option key={u} value={u} className="bg-zinc-900">{u}</option>)}
-                      </select>
+                    <div className="space-y-1 relative">
+                      <p className="text-[7px] font-bold text-white/30 uppercase ml-1">University</p>
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowUniSearchModal(!showUniSearchModal);
+                            setUniSearchQuery('');
+                          }}
+                          className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white/70 focus:border-[#DC2626]/50 transition-all outline-none text-left flex justify-between items-center hover:bg-white/[0.08]"
+                        >
+                          <span className={authUniversity ? "text-white font-medium truncate max-w-[200px] sm:max-w-[280px]" : "text-white/40"}>
+                            {authUniversity || "Select University"}
+                          </span>
+                          <ChevronDown size={14} className={`text-white/40 transition-transform flex-shrink-0 ${showUniSearchModal ? 'rotate-180' : ''}`} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowUniSearchModal(true);
+                            setTimeout(() => {
+                              const el = document.getElementById('uni-search-input');
+                              if (el) el.focus();
+                            }, 50);
+                          }}
+                          className="px-3 bg-white/5 border border-white/10 hover:bg-[#DC2626]/20 hover:border-[#DC2626]/50 rounded-xl flex items-center justify-center text-white/60 hover:text-white transition-all"
+                          title="Search Universities"
+                        >
+                          <Search size={14} />
+                        </button>
+                      </div>
+
+                      {showUniSearchModal && (
+                        <div className="absolute left-0 right-0 mt-1 p-2 bg-[#120f21] border border-white/10 rounded-xl shadow-2xl z-[50] flex flex-col space-y-2 max-h-[220px]">
+                          <div className="flex gap-1">
+                            <div className="relative flex-1">
+                              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/30 w-3 h-3" />
+                              <input
+                                id="uni-search-input"
+                                type="text"
+                                placeholder="Search..."
+                                value={uniSearchQuery}
+                                onChange={(e) => setUniSearchQuery(e.target.value)}
+                                className="w-full bg-white/5 border border-white/10 rounded-lg pl-7 pr-2 py-1.5 text-[11px] text-white focus:outline-none focus:border-[#DC2626]/50 transition-all"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                // Clear query or let it select the match
+                              }}
+                              className="px-2.5 bg-[#DC2626] hover:bg-[#DC2626]/90 text-white text-[9px] font-black uppercase tracking-wider rounded-lg transition-colors flex items-center justify-center"
+                            >
+                              Search
+                            </button>
+                          </div>
+
+                          <div className="overflow-y-auto custom-scrollbar flex-1 pr-1 space-y-0.5">
+                            {(() => {
+                              const query = uniSearchQuery.toLowerCase().trim();
+                              const filtered = UNIVERSITIES.filter(u => u.toLowerCase().includes(query));
+                              if (filtered.length === 0) {
+                                return (
+                                  <div className="text-center py-3 text-white/40 text-[9px]">
+                                    No matching universities
+                                  </div>
+                                );
+                              }
+                              return filtered.map(u => (
+                                <button
+                                  key={u}
+                                  type="button"
+                                  onClick={() => {
+                                    setAuthUniversity(u);
+                                    setShowUniSearchModal(false);
+                                  }}
+                                  className={`w-full text-left px-2 py-1.5 rounded-md text-[10px] transition-all flex items-center justify-between ${
+                                    authUniversity === u
+                                      ? 'bg-[#DC2626]/20 text-white border border-[#DC2626]/30'
+                                      : 'text-white/60 hover:bg-white/5 hover:text-white border border-transparent'
+                                  }`}
+                                >
+                                  <span className="truncate">{u}</span>
+                                  {authUniversity === u && <Check size={10} className="text-[#DC2626] flex-shrink-0" />}
+                                </button>
+                              ));
+                            })()}
+                          </div>
+                        </div>
+                      )}
                       {validationErrors.university && <p className="text-[9px] text-red-500 font-bold uppercase tracking-wider ml-1">{validationErrors.university}</p>}
                     </div>
 
@@ -8268,7 +8676,16 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                       } else {
                         setActiveTab(qst.targetTab as any);
                         if (qst.targetSubTab) {
-                          setToolsSubTab(qst.targetSubTab as any);
+                          let sub = qst.targetSubTab;
+                          if (sub === 'voice') sub = 'record';
+                          
+                          if (qst.targetTab === 'tools') {
+                            setToolsSubTab(sub as any);
+                          } else if (qst.targetTab === 'profile') {
+                            setProfileSubTab(sub as any);
+                          } else if (qst.targetTab === 'community') {
+                            setCommunitySubTab(sub as any);
+                          }
                         }
                         setUserNotification(`🚀 Let's go do the "${qst.title}" study milestone!`);
                       }
@@ -8292,7 +8709,7 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                           onClick={handleQuestAction}
                           className={`w-full py-2 px-3 rounded-lg font-black text-[8px] uppercase tracking-widest transition-all active:scale-95 ${canClaim ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-md shadow-green-500/10 hover:opacity-95' : isClaimed ? 'bg-white/5 text-white/20 cursor-not-allowed border border-white/5' : 'bg-gradient-to-r from-red-600 to-rose-500 hover:from-red-500 hover:to-rose-450 hover:shadow-md text-white'}`}
                         >
-                          {canClaim ? "CLAIM +50 XP" : isClaimed ? "CLAIMED" : qst.buttonLabel}
+                          {canClaim ? "CLAIM XP" : isClaimed ? "CLAIMED" : qst.buttonLabel}
                         </button>
                       </div>
                     );
@@ -8300,168 +8717,18 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                 </div>
               </div>
 
-              {/* Dual-Mode Activity Feed: Communal Pulse (Social Feed) vs Personal Studio History */}
+              {/* Personal Studio Study History */}
               <div className="space-y-4">
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-2">
                   <h2 
                     className="text-xl font-black uppercase tracking-tighter"
                     style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}
                   >
-                    Recent Activity
+                    Recent Studio Activity
                   </h2>
-                  <div className="flex items-center gap-0 bg-white/5 p-0.5 rounded-xl border border-white/5 shrink-0">
-                    <button 
-                      type="button"
-                      onClick={() => setHomeFeedTab('community')}
-                      className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all ${homeFeedTab === 'community' ? 'bg-gradient-to-r from-red-500 to-blue-600 text-white shadow-md shadow-red-500/10' : 'text-white/40 hover:text-white/70'}`}
-                    >
-                      🔥 Scholar Feed
-                    </button>
-                    <button 
-                      type="button"
-                      onClick={() => setHomeFeedTab('personal')}
-                      className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all ${homeFeedTab === 'personal' ? 'bg-gradient-to-r from-red-500 to-blue-600 text-white shadow-md shadow-red-500/10' : 'text-white/40 hover:text-white/70'}`}
-                    >
-                      ⚡ My Studio
-                    </button>
-                  </div>
                 </div>
 
-                {homeFeedTab === 'community' ? (
-                  <div className="space-y-3 pb-10">
-                    {/* DAILY STUDY RECOMMENDATIONS */}
-                    <div className="bg-gradient-to-br from-[#1E1B2E]/90 to-[#0A0714]/90 p-5 rounded-[2rem] border border-white/5 space-y-4 mb-4 shadow-2xl relative overflow-hidden text-left">
-                      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(220,38,38,0.08),transparent_50%)]" />
-                      <div className="flex items-center justify-between relative z-10">
-                        <div className="space-y-0.5">
-                          <p className="text-[7.5px] font-black text-red-500 uppercase tracking-widest leading-none flex items-center gap-1.5 animate-pulse">
-                            <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
-                            STUDY CATALYST
-                          </p>
-                          <h3 className="text-xs font-black uppercase text-white/90">Daily Recommendations</h3>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 relative z-10">
-                        {aiPersuasions.length === 0 ? (
-                          <div className="col-span-full py-4 text-center">
-                            <p className="text-[10px] text-white/45 font-semibold uppercase tracking-wider">No study recommendations available. Start studying to load insights!</p>
-                          </div>
-                        ) : (
-                          aiPersuasions.map((persuasion, index) => (
-                            <div 
-                              key={persuasion.id || index}
-                              className="p-4 rounded-2xl bg-white/[0.02] hover:bg-white/[0.04] transition-all flex flex-col justify-between space-y-3 group text-left relative overflow-hidden"
-                            >
-                              <div className="space-y-1.5">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[7px] font-mono font-black text-white/40 uppercase tracking-wide">
-                                    {persuasion.reward || 'Earn +100 XP'}
-                                  </span>
-                                  {persuasion.type === 'streak' ? (
-                                    <span className="text-[10px]">🔥</span>
-                                  ) : persuasion.type === 'quiz' ? (
-                                    <span className="text-[10px]">⚡</span>
-                                  ) : (
-                                    <span className="text-[10px]">📝</span>
-                                  )}
-                                </div>
-                                <h4 className="text-[10.5px] font-black uppercase tracking-tight text-white group-hover:text-red-400 transition-colors">
-                                  {persuasion.title}
-                                </h4>
-                                <p className="text-[10px] text-white/65 leading-relaxed font-semibold">
-                                  {persuasion.message}
-                                </p>
-                              </div>
-
-                              <div className="flex items-stretch overflow-hidden rounded-xl bg-white/5 border border-white/5 shadow-md h-8 mt-2">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (persuasion.type === 'quiz') {
-                                      setActiveTab('tools');
-                                      setToolsSubTab('quiz');
-                                    } else if (persuasion.type === 'notebook') {
-                                      setActiveTab('tools');
-                                      setToolsSubTab('notebook');
-                                    } else {
-                                      setActiveTab('class');
-                                    }
-                                    setUserNotification(`Challenge Accepted: "${persuasion.title}"!`);
-                                  }}
-                                  className="flex-1 bg-gradient-to-r from-red-500 to-blue-600 text-white font-black text-[8px] uppercase tracking-widest text-center hover:opacity-95 active:scale-95 transition-all flex items-center justify-center border-none"
-                                >
-                                  {persuasion.actionLabel || 'EXECUTE ⚡'}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => sendPersuasiveEmail(persuasion)}
-                                  disabled={sendingEmailLoader}
-                                  className="px-3 bg-black/40 hover:bg-black/60 text-white/65 hover:text-white transition-all border-l border-white/5 flex items-center justify-center text-[10px] border-none"
-                                  title="Send Gorgeous Email Spark"
-                                >
-                                  📬
-                                </button>
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="bg-gradient-to-br from-[#120F1F]/60 via-[#1E1B2E]/50 to-[#0F0D1B]/40 shadow-xl overflow-hidden rounded-[2.2rem] border border-white/5 divide-y divide-white/[0.04]">
-                      {globalActivities.map((act) => (
-                        <div 
-                          key={act.id}
-                          className="p-5 relative overflow-hidden group hover:bg-white/[0.01] transition-all duration-300 text-left"
-                        >
-                          <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-red-500/0 via-red-500/5 to-blue-500/0 blur-xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">
-                            <div className="flex items-center gap-3.5">
-                              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#2E2452] to-[#12092D] flex items-center justify-center text-sm font-bold shadow-md shadow-black/40 shrink-0 border border-white/5">
-                                {act.userId === user?.uid ? '⭐' : '🎓'}
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="text-xs font-semibold text-white/90 leading-relaxed">
-                                  {act.text}
-                                </p>
-                                <p className="text-[8px] font-mono text-white/30 uppercase mt-1 tracking-widest flex items-center gap-1.5">
-                                  <span className="font-bold text-red-400">{act.username || 'Scholar'}</span>
-                                  <span>•</span>
-                                  <span>{act.timestamp ? new Date(act.timestamp?.toMillis ? act.timestamp.toMillis() : act.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Just now'}</span>
-                                </p>
-                              </div>
-                            </div>
-
-                            {/* DYNAMIC ACTION BUTTON FOR LEAD GENERATION OR INVITES */}
-                            <div className="flex items-center gap-0 overflow-hidden rounded-xl bg-white/5 border border-white/5 shadow-md h-8 self-start sm:self-center">
-                              <button 
-                                type="button"
-                                onClick={() => triggerAIPeerChallenge(act)}
-                                disabled={loadingActChallengeId === act.id}
-                                className="px-3.5 bg-gradient-to-r from-red-500 to-blue-600 hover:opacity-95 active:scale-95 text-white font-black text-[8px] uppercase tracking-widest transition-all h-full border-none flex items-center justify-center whitespace-nowrap"
-                              >
-                                {loadingActChallengeId === act.id ? "Analyzing... 🔮" : "AI SUGGEST 🔮"}
-                              </button>
-                              {user && act.userId !== user.uid && (
-                                <button
-                                  type="button"
-                                  onClick={() => initiateQuickStreakSession(act)}
-                                  className="px-3 bg-black/40 hover:bg-black/60 text-white/50 hover:text-white transition-all border-l border-white/5 flex items-center justify-center text-[10px] h-full border-none"
-                                  title="Launch Instant Duel Streak"
-                                >
-                                  ⚡
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  /* PERSONAL STUDIO STUDY HISTORY (EXISTING HOMEHISTORY) */
-                  homeHistory.length === 0 ? (
+                {homeHistory.length === 0 ? (
                     <div 
                       className="p-12 rounded-[2.2rem] text-center space-y-4"
                       style={{
@@ -8625,7 +8892,7 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                       ))}
                     </div>
                   )
-                )}
+                }
               </div>
             </motion.div>
           )}
@@ -8707,6 +8974,10 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
               setQuizQuestionCount={setQuizQuestionCount}
               quizDifficulty={quizDifficulty}
               setQuizDifficulty={setQuizDifficulty}
+              quizImages={quizImages}
+              setQuizImages={setQuizImages}
+              handleQuizImageUpload={handleQuizImageUpload}
+              removeQuizImage={removeQuizImage}
               isGeneratingQuiz={isGeneratingQuiz}
               generateQuiz={generateQuiz}
               examLobbyState={examLobbyState}
@@ -8754,6 +9025,9 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
               uploadNoteFile={uploadNoteFile}
               notePreviewMode={notePreviewMode}
               setNotePreviewMode={setNotePreviewMode}
+              podcastSpeechIndex={podcastSpeechIndex}
+              stopPodcastSpeech={stopPodcastSpeech}
+              playPodcastDialogueLine={playPodcastDialogueLine}
               scrollContainerRef={scrollContainerRef}
               handleNoteScroll={handleNoteScroll}
               setSelectedNoteTitle={(title: string) => setSelectedNote({ ...selectedNote, title })}
@@ -9287,14 +9561,15 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                           {!selectedNote ? (
                             <button 
                               onClick={() => {
-                                setSelectedNote({ title: `Notebook ${new Date().toLocaleTimeString()}`, content: '', attachments: [], createdAt: new Date() });
+                                setSelectedNote({ title: '', content: '', attachments: [], createdAt: new Date() });
                                 setNoteHistory([]);
                                 setRedoStack([]);
                                 setIsPodcastActive(false);
+                                setNotePreviewMode(false);
                               }}
                               className="bg-[#DC2626] text-white px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-xl shadow-[#DC2626]/20 hover:scale-105 active:scale-95 transition-all text-nowrap"
                             >
-                              <Plus size={14} /> New Source
+                              <Plus size={14} /> New
                             </button>
                           ) : (
                             <div className="flex items-center gap-2">
@@ -9353,19 +9628,48 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                                       <div className="flex items-center gap-4">
                                         <button onClick={() => setIsPodcastActive(false)} className="text-white/40 hover:text-white"><ArrowLeft size={18} /></button>
                                         <div>
-                                          <h3 className="text-xs font-black text-white uppercase tracking-widest">Omni & Zeal</h3>
+                                          <h3 className="text-xs font-black text-white uppercase tracking-widest">Omni &amp; Zeal</h3>
                                           <p className="text-[8px] text-white/40 font-bold uppercase">Podcast Discussion</p>
                                         </div>
                                       </div>
+                                      {podcastDialogue.length > 0 && (
+                                        <div className="flex items-center gap-2">
+                                          {podcastSpeechIndex !== null ? (
+                                            <button 
+                                              onClick={stopPodcastSpeech}
+                                              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600/20 border border-red-600/30 text-red-500 hover:bg-red-600/30 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all animate-pulse shadow-lg shadow-red-500/10 cursor-pointer"
+                                              title="Stop Audio Discussion"
+                                            >
+                                              <Volume2 size={12} className="animate-bounce" />
+                                              <span>Stop</span>
+                                            </button>
+                                          ) : (
+                                            <button 
+                                              onClick={() => playPodcastDialogueLine(0, podcastDialogue)}
+                                              className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 border border-white/10 text-white/60 hover:text-white hover:bg-white/10 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                                              title="Listen to Podcast"
+                                            >
+                                              <VolumeX size={12} />
+                                              <span>Speak</span>
+                                            </button>
+                                          )}
+                                        </div>
+                                      )}
                                     </div>
                                     
                                     <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
                                       {podcastDialogue.length === 0 ? (
                                         <div className="h-full flex flex-col items-center justify-center text-center p-8 space-y-6">
                                           <div className="relative">
-                                            <div className="absolute inset-0 bg-blue-500/20 blur-3xl rounded-full" />
-                                            <div className="relative w-24 h-24 bg-gradient-to-br from-blue-600 to-purple-600 rounded-full flex items-center justify-center border-4 border-white/10 shadow-2xl">
-                                              <Brain size={40} className="text-white" />
+                                            <div className="flex items-center justify-center gap-4 relative">
+                                              <div className="absolute inset-0 bg-red-500/10 blur-3xl rounded-full" />
+                                              <div className="relative w-16 h-16 bg-black border-2 border-red-500/50 rounded-2xl flex items-center justify-center shadow-2xl shadow-red-500/20">
+                                                <Brain size={28} className="text-red-500 drop-shadow-[0_0_10px_#EF4444] animate-pulse" />
+                                              </div>
+                                              <span className="text-red-500/30 text-lg font-bold font-mono">&amp;</span>
+                                              <div className="relative w-16 h-16 bg-black border-2 border-red-950/50 rounded-2xl flex items-center justify-center shadow-2xl">
+                                                <span className="font-display font-black text-red-800 text-2xl">Z</span>
+                                              </div>
                                             </div>
                                           </div>
                                           <div className="space-y-2">
@@ -9499,28 +9803,36 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                                           </AnimatePresence>
                                         </div>
 
-                                        <input 
+                                        <textarea 
                                           id="podcast-chat-input"
                                           autoComplete="off"
-                                          placeholder="Chat with Omni & Zeal..."
-                                          className="w-full bg-white/5 border border-white/10 rounded-3xl pl-16 pr-14 py-4 text-sm text-white outline-none focus:border-blue-500/50 transition-all placeholder:text-white/20 shadow-inner"
+                                          placeholder="Chat with Omni &amp; Zeal..."
+                                          className="w-full bg-white/5 border border-white/10 rounded-3xl pl-16 pr-14 py-4 text-sm text-white outline-none focus:border-blue-500/50 transition-all placeholder:text-white/20 shadow-inner resize-none h-[54px] min-h-[54px] max-h-[144px] custom-scrollbar leading-relaxed"
                                           onKeyDown={(e) => {
-                                            if (e.key === 'Enter') {
-                                              const target = e.target as HTMLInputElement;
+                                            if (e.key === 'Enter' && !e.shiftKey) {
+                                              e.preventDefault();
+                                              const target = e.target as HTMLTextAreaElement;
                                               if (target.value.trim()) {
                                                 handlePodcastInput(target.value);
                                                 target.value = '';
+                                                target.style.height = '54px';
                                               }
                                             }
+                                          }}
+                                          onInput={(e) => {
+                                            const target = e.target as HTMLTextAreaElement;
+                                            target.style.height = 'auto';
+                                            target.style.height = `${Math.min(target.scrollHeight, 144)}px`;
                                           }}
                                         />
                                         <div className="absolute right-3 top-1/2 -translate-y-1/2">
                                           <button 
                                             onClick={() => {
-                                              const input = document.getElementById('podcast-chat-input') as HTMLInputElement;
+                                              const input = document.getElementById('podcast-chat-input') as HTMLTextAreaElement;
                                               if (input && input.value.trim()) {
                                                 handlePodcastInput(input.value);
                                                 input.value = '';
+                                                input.style.height = '54px';
                                               }
                                             }}
                                             className="p-2 bg-[#DC2626] text-white rounded-xl shadow-lg hover:scale-110 active:scale-95 transition-all"
@@ -9853,8 +10165,8 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                               </div>
                             )}
                             <div className="absolute bottom-3 right-3 flex items-center gap-2">
-                              <p className={`text-[8px] font-black uppercase ${quizTopic.split(/\s+/).filter(Boolean).length > (isPremium ? 150 : 30) ? 'text-red-500' : 'text-white/20'}`}>
-                                {quizTopic.split(/\s+/).filter(Boolean).length} / {isPremium ? 150 : 30} Words
+                              <p className={`text-[8px] font-black uppercase ${quizTopic.split(/\s+/).filter(Boolean).length > (importedQuizNote ? 5000 : (isPremium ? 20000 : 300)) ? 'text-red-500' : 'text-white/20'}`}>
+                                {quizTopic.split(/\s+/).filter(Boolean).length} / {importedQuizNote ? 5000 : (isPremium ? 20000 : 300)} Words
                               </p>
                             </div>
                           </div>
@@ -10041,35 +10353,143 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                 </div>
               )}
 
-              {quizState === 'finished' && (
-                <div className={`${theme === 'dark' ? 'bg-[#13111C] border-white/10' : 'bg-white border-slate-200'} p-10 rounded-3xl border text-center space-y-8 shadow-sm`}>
-                  <div className="w-24 h-24 bg-[#DC2626]/10 rounded-full flex items-center justify-center mx-auto relative">
-                    <Trophy size={48} className="text-[#DC2626]" />
-                    <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ repeat: Infinity, duration: 2 }} className="absolute inset-0 bg-[#DC2626]/5 rounded-full" />
+              {quizState === 'finished' && (() => {
+                const percentage = Math.round((quizScore / (quizQuestions.length || 1)) * 100);
+                
+                let colorTheme = {
+                  bg: 'bg-emerald-500/10',
+                  text: 'text-emerald-500',
+                  border: 'border-emerald-500/20',
+                  glow: 'shadow-emerald-500/20',
+                  grade: 'A+',
+                  phrase: 'Academic Legend! You completely understand this topic! 👑🧠',
+                  badgeColor: 'bg-gradient-to-r from-emerald-500 to-green-600',
+                };
+
+                if (percentage >= 80) {
+                  colorTheme = {
+                    bg: 'bg-emerald-500/10',
+                    text: 'text-emerald-500',
+                    border: 'border-emerald-500/20',
+                    glow: 'shadow-emerald-500/20',
+                    grade: 'A',
+                    phrase: 'Magnificent performance! Keep striving for perfection! 🏆✨',
+                    badgeColor: 'bg-gradient-to-r from-emerald-500 to-green-600',
+                  };
+                } else if (percentage >= 60) {
+                  colorTheme = {
+                    bg: 'bg-amber-500/10',
+                    text: 'text-amber-500',
+                    border: 'border-amber-500/20',
+                    glow: 'shadow-amber-500/20',
+                    grade: 'B',
+                    phrase: 'Solid work! Just a few gaps left to conquer. 📚💪',
+                    badgeColor: 'bg-gradient-to-r from-amber-500 to-yellow-600',
+                  };
+                } else if (percentage >= 40) {
+                  colorTheme = {
+                    bg: 'bg-blue-500/10',
+                    text: 'text-blue-500',
+                    border: 'border-blue-500/20',
+                    glow: 'shadow-blue-500/20',
+                    grade: 'C',
+                    phrase: 'Passable result. Focus on the wrong answers to grow! 📊💡',
+                    badgeColor: 'bg-gradient-to-r from-blue-500 to-indigo-600',
+                  };
+                } else {
+                  colorTheme = {
+                    bg: 'bg-red-500/10',
+                    text: 'text-red-500',
+                    border: 'border-red-500/20',
+                    glow: 'shadow-red-500/20',
+                    grade: 'F',
+                    phrase: 'You can do better! Revise the notes, study harder, and try again! 💡❌',
+                    badgeColor: 'bg-gradient-to-r from-red-500 to-rose-600',
+                  };
+                }
+
+                return (
+                  <div className={`${theme === 'dark' ? 'bg-[#13111C] border-white/10' : 'bg-white border-slate-200'} p-8 sm:p-10 rounded-3xl border text-center space-y-8 shadow-2xl relative overflow-hidden`}>
+                    <div className="absolute top-0 left-0 w-48 h-48 bg-gradient-to-br from-red-500/10 to-blue-500/0 rounded-full blur-3xl pointer-events-none" />
+                    <div className="absolute bottom-0 right-0 w-48 h-48 bg-gradient-to-tl from-[#DC2626]/10 to-blue-500/0 rounded-full blur-3xl pointer-events-none" />
+
+                    <div className="space-y-4 relative">
+                      <div className="w-24 h-24 bg-gradient-to-tr from-[#DC2626] to-red-500 rounded-full flex items-center justify-center mx-auto shadow-2xl shadow-red-500/30 relative">
+                        <Trophy size={48} className="text-white" />
+                        <motion.div animate={{ scale: [1, 1.25, 1] }} transition={{ repeat: Infinity, duration: 2.5 }} className="absolute inset-0 bg-red-500/20 rounded-full -z-10" />
+                      </div>
+                      <div>
+                        <span className={`px-4 py-1 text-[10px] font-black uppercase tracking-widest text-white rounded-full ${colorTheme.badgeColor} shadow-md`}>
+                          Grade {colorTheme.grade}
+                        </span>
+                        <h3 className={`text-3xl font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'} uppercase tracking-tighter mt-3`}>
+                          Assessment Report
+                        </h3>
+                        <p className={`${theme === 'dark' ? 'text-white/50' : 'text-slate-500'} text-xs font-medium`}>
+                          Generated for {quizTopic || 'General Material'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className={`p-5 rounded-2xl border ${theme === 'dark' ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-100'} flex flex-col justify-between text-left`}>
+                        <div>
+                          <p className={`text-[10px] font-black ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'} uppercase tracking-wider`}>Overall Proficiency</p>
+                          <h4 className="text-4xl font-black text-[#DC2626] mt-2">{percentage}%</h4>
+                        </div>
+                        <div className="w-full bg-slate-200 dark:bg-white/10 h-2.5 rounded-full overflow-hidden mt-4">
+                          <motion.div 
+                            initial={{ width: 0 }} 
+                            animate={{ width: `${percentage}%` }} 
+                            transition={{ duration: 1 }} 
+                            className="bg-gradient-to-r from-[#DC2626] to-red-400 h-full rounded-full" 
+                          />
+                        </div>
+                      </div>
+
+                      <div className={`p-5 rounded-2xl border ${theme === 'dark' ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-100'} text-left space-y-1`}>
+                        <p className={`text-[10px] font-black ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'} uppercase tracking-wider`}>Correct Answers</p>
+                        <div className="flex items-baseline gap-2 mt-2">
+                          <span className="text-4xl font-black text-emerald-500">{quizScore}</span>
+                          <span className={`text-lg font-bold ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>/ {quizQuestions.length || 1}</span>
+                        </div>
+                        <p className={`text-[10px] font-medium ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} pt-1`}>
+                          {quizQuestions.length - quizScore} questions missed
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className={`p-5 rounded-2xl border ${colorTheme.bg} ${colorTheme.border} text-left flex items-start gap-3 shadow-lg ${colorTheme.glow}`}>
+                      <span className="text-2xl select-none mt-0.5">💡</span>
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-black text-red-500 uppercase tracking-widest">Omni Study Advisor</p>
+                        <p className={`text-xs font-bold leading-relaxed ${theme === 'dark' ? 'text-white/90' : 'text-slate-800'}`}>
+                          {colorTheme.phrase}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <button onClick={shareQuiz} className="w-full bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-white/60 font-bold py-4 rounded-2xl text-xs hover:bg-slate-200 dark:hover:bg-white/10 transition-all flex items-center justify-center gap-2 border border-transparent dark:border-white/5">
+                          <Share2 size={16} /> SHARE LINK
+                        </button>
+                        <button onClick={handleShareResult} className="w-full bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-white/60 font-bold py-4 rounded-2xl text-xs hover:bg-slate-200 dark:hover:bg-white/10 transition-all flex items-center justify-center gap-2 border border-transparent dark:border-white/5">
+                          <Share2 size={16} /> SHARE STATS
+                        </button>
+                      </div>
+
+                      <button onClick={() => setQuizState('review')} className="w-full bg-[#DC2626] text-white font-black py-4 rounded-2xl text-xs sm:text-sm shadow-xl shadow-[#DC2626]/20 hover:bg-[#DC2626]/90 transition-all flex items-center justify-center gap-2">
+                        <Search size={18} /> CHECK RESULTS & DETAILED EXPLANATIONS
+                      </button>
+                      
+                      <button onClick={() => setQuizState('idle')} className="w-full bg-white/5 text-white/40 font-bold py-3 rounded-2xl text-xs hover:bg-white/10 transition-all">
+                        TRY ANOTHER TOPIC
+                      </button>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className={`text-2xl font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'} uppercase tracking-tighter`}>Assessment Complete</h3>
-                    <p className={`${theme === 'dark' ? 'text-white/40' : 'text-slate-500'} text-sm mt-1`}>You've successfully finished the quiz.</p>
-                  </div>
-                  <div className={`py-8 border-y ${theme === 'dark' ? 'border-white/5' : 'border-slate-100'}`}>
-                    <p className={`text-[10px] font-black ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} uppercase tracking-widest mb-1`}>Your Score</p>
-                    <p className="text-6xl font-black text-[#DC2626]">{quizScore} / {quizQuestions.length || 1}</p>
-                    <p className={`text-xs font-bold ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} mt-2 uppercase tracking-widest`}>{Math.round((quizScore / (quizQuestions.length || 1)) * 100)}% Proficiency</p>
-                  </div>
-                  <div className="flex flex-col gap-3">
-                    <button onClick={shareQuiz} className="w-full bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-white/60 font-bold py-4 rounded-2xl text-sm hover:bg-slate-200 dark:hover:bg-white/10 transition-all flex items-center justify-center gap-2">
-                      <Share2 size={18} /> SHARE QUIZ LINK
-                    </button>
-                    <button onClick={handleShareResult} className="w-full bg-red-500 hover:bg-red-500/90 text-white font-black py-4 rounded-2xl text-sm shadow-xl shadow-red-500/20 transition-all flex items-center justify-center gap-2">
-                      <Share2 size={18} /> SHARE SCORE CARD
-                    </button>
-                    <button onClick={() => setQuizState('review')} className="w-full bg-[#DC2626] text-white font-black py-4 rounded-2xl text-sm shadow-xl shadow-[#DC2626]/20 hover:bg-[#DC2626]/90 transition-all flex items-center justify-center gap-2">
-                      <Search size={18} /> CHECK QUIZ RESULTS & EXPLANATIONS
-                    </button>
-                    <button onClick={() => setQuizState('idle')} className="w-full bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-white/60 font-bold py-4 rounded-2xl text-sm hover:bg-slate-200 dark:hover:bg-white/10 transition-all">TRY ANOTHER TOPIC</button>
-                  </div>
-                </div>
-              )}
+                );
+              })()}
 
               {quizState === 'review' && (
                 <div className="space-y-6">
@@ -10664,6 +11084,7 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                         quizState={quizState}
                         setQuizState={setQuizState}
                         checkAndIncrementUsage={checkAndIncrementUsage}
+                        customCourses={customCourses}
                       />
                     </motion.div>
                   )}
@@ -10922,25 +11343,24 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                   <div className="flex items-center gap-3">
                     <button onClick={() => setShowChatSidebar(true)} className="p-2 hover:bg-white/5 rounded-xl transition-all" style={{ color: 'var(--text-primary)' }}><Menu size={20} /></button>
                     
-                    {/* Branded Omni Logo */}
-                    <div className="flex items-center gap-2.5">
-                      <div
-                        className="w-8 h-8 rounded-xl flex items-center justify-center relative shrink-0"
-                        style={{
-                          background: 'linear-gradient(135deg, #FF007F 0%, #DC2626 50%, #991B1B 100%)',
-                          boxShadow: '0 0 12px var(--accent-glow)',
-                        }}
-                      >
-                        <span
-                          className="font-black text-white text-sm leading-none"
-                          style={{ fontFamily: 'var(--font-display)' }}
-                        >
-                          O
-                        </span>
+                    {/* Branded Omni & Zeal Logo */}
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1 bg-black/40 p-1 rounded-xl border border-white/5">
+                        <div className="w-7 h-7 rounded-lg bg-black flex items-center justify-center border border-red-500/30 shadow-[0_0_8px_rgba(239,68,68,0.2)] shrink-0">
+                          <Brain size={14} className="text-red-500 drop-shadow-[0_0_5px_#EF4444] animate-pulse" />
+                        </div>
+                        <div className="w-2.5 h-2.5 flex items-center justify-center text-white/10 font-black text-[8px] font-mono">&</div>
+                        <div className="w-7 h-7 rounded-lg bg-black flex items-center justify-center border border-red-900/30 shrink-0">
+                          <span className="font-display font-black text-red-700 text-xs">Z</span>
+                        </div>
                       </div>
                       <div>
-                        <h3 className="text-sm font-black text-white uppercase tracking-tight leading-none" style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>Omni</h3>
-                        <p className="text-[8px] font-bold text-green-500 uppercase tracking-[0.15em] mt-0.5 animate-pulse">Neural Engine v4.0</p>
+                        <div className="flex items-center gap-1">
+                          <h3 className="text-xs font-black text-white uppercase tracking-tight leading-none" style={{ fontFamily: 'var(--font-display)' }}>Omni</h3>
+                          <span className="text-[10px] font-black text-red-500 uppercase leading-none">&</span>
+                          <h3 className="text-xs font-black text-red-600 uppercase tracking-tight leading-none" style={{ fontFamily: 'var(--font-display)' }}>Zeal</h3>
+                        </div>
+                        <p className="text-[7px] font-bold text-red-500 uppercase tracking-[0.15em] mt-0.5 animate-pulse">Dual Neural Core</p>
                       </div>
                     </div>
                   </div>
@@ -10994,16 +11414,21 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                               animate={{ opacity: 1, y: 0 }}
                               className="space-y-4"
                             >
-                              {/* Glowing Omni Emblem */}
-                              <div 
-                                className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6 relative"
-                                style={{
-                                  background: 'linear-gradient(135deg, #FF007F 0%, #DC2626 50%, #991B1B 100%)',
-                                  boxShadow: '0 0 24px var(--accent-glow)',
-                                }}
-                              >
-                                <Brain size={28} className="text-white animate-pulse" />
-                                <div className="absolute -inset-1 bg-gradient-to-r from-red-500 to-pink-500 rounded-2xl blur opacity-30 animate-pulse -z-10" />
+                              {/* Glowing Omni & Zeal Emblem */}
+                              <div className="flex items-center justify-center gap-3 mb-6">
+                                {/* Omni */}
+                                <div 
+                                  className="w-14 h-14 rounded-2xl flex items-center justify-center bg-black border-2 border-red-500/40 relative shadow-[0_0_15px_rgba(239,68,68,0.2)]"
+                                >
+                                  <Brain size={24} className="text-red-500 drop-shadow-[0_0_6px_#EF4444] animate-pulse" />
+                                </div>
+                                <span className="text-red-500/30 text-lg font-bold font-mono">&</span>
+                                {/* Zeal */}
+                                <div 
+                                  className="w-14 h-14 rounded-2xl flex items-center justify-center bg-black border-2 border-red-950/40 relative shadow-[0_0_10px_rgba(139,0,0,0.1)]"
+                                >
+                                  <span className="font-display font-black text-red-700 text-xl">Z</span>
+                                </div>
                               </div>
                               
                               <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight leading-none bg-clip-text text-transparent bg-gradient-to-r from-[#DC2626] via-pink-500 to-blue-500 font-display" style={{ fontFamily: 'var(--font-display)' }}>
@@ -11420,8 +11845,14 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
 
                             {/* Main Input Textarea */}
                             <textarea 
+                              id="main-chat-textarea"
                               value={chatInput} 
                               onChange={(e) => setChatInput(e.target.value)} 
+                              onInput={(e) => {
+                                const target = e.target as HTMLTextAreaElement;
+                                target.style.height = 'auto';
+                                target.style.height = `${Math.min(target.scrollHeight, 112)}px`;
+                              }}
                               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
                               placeholder={isRecordingChat ? "Recording audio..." : chatMode === 'Vision' ? "Ask about diagrams..." : "Ask Omni..."} 
                               className="flex-1 bg-transparent border-none outline-none px-2 py-2 text-xs placeholder:text-white/20 resize-none min-h-[38px] max-h-28 self-center custom-scrollbar" 
@@ -11699,6 +12130,7 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
               setShowInviteModal={setShowInviteModal}
               theme={theme}
               quests={dailyQuests}
+              userNotes={userNotes}
             />
           )}
 
@@ -12086,7 +12518,16 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                                 // Navigate to specified tool tab
                                 setActiveTab(qst.targetTab as any);
                                 if (qst.targetSubTab) {
-                                  setToolsSubTab(qst.targetSubTab as any);
+                                  let sub = qst.targetSubTab;
+                                  if (sub === 'voice') sub = 'record';
+                                  
+                                  if (qst.targetTab === 'tools') {
+                                    setToolsSubTab(sub as any);
+                                  } else if (qst.targetTab === 'profile') {
+                                    setProfileSubTab(sub as any);
+                                  } else if (qst.targetTab === 'community') {
+                                    setCommunitySubTab(sub as any);
+                                  }
                                 }
                                 setUserNotification(`🚀 Milestone: ${qst.title}! Let's go dynamic.`);
                               }
@@ -13754,6 +14195,7 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                   { id: 'reports', label: 'Safety', icon: AlertTriangle },
                   { id: 'marketing', label: 'Broadcasting', icon: Mail },
                   { id: 'blog', label: 'Feed', icon: BookOpen },
+                  { id: 'courses', label: 'Courses', icon: GraduationCap },
                 ].map((item) => (
                   <button
                     key={item.id}
@@ -13790,6 +14232,7 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                     {godTab === 'marketing' && 'Broadcast Hub'}
                     {godTab === 'blog' && 'Neural Feed'}
                     {godTab === 'reports' && 'Security Protocol'}
+                    {godTab === 'courses' && 'Curriculum Architect'}
                   </h2>
                 </div>
                 
@@ -13892,17 +14335,28 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                                 <p className="text-[8px] text-white/30 uppercase tracking-widest">{group.members?.length || 0} Summaries Connected</p>
                               </div>
                             </div>
-                            <button 
-                              onClick={async () => {
-                                if (confirm('Erase this cluster?')) {
-                                  await deleteDoc(doc(db, 'chats', group.id));
-                                  setGodModeNotification("Group cluster vaporized.");
-                                }
-                              }}
-                              className="p-3 bg-white/5 rounded-xl text-white/20 hover:text-red-500 transition-all"
-                            >
-                              <Trash2 size={18} />
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button 
+                                onClick={() => setEditingGroup(group)}
+                                className="p-3 bg-white/5 rounded-xl text-white/20 hover:text-white hover:bg-white/10 transition-all"
+                                title="RECONFIGURE"
+                              >
+                                <Edit3 size={18} />
+                              </button>
+                              <button 
+                                onClick={async () => {
+                                  if (confirm('Erase this cluster?')) {
+                                    await deleteDoc(doc(db, 'chats', group.id));
+                                    setGodModeNotification("Group cluster vaporized.");
+                                    setTimeout(() => setGodModeNotification(null), 3000);
+                                  }
+                                }}
+                                className="p-3 bg-white/5 rounded-xl text-white/20 hover:text-red-500 transition-all"
+                                title="DELETE"
+                              >
+                                <Trash2 size={18} />
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -13988,6 +14442,44 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                         </div>
                       </div>
 
+                      {/* Search & Filter Controls */}
+                      <div className="flex flex-col md:flex-row gap-4 justify-between items-center bg-white/[0.02] p-4 rounded-2xl border border-white/5">
+                        <div className="relative w-full md:max-w-md">
+                          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40 w-4 h-4" />
+                          <input
+                            type="text"
+                            placeholder="Search by name, email, matric, department, school..."
+                            value={godUserSearch}
+                            onChange={(e) => setGodUserSearch(e.target.value)}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl pl-11 pr-4 py-2.5 text-xs text-white focus:outline-none focus:border-[#DC2626]/50 transition-all font-medium"
+                          />
+                          {godUserSearch && (
+                            <button onClick={() => setGodUserSearch('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/40 hover:text-white text-xs">Clear</button>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {[
+                            { id: 'all', label: 'All Users' },
+                            { id: 'premium', label: 'Premium' },
+                            { id: 'free', label: 'Free Tier' },
+                            { id: 'online', label: 'Online' },
+                            { id: 'banned', label: 'Banned' }
+                          ].map((tab) => (
+                            <button
+                              key={tab.id}
+                              onClick={() => setGodUserFilter(tab.id as any)}
+                              className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all border ${
+                                godUserFilter === tab.id
+                                  ? 'bg-[#DC2626] border-[#DC2626] text-white shadow-md shadow-red-950/50'
+                                  : 'bg-white/5 border-white/5 text-white/40 hover:text-white hover:border-white/10'
+                              }`}
+                            >
+                              {tab.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
                       <div className="overflow-x-auto custom-scrollbar">
                         <table className="w-full text-left font-sans">
                           <thead>
@@ -13999,7 +14491,29 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                             </tr>
                           </thead>
                           <tbody className="text-white/70">
-                            {allUsers.map(u => {
+                            {allUsers
+                              .filter(u => {
+                                if (godUserSearch) {
+                                  const searchLower = godUserSearch.toLowerCase().trim();
+                                  const matchesName = (u.fullName || '').toLowerCase().includes(searchLower) || (u.displayName || '').toLowerCase().includes(searchLower);
+                                  const matchesEmail = (u.email || '').toLowerCase().includes(searchLower);
+                                  const matchesMatric = (u.matric || '').toLowerCase().includes(searchLower);
+                                  const matchesDept = (u.department || '').toLowerCase().includes(searchLower);
+                                  const matchesSchool = (u.university || '').toLowerCase().includes(searchLower);
+                                  if (!matchesName && !matchesEmail && !matchesMatric && !matchesDept && !matchesSchool) {
+                                    return false;
+                                  }
+                                }
+                                if (godUserFilter === 'premium') return u.isPremium;
+                                if (godUserFilter === 'free') return !u.isPremium;
+                                if (godUserFilter === 'banned') return u.status === 'deleted';
+                                if (godUserFilter === 'online') {
+                                  const lastSeenTime = u.lastSeen?.toDate ? u.lastSeen.toDate() : (u.lastSeen ? new Date(u.lastSeen) : null);
+                                  return lastSeenTime && (Date.now() - lastSeenTime.getTime() < 180000);
+                                }
+                                return true;
+                              })
+                              .map(u => {
                                const lastSeenTime = u.lastSeen?.toDate ? u.lastSeen.toDate() : (u.lastSeen ? new Date(u.lastSeen) : null);
                                const isOnline = lastSeenTime && (Date.now() - lastSeenTime.getTime() < 180000); // 3 minutes
 
@@ -14172,6 +14686,137 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                          >
                            {templateEditForm?.id ? 'EXECUTE MASSIVE UPLINK' : 'LINK OFFLINE'}
                          </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {godTab === 'courses' && (
+                    <div className="bg-[#13111C]/90 border border-white/10 p-4 md:p-10 rounded-[2rem] md:rounded-[3rem] space-y-6 md:space-y-10 relative overflow-hidden shadow-2xl">
+                      <div className="absolute top-0 right-0 p-6 md:p-10 opacity-[0.02] pointer-events-none">
+                         <GraduationCap className="w-[150px] h-[150px] md:w-[250px] md:h-[250px]" />
+                      </div>
+                      
+                      <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-white/5 pb-6 md:pb-10 gap-4">
+                        <div>
+                          <h3 className="text-xl md:text-3xl font-black text-white uppercase tracking-tighter flex items-center gap-3 md:gap-4 italic leading-none">
+                             <GraduationCap className="w-6 h-6 md:w-8 md:h-8 text-[#DC2626]" /> Curriculum Builder
+                          </h3>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-white/40 mt-2">Create, edit, and orchestrate standard academic courses</p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+                        {/* Form Column */}
+                        <form onSubmit={handleSaveCourse} className="lg:col-span-5 space-y-6 bg-white/[0.01] border border-white/5 rounded-[2.5rem] p-6 md:p-8 shadow-inner">
+                          <h4 className="text-sm font-black text-white uppercase tracking-[0.2em] mb-4">
+                            {editingCourseId ? 'Modify Course Definition' : 'Define New Course'}
+                          </h4>
+                          
+                          <div className="space-y-2">
+                            <label className="text-[9px] font-black text-white/20 uppercase tracking-[0.3em] ml-2">Course Code</label>
+                            <input 
+                              type="text" 
+                              required 
+                              placeholder="e.g. MTH 101" 
+                              value={newCourseCode} 
+                              onChange={e => setNewCourseCode(e.target.value)}
+                              className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-xs font-bold text-white outline-none focus:border-[#DC2626] transition-all" 
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-[9px] font-black text-white/20 uppercase tracking-[0.3em] ml-2">Course Title / Name</label>
+                            <input 
+                              type="text" 
+                              required 
+                              placeholder="e.g. Elementary Mathematics I" 
+                              value={newCourseName} 
+                              onChange={e => setNewCourseName(e.target.value)}
+                              className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-xs font-bold text-white outline-none focus:border-[#DC2626] transition-all" 
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-[9px] font-black text-white/20 uppercase tracking-[0.3em] ml-2">Curriculum Content / Description</label>
+                            <textarea 
+                              required 
+                              placeholder="Enter comprehensive details, syllabus topics, and notes for students to learn..." 
+                              value={newCourseDesc} 
+                              onChange={e => setNewCourseDesc(e.target.value)}
+                              className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-xs font-medium text-white/80 outline-none focus:border-[#DC2626] transition-all h-40 resize-none leading-relaxed" 
+                            />
+                          </div>
+
+                          <div className="flex gap-3 pt-2">
+                            {editingCourseId && (
+                              <button 
+                                type="button" 
+                                onClick={() => {
+                                  setEditingCourseId(null);
+                                  setNewCourseCode('');
+                                  setNewCourseName('');
+                                  setNewCourseDesc('');
+                                }}
+                                className="flex-1 px-4 py-3 bg-white/5 hover:bg-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
+                              >
+                                Cancel
+                              </button>
+                            )}
+                            <button 
+                              type="submit" 
+                              className="flex-[2] bg-[#DC2626] hover:bg-[#DC2626]/90 text-white py-3 px-6 text-[10px] font-black uppercase tracking-widest rounded-xl shadow-lg shadow-red-900/30 hover:scale-[1.02] active:scale-95 transition-all"
+                            >
+                              {editingCourseId ? 'Update Course' : 'Save & Publish Course'}
+                            </button>
+                          </div>
+                        </form>
+
+                        {/* List Column */}
+                        <div className="lg:col-span-7 space-y-4">
+                          <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em] pl-2">Existing Custom Curriculums ({customCourses.length})</p>
+                          <div className="max-h-[500px] overflow-y-auto pr-2 space-y-3 custom-scrollbar">
+                            {customCourses.length === 0 ? (
+                              <div className="p-12 text-center border border-dashed border-white/5 rounded-3xl opacity-20">
+                                <BookOpen className="w-10 h-10 mx-auto mb-3" />
+                                <p className="text-xs font-black uppercase tracking-wider">No Custom Courses Yet</p>
+                              </div>
+                            ) : (
+                              customCourses.map(c => (
+                                <div key={c.id} className="p-5 rounded-2xl border border-white/5 bg-white/[0.02] flex items-start justify-between gap-4 hover:border-white/10 transition-all">
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-3 mb-1">
+                                      <span className="text-[#DC2626] font-mono text-[10px] font-black uppercase tracking-widest bg-[#DC2626]/10 px-2.5 py-1 rounded-lg">{c.code}</span>
+                                      <h5 className="font-black text-xs text-white uppercase truncate">{c.name}</h5>
+                                    </div>
+                                    <p className="text-[10px] text-white/50 line-clamp-2 leading-relaxed">{c.description}</p>
+                                  </div>
+                                  
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <button 
+                                      onClick={() => {
+                                        setEditingCourseId(c.id);
+                                        setNewCourseCode(c.code || '');
+                                        setNewCourseName(c.name || '');
+                                        setNewCourseDesc(c.description || '');
+                                      }}
+                                      className="p-2 rounded-lg bg-white/5 text-white/40 hover:text-white hover:bg-white/10 transition-all"
+                                      title="Edit"
+                                    >
+                                      <Edit3 size={12} />
+                                    </button>
+                                    <button 
+                                      onClick={() => handleDeleteCourse(c.id)}
+                                      className="p-2 rounded-lg bg-[#DC2626]/10 text-[#DC2626] hover:bg-[#DC2626] hover:text-white transition-all"
+                                      title="Delete"
+                                    >
+                                      <Trash2 size={12} />
+                                    </button>
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -14366,6 +15011,42 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
 
                 <div className="flex gap-4 pt-6 pb-2">
                   <button type="button" onClick={() => setEditingUser(null)} className="flex-1 bg-white/5 border border-white/10 text-white/40 font-black py-3 rounded-2xl text-[9px] uppercase tracking-widest hover:text-white transition-all">Abort Task</button>
+                  <button type="submit" className="flex-[2] bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black py-3 rounded-2xl text-[9px] uppercase tracking-[0.2em] shadow-2xl shadow-red-900/40 active:scale-95 transition-all">Commit Changes</button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {editingGroup && (
+          <div className="fixed inset-0 z-[500] flex items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }} 
+              animate={{ scale: 1, opacity: 1 }} 
+              exit={{ scale: 0.9, opacity: 0 }} 
+              className={`${theme === 'dark' ? 'bg-[#13111C] border-white/10' : 'bg-white border-slate-200'} border rounded-3xl p-5 md:p-8 max-w-md w-full max-h-[95vh] overflow-y-auto custom-scrollbar space-y-4 md:space-y-6 flex flex-col`}
+            >
+              <div className="text-center space-y-1 pb-2">
+                <h3 className="text-lg md:text-xl font-black text-white uppercase tracking-tighter">Cluster Configuration</h3>
+                <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">Administrative Override Active</p>
+              </div>
+              
+              <form onSubmit={handleEditGroup} className="space-y-4 pb-4 flex-1">
+                <div className="space-y-1">
+                  <p className="text-[8px] font-black text-white/30 uppercase tracking-widest ml-2">Cluster Name</p>
+                  <input type="text" value={editingGroup.name || ''} onChange={(e) => setEditingGroup({...editingGroup, name: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none text-white focus:border-[#DC2626]/50 transition-all" placeholder="Cluster Name" required />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-[8px] font-black text-white/30 uppercase tracking-widest ml-2">Description / Bio</p>
+                  <textarea value={editingGroup.description || ''} onChange={(e) => setEditingGroup({...editingGroup, description: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none text-white focus:border-[#DC2626]/50 transition-all h-24 resize-none" placeholder="Cluster description..." />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-[8px] font-black text-white/30 uppercase tracking-widest ml-2">Display URL (Image)</p>
+                  <input type="text" value={editingGroup.photoURL || ''} onChange={(e) => setEditingGroup({...editingGroup, photoURL: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none text-white focus:border-[#DC2626]/50 transition-all" placeholder="https://..." />
+                </div>
+
+                <div className="flex gap-4 pt-6 pb-2">
+                  <button type="button" onClick={() => setEditingGroup(null)} className="flex-1 bg-white/5 border border-white/10 text-white/40 font-black py-3 rounded-2xl text-[9px] uppercase tracking-widest hover:text-white transition-all">Abort Task</button>
                   <button type="submit" className="flex-[2] bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black py-3 rounded-2xl text-[9px] uppercase tracking-[0.2em] shadow-2xl shadow-red-900/40 active:scale-95 transition-all">Commit Changes</button>
                 </div>
               </form>
