@@ -12,6 +12,49 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(fetch(event.request));
 });
 
+// Message listener for scheduling background reminders when app is closed or minimized
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.action === 'schedule_reminder') {
+    const delay = event.data.delay || 10000;
+    const bodyText = event.data.message || "Ready to study? Try a quick Smart Quiz or read your notes now! 🧠";
+    
+    setTimeout(() => {
+      self.registration.showNotification("NSG Academic Assistant 🎓", {
+        body: bodyText,
+        icon: "/icon.svg",
+        badge: "/icon.svg",
+        vibrate: [100, 50, 100],
+        data: {
+          clickAction: "/"
+        }
+      });
+    }, delay);
+  }
+});
+
+// Periodic study reminder loop (every 4 hours as a standard background backup)
+setInterval(() => {
+  const studyPrompts = [
+    "Ready to boost your grade? Try a quick Smart Quiz today! 🧠",
+    "Time for a study break! Check out your customized Study Notes on NSG. 📝",
+    "Feeling stuck on homework? Let the Assignment Solver solve it step-by-step! 🎓",
+    "Keep your study streak alive! Host or join a Live Classroom session. 🔥",
+    "Challenge your brain with a mock CBT exam and verify your readiness! 📊"
+  ];
+  
+  const randomPrompt = studyPrompts[Math.floor(Math.random() * studyPrompts.length)];
+  
+  self.registration.showNotification("NSG Academic Assistant 🎓", {
+    body: randomPrompt,
+    icon: "/icon.svg",
+    badge: "/icon.svg",
+    vibrate: [100, 50, 100],
+    data: {
+      clickAction: "/"
+    }
+  });
+}, 4 * 60 * 60 * 1000);
+
 // PWA background 'push' notification handler
 self.addEventListener('push', (event) => {
   let data = {};

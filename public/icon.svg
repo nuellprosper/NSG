@@ -19,8 +19,8 @@
   </defs>
 
   <!-- Background -->
-  <rect width="512" height="512" fill="#0A0F1C" />
-  <circle cx="256" cy="256" r="235" fill="#0A0F1C" stroke="#1a1a1a" stroke-width="12" />
+  <rect width="512" height="512" fill="#13111C" />
+  <circle cx="256" cy="256" r="235" fill="#13111C" stroke="#1a1a1a" stroke-width="12" />
   
   <!-- NSG Text Logo -->
   <g transform="translate(256, 256)" filter="url(#neonGlow)">

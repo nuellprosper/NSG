@@ -1,17 +1,17 @@
 {
-  "name": "NSG Omni AI",
-  "short_name": "NSG AI",
-  "description": "Advanced AI-powered learning and assessment infrastructure.",
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#0f172a",
-  "theme_color": "#DC2626",
+  "short_name": "NSG",
+  "name": "NSG | Nuell Study Guide",
   "icons": [
     {
-      "src": "/icon.svg",
-      "sizes": "any",
+      "src": "icon.svg",
+      "sizes": "192x192 512x512",
       "type": "image/svg+xml",
       "purpose": "any maskable"
     }
-  ]
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#13111C",
+  "background_color": "#13111C"
 }
