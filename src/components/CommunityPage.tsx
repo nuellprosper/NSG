@@ -22,30 +22,22 @@ export const Emoji: React.FC<{ text: string; className?: string }> = ({ text, cl
 };
 
 const getUserRank = (points: number) => {
-  if (points >= 22500) return "Elite League";
-  if (points >= 18000) return "Champion League";
-  if (points >= 14000) return "Obsidian League";
-  if (points >= 10500) return "Ruby League";
-  if (points >= 7500) return "Diamond League";
-  if (points >= 5000) return "Emerald League";
-  if (points >= 3000) return "Sapphire League";
-  if (points >= 1500) return "Gold League";
-  if (points >= 500) return "Silver League";
+  if (points >= 341000) return "Pearl League";
+  if (points >= 85000) return "Ruby League";
+  if (points >= 21000) return "Platinum League";
+  if (points >= 5000) return "Gold League";
+  if (points >= 1000) return "Silver League";
   return "Bronze League";
 };
 
 const getScholarTierInfo = (points: number) => {
   const rank = getUserRank(points);
-  if (rank === "Elite League") return { color: "text-red-500", bg: "bg-red-500/10", border: "border-red-500/20", icon: "👑", badgeStyle: "shadow-[0_0_15px_rgba(239,68,68,0.25)] text-red-500 border-red-500/30 bg-red-950/40" };
-  if (rank === "Champion League") return { color: "text-purple-400", bg: "bg-purple-500/10", border: "border-purple-500/20", icon: "💎", badgeStyle: "shadow-[0_0_15px_rgba(168,85,247,0.25)] text-purple-400 border-purple-500/30 bg-purple-950/40" };
-  if (rank === "Obsidian League") return { color: "text-slate-200", bg: "bg-slate-500/10", border: "border-slate-500/20", icon: "🕶️", badgeStyle: "text-slate-100 border-slate-700/30 bg-slate-950/50" };
+  if (rank === "Pearl League") return { color: "text-pink-300", bg: "bg-pink-500/10", border: "border-pink-500/20", icon: "🦪", badgeStyle: "shadow-[0_0_15px_rgba(244,143,177,0.3)] text-pink-300 border-pink-300/30 bg-pink-950/40" };
   if (rank === "Ruby League") return { color: "text-rose-500", bg: "bg-rose-500/10", border: "border-rose-500/20", icon: "🌹", badgeStyle: "shadow-[0_0_12px_rgba(244,63,94,0.2)] text-rose-500 border-rose-500/30 bg-rose-950/40" };
-  if (rank === "Diamond League") return { color: "text-cyan-400", bg: "bg-cyan-500/10", border: "border-cyan-500/20", icon: "🔮", badgeStyle: "text-cyan-400 border-cyan-500/30 bg-cyan-950/40" };
-  if (rank === "Emerald League") return { color: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/20", icon: "🍀", badgeStyle: "text-emerald-400 border-emerald-500/30 bg-emerald-950/40" };
-  if (rank === "Sapphire League") return { color: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/20", icon: "🐳", badgeStyle: "text-blue-400 border-blue-500/30 bg-blue-950/40" };
+  if (rank === "Platinum League") return { color: "text-cyan-400", bg: "bg-cyan-500/10", border: "border-cyan-500/20", icon: "🛡️", badgeStyle: "shadow-[0_0_15px_rgba(34,211,238,0.25)] text-cyan-400 border-cyan-500/30 bg-cyan-950/40" };
   if (rank === "Gold League") return { color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20", icon: "🏆", badgeStyle: "shadow-[0_0_15px_rgba(251,191,36,0.25)] text-amber-400 border-amber-500/30 bg-amber-950/40" };
   if (rank === "Silver League") return { color: "text-slate-350", bg: "bg-slate-300/10", border: "border-slate-300/20", icon: "🥈", badgeStyle: "text-slate-300 border-slate-400/30 bg-slate-900/40" };
-  return { color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20", icon: "⭐️", badgeStyle: "text-orange-400 border-orange-500/30 bg-orange-950/40" };
+  return { color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20", icon: "🥉", badgeStyle: "text-orange-400 border-orange-500/30 bg-orange-950/40" };
 };
 
 interface CommunityPageProps {
@@ -68,6 +60,7 @@ interface CommunityPageProps {
   setShowInviteModal: (show: boolean) => void;
   theme: string;
   quests?: any[];
+  userNotes?: any[];
 }
 
 export const CommunityPage: React.FC<CommunityPageProps> = ({
@@ -89,9 +82,128 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
   setToolsSubTab,
   setShowInviteModal,
   theme,
-  quests = []
+  quests = [],
+  userNotes = []
 }) => {
   const [communitySubTab, setCommunitySubTab] = useState<'quests' | 'rankings'>('quests');
+
+  // Compute rank and league information
+  const currentRank = getUserRank(currentUserData?.points || 0); // e.g. "Silver League"
+  const rankMap: Record<string, any> = {
+    "Bronze League": { level: 1, code: "bronze", total: 5, scale: 1, reward: 200 },
+    "Silver League": { level: 2, code: "silver", total: 10, scale: 2, reward: 400 },
+    "Gold League": { level: 3, code: "gold", total: 20, scale: 4, reward: 800 },
+    "Platinum League": { level: 4, code: "platinum", total: 40, scale: 8, reward: 1600 },
+    "Ruby League": { level: 5, code: "ruby", total: 80, scale: 16, reward: 3200 },
+    "Pearl League": { level: 6, code: "pearl", total: 160, scale: 32, reward: 6400 },
+  };
+  const rankInfo = rankMap[currentRank] || rankMap["Bronze League"];
+
+  const claimedQuestsList = currentUserData?.claimedQuests || [];
+  // Filter claimed quests that start with our current rank code
+  const currentRankClaimedIds = claimedQuestsList.filter((id: string) => id.startsWith(`q_${rankInfo.code}_`));
+  const currentRankClaimedCount = currentRankClaimedIds.length;
+
+  // Which batch of 5 tasks is the user on?
+  const batchIndex = Math.floor(currentRankClaimedCount / 5);
+
+  const generateProgressiveTasks = () => {
+    const tasks = [];
+    const startIdx = batchIndex * 5 + 1;
+    // Each batch shows exactly 5 tasks at a time, up to the total tasks in this rank
+    const endIdx = Math.min(rankInfo.total, startIdx + 4);
+    
+    // Progress variables
+    const quizzesCount = finishedHistory.filter(h => h.type === 'quiz').length;
+    const sessionsCount = sessions.length;
+    const notesCount = userNotes.length;
+    const examsCount = finishedHistory.filter(h => h.type === 'exam').length;
+    const aiQueriesCount = currentUserData?.aiQueriesCount || 0;
+
+    for (let i = startIdx; i <= endIdx; i++) {
+      const taskTypeIdx = (i - 1) % 5;
+      let type = '';
+      let title = '';
+      let desc = '';
+      let progress = '0/0';
+      let isDone = false;
+      let targetTab = 'tools';
+      let targetSubTab = '';
+      let chest = '🎁';
+      let buttonLabel = 'GO TO TOOL';
+      let currentVal = 0;
+      let targetVal = 0;
+
+      const scale = rankInfo.scale;
+      const batchOffset = Math.floor((i - 1) / 5);
+      
+      if (taskTypeIdx === 0) {
+        type = 'quiz';
+        title = `${currentRank.replace(' League', '')} Quiz Retention [Tier ${batchOffset + 1}]`;
+        targetVal = Math.max(1, Math.floor(1 * scale * Math.pow(1.5, batchOffset)));
+        currentVal = quizzesCount;
+        desc = `Complete ${targetVal} quizzes successfully to test active retrieval.`;
+        targetSubTab = 'quiz';
+        chest = '⚡';
+      } else if (taskTypeIdx === 1) {
+        type = 'voice';
+        title = `${currentRank.replace(' League', '')} Voice Lecture [Tier ${batchOffset + 1}]`;
+        targetVal = Math.max(1, Math.floor(1 * scale * Math.pow(1.5, batchOffset)));
+        currentVal = sessionsCount;
+        desc = `Record ${targetVal} full lectures using the smart audio tool.`;
+        targetSubTab = 'record';
+        chest = '🎤';
+      } else if (taskTypeIdx === 2) {
+        type = 'notebook';
+        title = `${currentRank.replace(' League', '')} Study Note Sync [Tier ${batchOffset + 1}]`;
+        targetVal = Math.max(1, Math.floor(1 * scale * Math.pow(1.5, batchOffset)));
+        currentVal = notesCount;
+        desc = `Generate and save ${targetVal} sources or study notes in your workspace.`;
+        targetSubTab = 'notebook';
+        chest = '📚';
+      } else if (taskTypeIdx === 3) {
+        type = 'exam';
+        title = `${currentRank.replace(' League', '')} CBT Preparation [Tier ${batchOffset + 1}]`;
+        targetVal = Math.max(1, Math.floor(1 * scale * Math.pow(1.5, batchOffset)));
+        currentVal = examsCount;
+        desc = `Take and finish ${targetVal} standard mock exams.`;
+        targetSubTab = 'exam';
+        chest = '📝';
+      } else {
+        type = 'ai';
+        title = `${currentRank.replace(' League', '')} Cognitive Dialog [Tier ${batchOffset + 1}]`;
+        targetVal = Math.max(2, Math.floor(2 * scale * Math.pow(1.5, batchOffset)));
+        currentVal = aiQueriesCount;
+        desc = `Consult Omni AI Tutor ${targetVal} times for high-level guidance.`;
+        targetSubTab = 'notebook';
+        chest = '🧠';
+      }
+
+      isDone = currentVal >= targetVal;
+      progress = `${Math.min(currentVal, targetVal)}/${targetVal}`;
+      const reward = rankInfo.reward;
+
+      tasks.push({
+        id: `q_${rankInfo.code}_${i}`,
+        title,
+        desc,
+        progress,
+        isDone,
+        reward,
+        chest,
+        buttonLabel: `GO TO ${targetSubTab.toUpperCase()}`,
+        targetTab,
+        targetSubTab,
+        currentVal,
+        targetVal
+      });
+    }
+    return tasks;
+  };
+
+  const activeBatchQuests = generateProgressiveTasks();
+
+  const filteredLeaderboard = leaderboard.filter(u => getUserRank(u.points || 0) === currentRank);
 
   // Swipe gesture handlers
   const touchStartX = React.useRef<number | null>(null);
@@ -142,7 +254,7 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
           onClick={() => setCommunitySubTab('rankings')}
           className={`flex-1 py-3 px-4 rounded-[1.5rem] text-[10px] font-black uppercase tracking-widest transition-all ${communitySubTab === 'rankings' ? 'bg-gradient-to-r from-red-600 to-rose-500 text-white shadow-xl shadow-red-500/15 scale-102' : 'text-white/40 hover:text-white/60'}`}
         >
-          <Emoji text="🌐" /> World Rankings
+          <Emoji text="🌐" /> Community Rank
         </button>
       </div>
 
@@ -188,12 +300,19 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                 </div>
               </div>
 
-              {/* Daily Quests List with Chest graphics */}
+              {/* Progressive Rank-Specific Tasks List */}
               <div className="space-y-4">
-                <h5 className="text-[10px] font-black text-white/40 uppercase tracking-[0.25em]">DAILY STUDY QUESTS</h5>
+                <div className="flex items-center justify-between">
+                  <h5 className="text-[10px] font-black text-white/40 uppercase tracking-[0.25em]">
+                    ACTIVE RANK TASKS — {currentRank.toUpperCase()}
+                  </h5>
+                  <span className="text-[9px] font-black uppercase text-rose-400 bg-rose-400/10 px-2.5 py-1 rounded-full border border-rose-400/20">
+                    Batch {batchIndex + 1}
+                  </span>
+                </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {quests.map((qst, idx) => {
+                  {activeBatchQuests.map((qst, idx) => {
                     const isClaimed = currentUserData?.claimedQuests?.includes(qst.id);
                     const canClaim = qst.isDone && !isClaimed;
 
@@ -205,7 +324,7 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                           claimedQuests: arrayUnion(qst.id),
                           points: increment(pointsChange)
                         });
-                        setUserNotification(`🎁 QUEST COMPLETED! Claimed ${pointsChange} XP Points.`);
+                        setUserNotification(`🎁 PROGRESSIVE TASK COMPLETED! Claimed ${pointsChange} XP Points.`);
                       } catch (e) {
                          setUserNotification("Error claiming quest points. Try again!");
                       }
@@ -215,14 +334,16 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                       if (canClaim) {
                         handleQuestClaim();
                       } else if (isClaimed) {
-                        setUserNotification("🌈 Daily quest already claimed! Sweet multiplier added.");
+                        setUserNotification("🌈 Quest already claimed! Check out your next batch.");
                       } else {
                         // Navigate to specified tool tab
                         setActiveTab(qst.targetTab as any);
                         if (qst.targetSubTab) {
-                          setToolsSubTab(qst.targetSubTab as any);
+                          let sub = qst.targetSubTab;
+                          if (sub === 'voice') sub = 'record';
+                          setToolsSubTab(sub as any);
                         }
-                        setUserNotification(`🚀 Let's go do the "${qst.title}" study milestone!`);
+                        setUserNotification(`🚀 Redirecting you to do "${qst.title}" study milestone!`);
                       }
                     };
 
@@ -234,7 +355,8 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                               {isClaimed ? 'CLAIMED' : qst.isDone ? 'COMPLETED' : 'PENDING'}
                             </span>
                             <h6 className="font-black text-xs text-white uppercase tracking-tight mt-1">{qst.title}</h6>
-                            <p className="text-[9.5px] font-bold text-white/45 uppercase leading-none">{qst.desc}</p>
+                            <p className="text-[9.5px] font-bold text-white/45 uppercase leading-normal">{qst.desc}</p>
+                            <p className="text-[8px] font-bold text-white/30 uppercase tracking-widest mt-1">Progress: {qst.progress}</p>
                           </div>
                           <div className="text-3xl filter drop-shadow-lg"><Emoji text={qst.chest} /></div>
                         </div>
@@ -244,7 +366,7 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                           onClick={handleQuestAction}
                           className={`w-full py-3.5 px-4 rounded-xl font-black text-[9px] uppercase tracking-widest transition-all active:scale-95 ${canClaim ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-lg shadow-green-500/20 hover:from-green-450' : isClaimed ? 'bg-white/5 text-white/20 cursor-not-allowed border border-white/5' : 'bg-gradient-to-r from-red-600 to-rose-500 hover:from-red-500 hover:to-rose-450 hover:shadow-lg hover:shadow-red-500/15 text-white'}`}
                         >
-                          {canClaim ? "CLAIM +50 XP" : isClaimed ? "CLAIMED" : qst.buttonLabel}
+                          {canClaim ? `CLAIM +${qst.reward} XP` : isClaimed ? "CLAIMED" : qst.buttonLabel}
                         </button>
                       </div>
                     );
@@ -426,101 +548,127 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="md:col-span-2 space-y-6">
                 {/* 3D GLOSSY SCHOLAR PODIUM */}
-                {leaderboard.length >= 3 && (
+                {filteredLeaderboard.length >= 1 && (
                   <div className="relative overflow-hidden p-6 rounded-[2.5rem] bg-gradient-to-br from-[#1E1B2E] to-[#120F1F] shadow-3xl border border-white/5">
                     <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[#DC2626] via-pink-500 to-amber-500" />
                     <h3 className="text-center text-xs font-black uppercase tracking-[0.2em] text-yellow-500 mb-8 flex items-center justify-center gap-2">
-                      <Emoji text="👑" /> TOP NSG SCHOLARS <Emoji text="👑" />
+                      <Emoji text="👑" /> {currentRank.toUpperCase()} LEADERBOARD <Emoji text="👑" />
                     </h3>
                     
                     <div className="grid grid-cols-3 gap-2 items-end pt-4 pb-2 max-w-md mx-auto relative">
                       {/* 2ND PLACE - LEFT */}
-                      <div className="flex flex-col items-center">
-                        <div className="relative mb-2">
-                          <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-slate-400 to-slate-200 p-0.5 relative shadow-lg">
-                            <div className="w-full h-full rounded-full overflow-hidden bg-zinc-950 relative">
-                              {leaderboard[1]?.photoURL ? (
-                                <img src={leaderboard[1].photoURL} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center text-white/20"><User size={20} /></div>
-                              )}
+                      {filteredLeaderboard[1] ? (
+                        <div className="flex flex-col items-center">
+                          <div className="relative mb-2">
+                            <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-slate-400 to-slate-200 p-0.5 relative shadow-lg">
+                              <div className="w-full h-full rounded-full overflow-hidden bg-zinc-950 relative">
+                                {filteredLeaderboard[1]?.photoURL ? (
+                                  <img src={filteredLeaderboard[1].photoURL} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center text-white/20"><User size={20} /></div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-slate-300 text-black text-[8px] font-black rounded-full px-2 py-0.5 uppercase tracking-wider shadow flex items-center gap-1">
+                              <Emoji text="🥈" /> 2nd
                             </div>
                           </div>
-                          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-slate-300 text-black text-[8px] font-black rounded-full px-2 py-0.5 uppercase tracking-wider shadow flex items-center gap-1">
-                            <Emoji text="🥈" /> 2nd
+                          <p className="text-[10px] font-black text-white truncate w-20 text-center uppercase leading-none mt-1">
+                            {filteredLeaderboard[1]?.username || filteredLeaderboard[1]?.displayName?.split(' ')[0] || "Scholar"}
+                          </p>
+                          <span className="text-[8px] font-black px-2 py-0.5 rounded-full mt-1.5 bg-slate-400/10 text-slate-300">
+                            {filteredLeaderboard[1]?.points || 0} XP
+                          </span>
+                          {/* PODIUM STEP */}
+                          <div className="w-full bg-white/5 rounded-t-xl h-16 mt-3 flex items-center justify-center shadow-lg">
+                            <span className="text-xl font-black text-slate-400">2</span>
                           </div>
                         </div>
-                        <p className="text-[10px] font-black text-white truncate w-20 text-center uppercase leading-none mt-1">
-                          {leaderboard[1]?.username || leaderboard[1]?.displayName?.split(' ')[0] || "Scholar"}
-                        </p>
-                        <span className="text-[8px] font-black px-2 py-0.5 rounded-full mt-1.5 bg-slate-400/10 text-slate-300">
-                          {leaderboard[1]?.points || 0} XP
-                        </span>
-                        {/* PODIUM STEP */}
-                        <div className="w-full bg-white/5 rounded-t-xl h-16 mt-3 flex items-center justify-center shadow-lg">
-                          <span className="text-xl font-black text-slate-400">2</span>
+                      ) : (
+                        <div className="flex flex-col items-center opacity-20">
+                          <div className="w-14 h-14 rounded-full bg-zinc-850 flex items-center justify-center text-white/10 border border-white/5 animate-pulse">
+                            <User size={20} />
+                          </div>
+                          <p className="text-[10px] font-bold text-white/25 uppercase leading-none mt-1">Claim 2nd</p>
+                          <div className="w-full bg-white/5 rounded-t-xl h-16 mt-3 flex items-center justify-center">
+                            <span className="text-xl font-black text-white/10">2</span>
+                          </div>
                         </div>
-                      </div>
+                      )}
 
                       {/* 1ST PLACE - CENTER */}
-                      <div className="flex flex-col items-center z-10 scale-110">
-                        <div className="relative mb-3">
-                          <div className="absolute -top-6 left-1/2 -translate-x-1/2 animate-bounce">
-                            <span className="text-2xl"><Emoji text="👑" /></span>
-                          </div>
-                          <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-yellow-500 to-amber-300 p-1 overflow-hidden relative shadow-[0_0_20px_rgba(234,179,8,0.4)]">
-                            <div className="w-full h-full rounded-full overflow-hidden bg-zinc-950 relative">
-                              {leaderboard[0]?.photoURL ? (
-                                <img src={leaderboard[0].photoURL} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center text-yellow-500/20"><User size={24} /></div>
-                              )}
+                      {filteredLeaderboard[0] ? (
+                        <div className="flex flex-col items-center z-10 scale-110">
+                          <div className="relative mb-3">
+                            <div className="absolute -top-6 left-1/2 -translate-x-1/2 animate-bounce">
+                              <span className="text-2xl"><Emoji text="👑" /></span>
+                            </div>
+                            <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-yellow-500 to-amber-300 p-1 overflow-hidden relative shadow-[0_0_20px_rgba(234,179,8,0.4)]">
+                              <div className="w-full h-full rounded-full overflow-hidden bg-zinc-950 relative">
+                                {filteredLeaderboard[0]?.photoURL ? (
+                                  <img src={filteredLeaderboard[0].photoURL} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center text-yellow-500/20"><User size={24} /></div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-yellow-500 text-black text-[8px] font-black rounded-full px-2 py-0.5 uppercase tracking-wider shadow flex items-center gap-1">
+                              <Emoji text="🥇" /> CHAMP
                             </div>
                           </div>
-                          <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-yellow-500 text-black text-[8px] font-black rounded-full px-2 py-0.5 uppercase tracking-wider shadow flex items-center gap-1">
-                            <Emoji text="🥇" /> CHAMP
+                          <p className="text-[11px] font-black text-yellow-500 truncate w-24 text-center uppercase leading-none">
+                            {filteredLeaderboard[0]?.username || filteredLeaderboard[0]?.displayName?.split(' ')[0] || "Scholar"}
+                          </p>
+                          <span className="text-[8px] font-black px-2 py-0.5 rounded-full mt-1.5 bg-yellow-400/20 text-yellow-500">
+                            {filteredLeaderboard[0]?.points || 0} XP
+                          </span>
+                          {/* PODIUM STEP */}
+                          <div className="w-full bg-gradient-to-t from-yellow-500/20 to-white/5 rounded-t-xl h-24 mt-3 flex flex-col items-center justify-center shadow-2xl">
+                            <span className="text-3xl font-black text-yellow-500">1</span>
+                            <span className="text-[6px] font-bold text-yellow-500/50 uppercase tracking-widest mt-1">LEADER</span>
                           </div>
                         </div>
-                        <p className="text-[11px] font-black text-yellow-500 truncate w-24 text-center uppercase leading-none">
-                          {leaderboard[0]?.username || leaderboard[0]?.displayName?.split(' ')[0] || "Scholar"}
-                        </p>
-                        <span className="text-[8px] font-black px-2 py-0.5 rounded-full mt-1.5 bg-yellow-400/20 text-yellow-500">
-                          {leaderboard[0]?.points || 0} XP
-                        </span>
-                        {/* PODIUM STEP */}
-                        <div className="w-full bg-gradient-to-t from-yellow-500/20 to-white/5 rounded-t-xl h-24 mt-3 flex flex-col items-center justify-center shadow-2xl">
-                          <span className="text-3xl font-black text-yellow-500">1</span>
-                          <span className="text-[6px] font-bold text-yellow-500/50 uppercase tracking-widest mt-1">LEADER</span>
-                        </div>
-                      </div>
+                      ) : null}
 
                       {/* 3RD PLACE - RIGHT */}
-                      <div className="flex flex-col items-center">
-                        <div className="relative mb-2">
-                          <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-amber-600 to-orange-400 p-0.5 relative shadow-lg">
-                            <div className="w-full h-full rounded-full overflow-hidden bg-zinc-950 relative">
-                              {leaderboard[2]?.photoURL ? (
-                                <img src={leaderboard[2].photoURL} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center text-white/20"><User size={20} /></div>
-                              )}
+                      {filteredLeaderboard[2] ? (
+                        <div className="flex flex-col items-center">
+                          <div className="relative mb-2">
+                            <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-amber-600 to-orange-400 p-0.5 relative shadow-lg">
+                              <div className="w-full h-full rounded-full overflow-hidden bg-zinc-950 relative">
+                                {filteredLeaderboard[2]?.photoURL ? (
+                                  <img src={filteredLeaderboard[2].photoURL} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center text-white/20"><User size={20} /></div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-amber-600 text-white text-[8px] font-black rounded-full px-2 py-0.5 uppercase tracking-wider shadow flex items-center gap-1">
+                              <Emoji text="🥉" /> 3rd
                             </div>
                           </div>
-                          <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-amber-600 text-white text-[8px] font-black rounded-full px-2 py-0.5 uppercase tracking-wider shadow flex items-center gap-1">
-                            <Emoji text="🥉" /> 3rd
+                          <p className="text-[10px] font-black text-white truncate w-20 text-center uppercase leading-none mt-1">
+                            {filteredLeaderboard[2]?.username || filteredLeaderboard[2]?.displayName?.split(' ')[0] || "Scholar"}
+                          </p>
+                          <span className="text-[8px] font-black px-2 py-0.5 rounded-full mt-1.5 bg-amber-600/10 text-amber-500">
+                            {filteredLeaderboard[2]?.points || 0} XP
+                          </span>
+                          {/* PODIUM STEP */}
+                          <div className="w-full bg-white/5 rounded-t-xl h-12 mt-3 flex items-center justify-center shadow-lg">
+                            <span className="text-xl font-black text-amber-600">3</span>
                           </div>
                         </div>
-                        <p className="text-[10px] font-black text-white truncate w-20 text-center uppercase leading-none mt-1">
-                          {leaderboard[2]?.username || leaderboard[2]?.displayName?.split(' ')[0] || "Scholar"}
-                        </p>
-                        <span className="text-[8px] font-black px-2 py-0.5 rounded-full mt-1.5 bg-amber-600/10 text-amber-500">
-                          {leaderboard[2]?.points || 0} XP
-                        </span>
-                        {/* PODIUM STEP */}
-                        <div className="w-full bg-white/5 rounded-t-xl h-12 mt-3 flex items-center justify-center shadow-lg">
-                          <span className="text-xl font-black text-amber-600">3</span>
+                      ) : (
+                        <div className="flex flex-col items-center opacity-20">
+                          <div className="w-14 h-14 rounded-full bg-zinc-850 flex items-center justify-center text-white/10 border border-white/5">
+                            <User size={20} />
+                          </div>
+                          <p className="text-[10px] font-bold text-white/25 uppercase leading-none mt-1">Claim 3rd</p>
+                          <div className="w-full bg-white/5 rounded-t-xl h-12 mt-3 flex items-center justify-center">
+                            <span className="text-xl font-black text-white/10">3</span>
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -529,7 +677,7 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                 <div className="bg-gradient-to-br from-[#1E1B2E] to-[#120F1F] rounded-[2.5rem] p-6 shadow-2xl text-left border border-white/5">
                   <div className="flex items-center justify-between mb-6 border-b border-white/5 pb-4">
                     <h3 className="text-xs font-black text-white uppercase tracking-wider italic flex items-center gap-2">
-                      <span>Global Scholar Rankings</span>
+                      <span>{currentRank.toUpperCase()} LEAGUE RANKINGS</span>
                     </h3>
                     <div className="flex items-center gap-1.5 bg-gradient-to-r from-red-500/10 to-blue-500/10 px-3 py-1 rounded-full border border-white/5">
                       <Activity size={10} className="text-blue-400" /> 
@@ -546,7 +694,7 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                       <div className="text-left">
                         <p className="text-[7px] font-black text-white/30 uppercase tracking-[0.2em] leading-none">Your Rank Level</p>
                         <p className="text-[11px] font-black text-white uppercase mt-1.5">
-                          {getUserRank(currentUserData?.points || 0)}
+                          {currentRank}
                         </p>
                         <p className="text-[7px] text-white/40 font-bold uppercase tracking-widest mt-0.5 mt-1 block">
                           Level {Math.floor((currentUserData?.points || 0) / 500) + 1} Scholar
@@ -557,12 +705,12 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                       <p className="text-xs font-black text-transparent bg-clip-text bg-gradient-to-r from-red-400 to-blue-400 leading-none">
                         {currentUserData?.points || 0} XP
                       </p>
-                      <p className="text-[6px] font-black text-white/20 uppercase tracking-widest mt-1.5 leading-none block">GLOBAL STANDING</p>
+                      <p className="text-[6px] font-black text-white/20 uppercase tracking-widest mt-1.5 leading-none block">LEAGUE STANDING</p>
                     </div>
                   </div>
 
                   <div className="space-y-3.5 max-h-[50vh] overflow-y-auto pr-1 custom-scrollbar">
-                    {leaderboard.map((u, i) => {
+                    {filteredLeaderboard.map((u, i) => {
                       const tier = getScholarTierInfo(u.points || 0);
 
                       return (

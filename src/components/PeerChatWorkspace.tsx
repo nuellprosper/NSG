@@ -663,13 +663,21 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
             {/* Rounded Text Box Input */}
             <div className="flex-1 bg-[#0A0713]/90 border border-white/10 rounded-2xl flex items-center px-4 relative z-10 py-1 shadow-inner">
               <textarea
+                id="peer-workspace-chat-textarea"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
+                onInput={(e) => {
+                  const target = e.target as HTMLTextAreaElement;
+                  target.style.height = 'auto';
+                  target.style.height = `${Math.min(target.scrollHeight, 120)}px`;
+                }}
                 placeholder="Type a message..."
                 rows={1}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
+                    const target = e.target as HTMLTextAreaElement;
+                    target.style.height = 'auto';
                     onSendMessage();
                   }
                 }}
@@ -680,7 +688,13 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
             {/* Sending Text or Trigger hold mic button outside of text box on far right */}
             {inputText.trim() ? (
               <button
-                onClick={onSendMessage}
+                onClick={() => {
+                  onSendMessage();
+                  const textarea = document.getElementById('peer-workspace-chat-textarea');
+                  if (textarea) {
+                    (textarea as HTMLTextAreaElement).style.height = 'auto';
+                  }
+                }}
                 className="p-3 w-11 h-11 bg-red-650 hover:bg-red-500 text-white rounded-2xl flex items-center justify-center transition-all shadow-md active:translate-y-0.5"
                 title="Send"
               >

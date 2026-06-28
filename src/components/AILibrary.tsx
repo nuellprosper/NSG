@@ -35,6 +35,7 @@ import {
   Trash2
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
+import { CUSTOM_VOICES, speakText, getAvailableCustomVoices } from '../lib/tts';
 
 interface VoiceSettings {
   pitch: number;
@@ -70,14 +71,52 @@ export const AILibrary: React.FC<{
     rate: 1,
     voice: 'default'
   });
+  const [selectedCustomVoiceId, setSelectedCustomVoiceId] = useState('omni');
+  const [isCustomSpeaking, setIsCustomSpeaking] = useState(false);
 
   // AI Helpers
-  const MODEL_NAME = "gemini-3.1-flash";
+  const MODEL_NAME = "gemini-3.1-flash-lite";
   
   const getAiInstance = () => {
     const key = process.env.GEMINI_API_KEY;
     if (!key) throw new Error("Gemini API Key is missing. Please check your environment variables.");
-    return new GoogleGenAI({ apiKey: key });
+    const instance = new GoogleGenAI({ apiKey: key });
+    
+    if (instance.models && typeof instance.models.generateContent === 'function') {
+      const originalGenerateContent = instance.models.generateContent.bind(instance.models);
+      instance.models.generateContent = async (...args: any[]) => {
+        let lastError: any = null;
+        for (let attempt = 1; attempt <= 4; attempt++) {
+          try {
+            return await originalGenerateContent(...args);
+          } catch (err: any) {
+            lastError = err;
+            const errMsg = String(err.message || err);
+            console.warn(`[AI Library Attempt ${attempt} failed]:`, errMsg);
+            
+            const containsBusy = errMsg.toLowerCase().includes("model") || 
+                                 errMsg.toLowerCase().includes("spikes") || 
+                                 errMsg.toLowerCase().includes("experiencing") ||
+                                 errMsg.toLowerCase().includes("rate limit") ||
+                                 errMsg.toLowerCase().includes("quota") ||
+                                 errMsg.toLowerCase().includes("busy");
+                                 
+            if (attempt < 4) {
+              await new Promise(resolve => setTimeout(resolve, 800 * attempt));
+              continue;
+            }
+            
+            if (containsBusy) {
+              throw new Error("(the Ai is busy try again sooner)");
+            } else {
+              throw new Error("something went wrong, click the generate button again");
+            }
+          }
+        }
+        throw lastError || new Error("something went wrong, click the generate button again");
+      };
+    }
+    return instance;
   };
 
   const fileToGenerativePart = async (file: File) => {
@@ -1339,6 +1378,65 @@ export const AILibrary: React.FC<{
                         </div>
                       </div>
                       <p className="text-sm font-bold text-white tracking-wide">{transcribeOutput}</p>
+
+                      <div className="mt-4 pt-3 border-t border-white/5 space-y-3">
+                        <div className="space-y-1.5">
+                          <span className="text-[7.5px] font-black uppercase text-white/30 tracking-widest block">Select AI Tutor Voice Profile:</span>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                            {getAvailableCustomVoices().map(v => {
+                              const isSelected = selectedCustomVoiceId === v.id;
+                              return (
+                                <button
+                                  key={v.id}
+                                  onClick={() => setSelectedCustomVoiceId(v.id)}
+                                  className={`flex flex-col text-left p-2.5 rounded-xl border transition-all relative overflow-hidden cursor-pointer ${
+                                    isSelected 
+                                      ? 'bg-[#DC2626]/10 border-[#DC2626] shadow-[0_0_12px_rgba(220,38,38,0.15)] text-white' 
+                                      : 'bg-white/[0.02] border-white/5 hover:bg-white/[0.04] hover:border-white/10 text-white/50 hover:text-white'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between w-full mb-1">
+                                    <span className="text-[9px] font-black tracking-wider uppercase">{v.name}</span>
+                                    <span className={`text-[6px] font-black px-1 py-0.5 rounded uppercase ${
+                                      v.gender === 'female' ? 'bg-purple-500/10 text-purple-400' : 'bg-blue-500/10 text-blue-400'
+                                    }`}>
+                                      {v.gender}
+                                    </span>
+                                  </div>
+                                  <p className="text-[7.5px] leading-normal text-white/40 line-clamp-2 font-mono">{v.description}</p>
+                                  {isSelected && (
+                                    <div className="absolute top-0 right-0 w-1.5 h-1.5 bg-[#DC2626]" />
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center justify-end">
+                          <button
+                            onClick={() => {
+                              const englishText = transcribeOutput && !transcribeOutput.includes('/') ? transcribeOutput : transcribeInput;
+                              if (!englishText) return;
+                              setIsCustomSpeaking(true);
+                              speakText(
+                                englishText,
+                                selectedCustomVoiceId,
+                                () => setIsCustomSpeaking(true),
+                                () => setIsCustomSpeaking(false)
+                              );
+                            }}
+                            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                              isCustomSpeaking 
+                                ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30 animate-pulse'
+                                : 'bg-[#DC2626]/20 text-[#DC2626] border border-[#DC2626]/30 hover:bg-[#DC2626] hover:text-white shadow-lg hover:shadow-[#DC2626]/10'
+                            }`}
+                          >
+                            <Volume2 size={12} className={isCustomSpeaking ? "animate-bounce" : ""} />
+                            <span>{isCustomSpeaking ? 'Speaking...' : 'Pronounce Word'}</span>
+                          </button>
+                        </div>
+                      </div>
                     </motion.div>
                   )}
                 </div>

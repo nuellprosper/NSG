@@ -2786,14 +2786,14 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                         >
                           <div className="w-10 h-10 rounded-lg bg-[#DC2626]/20 flex items-center justify-center text-[#DC2626] font-black uppercase text-xs">
                             {suggestion.photoURL ? (
-                              <img src={suggestion.photoURL} alt={suggestion.username} className="w-full h-full rounded-lg object-cover" />
+                              <img src={suggestion.photoURL} alt={suggestion.username || suggestion.displayName || 'User'} className="w-full h-full rounded-lg object-cover" />
                             ) : (
-                              suggestion.username.charAt(0)
+                              (suggestion.username || suggestion.displayName || '?').charAt(0)
                             )}
                           </div>
                           <div className="text-left">
-                            <p className="text-xs font-black text-white uppercase tracking-tight group-hover:text-[#DC2626] transition-colors">{suggestion.displayName || suggestion.username}</p>
-                            <p className="text-[9px] text-white/40 font-mono">@{suggestion.username}</p>
+                            <p className="text-xs font-black text-white uppercase tracking-tight group-hover:text-[#DC2626] transition-colors">{suggestion.displayName || suggestion.username || 'Anonymous'}</p>
+                            <p className="text-[9px] text-white/40 font-mono">@{suggestion.username || 'user'}</p>
                           </div>
                           <UserPlus size={14} className="ml-auto text-white/20 group-hover:text-[#DC2626]" />
                         </button>

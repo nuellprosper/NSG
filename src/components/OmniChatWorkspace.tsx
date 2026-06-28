@@ -579,9 +579,21 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
 
           {/* Text input area */}
           <textarea
+            id="omni-workspace-chat-textarea"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            onKeyDown={handleKeyPress}
+            onInput={(e) => {
+              const target = e.target as HTMLTextAreaElement;
+              target.style.height = 'auto';
+              target.style.height = `${Math.min(target.scrollHeight, 120)}px`;
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                const target = e.target as HTMLTextAreaElement;
+                target.style.height = 'auto';
+                handleKeyPress(e);
+              }
+            }}
             placeholder={isRecording ? 'Recording audio...' : 'Ask Omni...'}
             disabled={isRecording}
             rows={1}
@@ -601,7 +613,13 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
           ) : inputText.trim() ? (
             <button
               id="omni_send_message_btn"
-              onClick={onSendMessage}
+              onClick={() => {
+                onSendMessage();
+                const textarea = document.getElementById('omni-workspace-chat-textarea');
+                if (textarea) {
+                  (textarea as HTMLTextAreaElement).style.height = 'auto';
+                }
+              }}
               className="p-3 w-11 h-11 bg-red-650 hover:bg-red-500 text-white rounded-2xl flex items-center justify-center transition-all shadow-md active:translate-y-0.5 cursor-pointer"
               title="Send"
             >
