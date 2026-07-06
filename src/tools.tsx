@@ -1558,13 +1558,27 @@ export const ToolsPage = (props: any) => {
             >
               <ArrowLeft size={14} /> Back to {quizState === 'idle' ? 'Tools' : 'Lobby'}
             </button>
-            <div className="flex items-center gap-2">
-              <span className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-white/20' : 'text-slate-400'}`}>Quiz Engine</span>
-              <Zap size={20} className="text-[#DC2626]" />
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => {
+                  try {
+                    localStorage.removeItem('nsg_current_quiz_progress');
+                    setQuizState('idle');
+                    if (setUserNotification) setUserNotification("Quiz session reset.");
+                  } catch (e) {}
+                }}
+                className="text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-white/50 hover:text-white transition-all border border-white/10"
+              >
+                Reset Session
+              </button>
+              <div className="flex items-center gap-2">
+                <span className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-white/20' : 'text-slate-400'}`}>Quiz Engine</span>
+                <Zap size={20} className="text-[#DC2626]" />
+              </div>
             </div>
           </div>
 
-          {quizState === 'idle' && (
+          {(quizState === 'idle' || !quizState || (quizState === 'active' && (!quizQuestions || !Array.isArray(quizQuestions) || quizQuestions.length === 0))) && (
             <div className={`${theme === 'dark' ? 'bg-[#13111C] border-white/10' : 'bg-white border-slate-200'} p-8 rounded-3xl border space-y-6 shadow-sm`}>
               <div className="text-center space-y-2 mb-4">
                 <div className="w-12 h-12 bg-[#DC2626]/10 rounded-2xl flex items-center justify-center mx-auto mb-2"><Sparkles size={24} className="text-[#DC2626]" /></div>

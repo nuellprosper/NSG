@@ -4027,21 +4027,27 @@ export default function App() {
       if (localProgress) {
         try {
           const p = JSON.parse(localProgress);
-          setQuizQuestions(p.quizQuestions);
-          setQuizTopic(p.quizTopic);
-          setCurrentQuestionIndex(p.currentQuestionIndex);
-          setQuizScore(p.quizScore);
-          setUserQuizAnswers(p.userQuizAnswers || []);
-          setQuizDifficulty(p.quizDifficulty || 'Medium');
-          setQuizQuestionCount(p.quizQuestionCount || p.quizQuestions.length);
-          setCurrentQuizId(p.currentQuizId);
-          setQuizState('active');
-          setSelectedOption(p.userQuizAnswers?.[p.currentQuestionIndex] !== undefined ? p.userQuizAnswers[p.currentQuestionIndex] : null);
-          setIsAnswered(p.userQuizAnswers?.[p.currentQuestionIndex] !== undefined);
-          setActiveTab('tools');
-          setToolsSubTab('quiz');
+          if (p && Array.isArray(p.quizQuestions) && p.quizQuestions.length > 0) {
+            const validIndex = typeof p.currentQuestionIndex === 'number' && p.currentQuestionIndex >= 0 && p.currentQuestionIndex < p.quizQuestions.length ? p.currentQuestionIndex : 0;
+            setQuizQuestions(p.quizQuestions);
+            setQuizTopic(p.quizTopic || '');
+            setCurrentQuestionIndex(validIndex);
+            setQuizScore(typeof p.quizScore === 'number' ? p.quizScore : 0);
+            setUserQuizAnswers(Array.isArray(p.userQuizAnswers) ? p.userQuizAnswers : []);
+            setQuizDifficulty(p.quizDifficulty || 'Medium');
+            setQuizQuestionCount(p.quizQuestionCount || p.quizQuestions.length);
+            setCurrentQuizId(p.currentQuizId || null);
+            setQuizState('active');
+            setSelectedOption(p.userQuizAnswers?.[validIndex] !== undefined ? p.userQuizAnswers[validIndex] : null);
+            setIsAnswered(p.userQuizAnswers?.[validIndex] !== undefined);
+            setActiveTab('tools');
+            setToolsSubTab('quiz');
+          } else {
+            localStorage.removeItem('nsg_current_quiz_progress');
+          }
         } catch (e) {
           console.error("Failed to restore local quiz progress:", e);
+          localStorage.removeItem('nsg_current_quiz_progress');
         }
       }
     }
@@ -8524,7 +8530,7 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
 
       const responseText = await askGemini() || await askTogether() || await askOpenRouter() || "{}";
       const data = robustJSONParse(responseText);
-      if (data && data.questions) {
+      if (data && Array.isArray(data.questions) && data.questions.length > 0) {
         const genId = `quiz-gen-${Date.now()}`;
         if (data.quizTitle) {
           setQuizTopic(data.quizTitle);
@@ -8568,6 +8574,8 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
             topic: finalTopic
           }).catch((err) => console.error("Error saving global activity:", err));
         }
+      } else {
+        throw new Error("AI returned no valid questions. Please try again with a clearer topic or context.");
       }
     } catch (error) {
       console.error("Quiz Generation Error:", error);
@@ -8817,7 +8825,7 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
     });
 
     // Optionally increment score immediately if we want to track it live
-    if (index === quizQuestions[currentQuestionIndex].correctAnswer) {
+    if (quizQuestions[currentQuestionIndex] && index === quizQuestions[currentQuestionIndex].correctAnswer) {
       setQuizScore(prev => prev + 1);
     }
   };

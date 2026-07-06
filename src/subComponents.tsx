@@ -297,10 +297,11 @@ export const BlinkingBrain = ({ size = 24, className = "" }: { size?: number, cl
 );
 
 
-export const MarkdownRenderer = ({ content, className = "", selectable = false }: { content: string, className?: string, selectable?: boolean }) => {
+export const MarkdownRenderer = ({ content, className = "", selectable = false }: { content: any, className?: string, selectable?: boolean }) => {
+  const strContent = typeof content === 'string' ? content : (content !== null && content !== undefined ? (typeof content === 'object' ? JSON.stringify(content) : String(content)) : "");
   // Pre-process content to ensure LaTeX is correctly formatted for remark-math
   // Handle both escaped \( \) and \[ \] as well as raw strings that AI might send
-  let processedContent = (content || "")
+  let processedContent = strContent
     .replace(/\\\\\((.*?)\\\\\)/g, '$$$1$')
     .replace(/\\\\\[(.*?)\\\\\]/g, '$$$$$1$$$$')
     .replace(/\\\((.*?)\\\)/g, '$$$1$')
