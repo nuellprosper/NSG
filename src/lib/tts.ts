@@ -21,14 +21,6 @@ export const CUSTOM_VOICES: CustomVoice[] = [
     rate: 0.95
   },
   {
-    id: 'zeal',
-    name: 'Zeal (Male)',
-    gender: 'male',
-    description: 'Deep authoritative study supervisor voice',
-    pitch: 0.82,
-    rate: 0.90
-  },
-  {
     id: 'seera',
     name: 'Seera (Female)',
     gender: 'female',
@@ -38,31 +30,82 @@ export const CUSTOM_VOICES: CustomVoice[] = [
     langKeyword: 'GB'
   },
   {
-    id: 'zud',
-    name: 'Zud (Male)',
-    gender: 'male',
-    description: 'Warm baritone cognitive mentor',
-    pitch: 0.68,
-    rate: 0.85,
-    langKeyword: 'GB'
-  },
-  {
     id: 'aura',
     name: 'Aura (Ethereal Female)',
     gender: 'female',
     description: 'Soft whisper-like mnemonic guide',
-    pitch: 1.40,
-    rate: 0.80
-  },
-  {
-    id: 'orion',
-    name: 'Orion (Deep Space Male)',
-    gender: 'male',
-    description: 'Low-frequency resonance pattern',
-    pitch: 0.55,
-    rate: 0.95
+    pitch: 1.30,
+    rate: 0.85
   }
 ];
+
+export const cleanTextForSpeech = (text: string): string => {
+  if (!text) return '';
+  let cleaned = text;
+
+  // Replace common LaTeX command structures
+  cleaned = cleaned.replace(/\\vec\s*\{([^}]+)\}/g, ' vector $1 ');
+  cleaned = cleaned.replace(/\\vec\s+([A-Za-z0-9]+)/g, ' vector $1 ');
+
+  // Remove hat command so user doesn't hear "hat" or backslash symbols
+  cleaned = cleaned.replace(/\\hat\s*\{([^}]+)\}/g, ' $1 ');
+  cleaned = cleaned.replace(/\\hat\s+([A-Za-z0-9]+)/g, ' $1 ');
+
+  // \Omega or \omega -> ohms
+  cleaned = cleaned.replace(/\\Omega/g, ' ohms ');
+  cleaned = cleaned.replace(/\\omega/g, ' ohms ');
+
+  // Greek letters or symbols
+  cleaned = cleaned.replace(/\\alpha/g, ' alpha ');
+  cleaned = cleaned.replace(/\\beta/g, ' beta ');
+  cleaned = cleaned.replace(/\\gamma/g, ' gamma ');
+  cleaned = cleaned.replace(/\\theta/g, ' theta ');
+  cleaned = cleaned.replace(/\\pi/g, ' pi ');
+  cleaned = cleaned.replace(/\\mu/g, ' micro ');
+  cleaned = cleaned.replace(/\\Delta/g, ' delta ');
+  cleaned = cleaned.replace(/\\sigma/g, ' sigma ');
+  cleaned = cleaned.replace(/\\lambda/g, ' lambda ');
+  cleaned = cleaned.replace(/\\epsilon/g, ' epsilon ');
+
+  // Math operators
+  cleaned = cleaned.replace(/\\times/g, ' times ');
+  cleaned = cleaned.replace(/\\cdot/g, ' times ');
+  cleaned = cleaned.replace(/\\div/g, ' divided by ');
+  cleaned = cleaned.replace(/\\pm/g, ' plus or minus ');
+  cleaned = cleaned.replace(/\\approx/g, ' approximately ');
+  cleaned = cleaned.replace(/\\neq?/g, ' not equal to ');
+  cleaned = cleaned.replace(/\\leq?/g, ' less than or equal to ');
+  cleaned = cleaned.replace(/\\geq?/g, ' greater than or equal to ');
+  cleaned = cleaned.replace(/\\circ/g, ' degrees ');
+  cleaned = cleaned.replace(/\\degree/g, ' degrees ');
+
+  // Fractions \frac{A}{B} -> A over B
+  cleaned = cleaned.replace(/\\frac\s*\{([^}]+)\}\s*\{([^}]+)\}/g, ' $1 over $2 ');
+  // Square root \sqrt{A} -> square root of A
+  cleaned = cleaned.replace(/\\sqrt\s*\{([^}]+)\}/g, ' square root of $1 ');
+
+  // Subscripts/Superscripts e.g., ^2 -> squared, ^3 -> cubed, ^n -> to the power of n
+  cleaned = cleaned.replace(/\^2\b/g, ' squared ');
+  cleaned = cleaned.replace(/\^3\b/g, ' cubed ');
+  cleaned = cleaned.replace(/\^\{([^}]+)\}/g, ' to the power of $1 ');
+  cleaned = cleaned.replace(/\^([0-9]+)/g, ' to the power of $1 ');
+
+  // Remove dollar signs ($ or $$)
+  cleaned = cleaned.replace(/\$/g, ' ');
+
+  // Remove asterisks (* or **)
+  cleaned = cleaned.replace(/\*/g, ' ');
+
+  // Remove markdown headers (#), code ticks (` or ```), underscores (_)
+  cleaned = cleaned.replace(/[#`_~]/g, ' ');
+
+  // Remove lingering LaTeX backslashes or braces
+  cleaned = cleaned.replace(/\\([a-zA-Z]+)/g, ' $1 ');
+  cleaned = cleaned.replace(/[\{\}]/g, ' ');
+
+  // Clean up extra whitespace
+  return cleaned.replace(/\s+/g, ' ').trim();
+};
 
 export const speakText = (text: string, voiceId: string, onStart?: () => void, onEnd?: () => void) => {
   if (typeof window === 'undefined' || !window.speechSynthesis) {
@@ -73,7 +116,8 @@ export const speakText = (text: string, voiceId: string, onStart?: () => void, o
   // Cancel any ongoing speech
   window.speechSynthesis.cancel();
 
-  const utterance = new SpeechSynthesisUtterance(text);
+  const cleanString = cleanTextForSpeech(text);
+  const utterance = new SpeechSynthesisUtterance(cleanString);
   const profile = CUSTOM_VOICES.find(v => v.id === voiceId) || CUSTOM_VOICES[0];
 
   utterance.rate = profile.rate;
