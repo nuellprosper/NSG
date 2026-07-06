@@ -486,4 +486,6 @@ export interface HomeHistoryItem {
   questions?: any[];
   topic?: string;
   difficulty?: string;
+  matric?: string;
+  studentName?: string;
 }

@@ -7,10 +7,11 @@ import {
   ChevronUp, ChevronDown, Bold, Italic, List, CornerDownRight,
   Database, Zap, Cpu, CheckCircle2, XCircle, RefreshCcw, ArrowLeft, FileText, AlertCircle, RotateCcw,
   Sun, Moon, ArrowDown, PlusCircle, Copy, User, Users, Clock, Lock, Unlock, Shield, ShieldCheck, AlertTriangle, FileDown, LayoutDashboard, ListChecks, Bell, GraduationCap, LayoutGrid, Home,
-  Pin, Edit3, Share2, Trophy, LogOut, Plus, Menu, Camera, Monitor, X, Activity, MessageSquare, BookOpen, Calendar, Send, Save, MicOff, Video, AtSign, Paperclip,
+  Pin, Edit3, Share2, Trophy, LogOut, Plus, Menu, Camera, Monitor, X, Activity, MessageSquare, BookOpen, Calendar, Send, Save, MicOff, Video, AtSign, Paperclip, Bookmark, Book, Percent,
   Search, Check, CheckCheck, Info, Volume2, VolumeX, Square, Mail, ArrowRight, BoxSelect, Globe, MapPin, Terminal, RefreshCw, Eye, EyeOff, HelpCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { cleanTextForSpeech } from './lib/tts';
 import { GoogleGenAI, Type, Modality, ThinkingLevel } from "@google/genai";
 import { HfInference } from "@huggingface/inference";
 import ReactMarkdown from 'react-markdown';
@@ -61,8 +62,8 @@ import {
 } from './utils';
 
 import {
-  WhatsAppIcon, helpContent, HelpOverlay, BlinkingBrain, GeminiLive,
-  IconButton, MarkdownRenderer, COMMON_COURSES, CoursesTool, AssignmentSolver
+  WhatsAppIcon, helpContent, HelpOverlay, BlinkingBrain,
+  MarkdownRenderer, COMMON_COURSES, CoursesTool, AssignmentSolver
 } from './subComponents';
 
 
@@ -311,9 +312,9 @@ export default function App() {
     localStorage.setItem('nsg_active_tab', activeTab);
   }, [activeTab]);
 
-  const [toolsSubTab, setToolsSubTab] = useState<'menu' | 'record' | 'live' | 'quiz' | 'exam' | 'faculty' | 'assignment' | 'courses' | 'notebook'>(() => {
+  const [toolsSubTab, setToolsSubTab] = useState<'menu' | 'record' | 'quiz' | 'exam' | 'faculty' | 'assignment' | 'courses' | 'notebook'>(() => {
     const stored = localStorage.getItem('nsg_tools_subtab');
-    const validTabs = ['menu', 'record', 'live', 'quiz', 'exam', 'faculty', 'assignment', 'courses', 'notebook'];
+    const validTabs = ['menu', 'record', 'quiz', 'exam', 'faculty', 'assignment', 'courses', 'notebook'];
     if (stored && validTabs.includes(stored)) {
       return stored as any;
     }
@@ -591,6 +592,7 @@ export default function App() {
   const [shareName, setShareName] = useState('');
   const shareCardRef = useRef<HTMLDivElement>(null);
   const hasShownWelcomeNotification = useRef(false);
+  const hasShownPeerActivityWelcomeNotification = useRef(false);
   const [showWelcome, setShowWelcome] = useState(false);
   const [showGodMode, setShowGodMode] = useState(false);
   const [godTab, setGodTab] = useState<'dashboard' | 'users' | 'groups' | 'marketing' | 'blog' | 'reports' | 'courses'>('dashboard');
@@ -624,7 +626,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  const triggerPhoneNotification = (title: string, body: string, type: 'quiz' | 'note' | 'assignment' | 'welcome') => {
+  const triggerPhoneNotification = (title: string, body: string, type: 'quiz' | 'note' | 'assignment' | 'welcome' | 'community') => {
     try {
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
       const osc = audioCtx.createOscillator();
@@ -640,7 +642,7 @@ export default function App() {
       osc.stop(audioCtx.currentTime + 0.3);
     } catch (e) {}
 
-    // Only show 'quiz' type notifications inside the NSG app UI (floating popups)
+    // Only show 'quiz' type notifications (user's quiz congratulations) inside the NSG app UI (floating popups)
     if (type === 'quiz') {
       const id = Date.now().toString();
       const newNotif = {
@@ -656,8 +658,8 @@ export default function App() {
       }, 8000);
     }
 
-    // Always trigger native device notification (main phone push notification tray)
-    if (Notification.permission === 'granted') {
+    // Always trigger native device notification (main phone push notification tray) unless it's a quiz (which is already processed by the Firestore listener)
+    if (Notification.permission === 'granted' && type !== 'quiz') {
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.ready.then((reg) => {
           reg.showNotification(title, {
@@ -808,6 +810,11 @@ export default function App() {
   const [showHelp, setShowHelp] = useState(false);
   const [finishedHistory, setFinishedHistory] = useState<HomeHistoryItem[]>([]);
   const [activeAssignmentSolution, setActiveAssignmentSolution] = useState<any>(null);
+  const [historyLoadingModal, setHistoryLoadingModal] = useState<{ show: boolean; title: string; message: string }>({
+    show: false,
+    title: '',
+    message: ''
+  });
 
   // Load finished history from local storage
   useEffect(() => {
@@ -1051,6 +1058,40 @@ export default function App() {
   const [globalActivities, setGlobalActivities] = useState<any[]>([]);
   const [homeFeedTab, setHomeFeedTab] = useState<'personal' | 'community'>('community');
 
+  // Trigger Scholar Achievement welcome notification on login if peer activities exist
+  useEffect(() => {
+    if (currentUserData && user && globalActivities.length > 0 && !hasShownPeerActivityWelcomeNotification.current) {
+      // Find the first activity that belongs to someone else and doesn't mention the current user
+      const userHandle = (currentUserData?.username || "").toLowerCase();
+      const userDisp = (user.displayName || "").toLowerCase();
+      
+      const peerAct = globalActivities.find((act: any) => {
+        if (!act.userId || act.userId === user.uid) return false;
+        
+        const actUsername = (act.username || "").toLowerCase();
+        if (userHandle && actUsername === userHandle) return false;
+        
+        const actText = (act.text || "").toLowerCase();
+        if (userHandle && actText.includes(userHandle)) return false;
+        if (userDisp && actText.includes(userDisp)) return false;
+        
+        return true;
+      });
+
+      if (peerAct) {
+        hasShownPeerActivityWelcomeNotification.current = true;
+        
+        setTimeout(() => {
+          triggerPhoneNotification(
+            "Scholar Achievement 🎓",
+            peerAct.text || `${peerAct.username || 'A scholar'} completed an activity!`,
+            'community'
+          );
+        }, 6000); // Trigger 3 seconds after "Did You Know"
+      }
+    }
+  }, [currentUserData, user, globalActivities]);
+
   // --- LISTEN FOR PERSONAL NOTIFICATIONS ---
   useEffect(() => {
     if (!user) return;
@@ -1114,7 +1155,7 @@ export default function App() {
             triggerPhoneNotification(
               "NSG Community Activity 🎓",
               data.text || `${data.username || 'Scholar'} updated their workspace!`,
-              notificationType
+              'community'
             );
           }
         }
@@ -2064,6 +2105,22 @@ export default function App() {
       
       const key = currentQuizId ? `nsg_quiz_progress_${currentQuizId}` : 'nsg_current_quiz_progress';
       localStorage.setItem(key, circularSafeStringify(progressData));
+
+      // Also dynamically update finishedHistory progress so the UI is unified in real-time
+      if (currentQuizId) {
+        setFinishedHistory(prev => {
+          const idx = prev.findIndex(h => h.id === currentQuizId);
+          if (idx !== -1) {
+            const updated = [...prev];
+            updated[idx] = {
+              ...updated[idx],
+              progress: Math.round(((currentQuestionIndex + 1) / quizQuestions.length) * 100)
+            };
+            return updated;
+          }
+          return prev;
+        });
+      }
     }
   }, [quizState, currentQuestionIndex, quizScore, userQuizAnswers, quizQuestions, quizTopic, currentQuizId]);
 
@@ -2092,6 +2149,9 @@ export default function App() {
   const [noteHistory, setNoteHistory] = useState<string[]>([]);
   const [redoStack, setRedoStack] = useState<string[]>([]);
   const [isUploadingNoteFile, setIsUploadingNoteFile] = useState(false);
+  const [activeAudioNoteId, setActiveAudioNoteId] = useState<string | null>(null);
+  const [isAudioTranscribing, setIsAudioTranscribing] = useState<boolean>(false);
+  const [audioTranscribingPopup, setAudioTranscribingPopup] = useState<boolean>(false);
   const [notePreviewMode, setNotePreviewMode] = useState(false);
   const [isPodcastActive, setIsPodcastActive] = useState(false);
   const [podcastSpeechIndex, setPodcastSpeechIndex] = useState<number | null>(null);
@@ -2205,6 +2265,13 @@ export default function App() {
   const [examAnswers, setExamAnswers] = useState<Record<any, any>>({});
   const [currentExamIndex, setCurrentExamIndex] = useState(0);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
+  const [examBookmarked, setExamBookmarked] = useState<Record<string, boolean>>({});
+  const [showExamCalculator, setShowExamCalculator] = useState(false);
+  const [showExamDictionary, setShowExamDictionary] = useState(false);
+  const [examCalcValue, setExamCalcValue] = useState('');
+  const [examDictSearch, setExamDictSearch] = useState('');
+  const [examDictResult, setExamDictResult] = useState<string | null>(null);
+  const [isSpeakingQuestion, setIsSpeakingQuestion] = useState(false);
 
   const sanitizeCorrectAnswer = (ans: any): number => {
     if (ans === undefined || ans === null) return 0;
@@ -2811,7 +2878,7 @@ export default function App() {
         const offlineNotesData = localStorage.getItem('nsg_offline_notes');
         const offlineNotes = offlineNotesData ? JSON.parse(offlineNotesData) : [];
         const updatedOfflineNotes = [...offlineNotes.filter((n: any) => n.id !== finalId), tempNote];
-        localStorage.setItem('nsg_offline_notes', JSON.stringify(updatedOfflineNotes));
+        localStorage.setItem('nsg_offline_notes', circularSafeStringify(updatedOfflineNotes));
 
         setIsSavingNote(false);
         return finalId;
@@ -4536,6 +4603,8 @@ export default function App() {
           setHasShownTrialThisSession(false);
           setShowPremiumTrial(false);
           setShowPremiumModal(false);
+          hasShownWelcomeNotification.current = false;
+          hasShownPeerActivityWelcomeNotification.current = false;
           setUserNotification("Logged out successfully.");
         } catch (error) {
           console.error("Logout Error:", error);
@@ -4786,7 +4855,7 @@ export default function App() {
         
         ${existingSubQuestions.length > 0 ? `
         Analyzable Existing Questions for style modeling in ${currentSubjectName}:
-        ${JSON.stringify(existingSubQuestions.slice(0, 5))}
+        ${circularSafeStringify(existingSubQuestions.slice(0, 5))}
         ` : ''}
 
         IMPORTANT: For any mathematical formulas or scientific notations, ALWAYS use LaTeX notation. 
@@ -5110,13 +5179,740 @@ export default function App() {
     }, 1000);
   };
 
+  const LOCAL_DICTIONARY: Record<string, string> = {
+    hemisphere: "A half of a sphere, especially of the earth divided into northern and southern halves by the equator, or into eastern and western halves by a meridian.",
+    volume: "The amount of space that a substance or object occupies, or that is enclosed within a container.",
+    radius: "A straight line from the center to the circumference of a circle or sphere.",
+    mathematics: "The abstract science of number, quantity, and space, either as abstract concepts (pure mathematics), or as applied to other disciplines such as physics and engineering.",
+    physics: "The branch of science concerned with the nature and properties of matter and energy.",
+    chemistry: "The branch of science that deals with the identification of the substances of which matter is composed.",
+    constant: "A situation or state of affairs that does not change; in mathematics, a number or quantity that is placed in a formula to represent a fixed value.",
+    rate: "A measure, quantity, or frequency, typically one measured against some other quantity or measure.",
+    biology: "The study of living organisms, divided into many specialized fields that cover their morphology, physiology, anatomy, behavior, origin, and distribution."
+  };
+
+  const downloadExamScorecard = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1000;
+    canvas.height = 750;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const activeQuestionsPool = studentActiveQuestions.length > 0 ? studentActiveQuestions : examQuestions;
+    const percentage = Math.round((examScore / (activeQuestionsPool.length || 1)) * 100);
+
+    // Dynamic accent color based on score
+    let accentColor = '#10B981'; // Emerald
+    let accentGlow = 'rgba(16, 185, 129, 0.15)';
+    let grade = 'F';
+    
+    if (percentage >= 90) {
+      accentColor = '#10B981';
+      grade = 'A+';
+    } else if (percentage >= 80) {
+      accentColor = '#10B981';
+      grade = 'A';
+    } else if (percentage >= 60) {
+      accentColor = '#F59E0B'; // Amber
+      accentGlow = 'rgba(245, 158, 11, 0.15)';
+      grade = 'B';
+    } else if (percentage >= 40) {
+      accentColor = '#3B82F6'; // Blue
+      accentGlow = 'rgba(59, 130, 246, 0.15)';
+      grade = 'C';
+    } else {
+      accentColor = '#EF4444'; // Red
+      accentGlow = 'rgba(239, 68, 68, 0.15)';
+      grade = 'F';
+    }
+
+    // 1. Draw premium background
+    ctx.fillStyle = '#060B15';
+    ctx.fillRect(0, 0, 1000, 750);
+
+    // Overlapping glowing light spots
+    const lightGlow = ctx.createRadialGradient(200, 200, 10, 200, 200, 400);
+    lightGlow.addColorStop(0, accentGlow);
+    lightGlow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = lightGlow;
+    ctx.fillRect(0, 0, 1000, 750);
+
+    const lightGlowRight = ctx.createRadialGradient(800, 550, 10, 800, 550, 400);
+    lightGlowRight.addColorStop(0, 'rgba(30, 41, 59, 0.3)');
+    lightGlowRight.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = lightGlowRight;
+    ctx.fillRect(0, 0, 1000, 750);
+
+    // Faint Grid pattern
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.02)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < 1000; x += 50) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, 750);
+      ctx.stroke();
+    }
+    for (let y = 0; y < 750; y += 50) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(1000, y);
+      ctx.stroke();
+    }
+
+    // Watermark
+    ctx.save();
+    ctx.translate(500, 375);
+    ctx.rotate(-Math.PI / 10);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.015)';
+    ctx.font = 'bold 64px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('NSG ACADEMIC STUDY GUIDE', 0, 0);
+    ctx.restore();
+
+    // 2. Premium Dual Border and Corner Ornaments
+    // Gold Outer border
+    ctx.strokeStyle = '#D97706';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(20, 20, 960, 710);
+
+    // Accent Inner border
+    ctx.strokeStyle = accentColor;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(28, 28, 944, 694);
+
+    // Corner L-shapes for premium technical look
+    ctx.strokeStyle = '#D97706';
+    ctx.lineWidth = 3;
+    const corners = [
+      { x: 15, y: 15, dx: 30, dy: 30 },
+      { x: 985, y: 15, dx: -30, dy: 30 },
+      { x: 15, y: 735, dx: 30, dy: -30 },
+      { x: 985, y: 735, dx: -30, dy: -30 }
+    ];
+    corners.forEach(c => {
+      ctx.beginPath();
+      ctx.moveTo(c.x + c.dx, c.y);
+      ctx.lineTo(c.x, c.y);
+      ctx.lineTo(c.x, c.y + c.dy);
+      ctx.stroke();
+    });
+
+    // 3. Header & Titles
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#F59E0B';
+    ctx.font = '900 11px "Inter", "Segoe UI", sans-serif';
+    ctx.fillText('VERIFIED EXAMINATION CREDENTIAL', 500, 60);
+
+    // Main header with linear gradient
+    const headerGradient = ctx.createLinearGradient(300, 0, 700, 0);
+    headerGradient.addColorStop(0, '#FFFFFF');
+    headerGradient.addColorStop(0.5, '#F8FAFC');
+    headerGradient.addColorStop(1, '#94A3B8');
+    ctx.fillStyle = headerGradient;
+    ctx.font = '900 34px "Inter", "Segoe UI", sans-serif';
+    ctx.fillText('CBT ACADEMIC SCORECARD', 500, 100);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.font = 'medium 13px "Inter", "Segoe UI", sans-serif';
+    ctx.fillText('OFFICIAL DIGITAL STUDY RECORD & SCORE VERIFICATION', 500, 125);
+
+    // Divider line
+    const dividerGrad = ctx.createLinearGradient(150, 0, 850, 0);
+    dividerGrad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+    dividerGrad.addColorStop(0.5, 'rgba(217, 119, 6, 0.4)');
+    dividerGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.strokeStyle = dividerGrad;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(150, 145);
+    ctx.lineTo(850, 145);
+    ctx.stroke();
+
+    // Helper to draw rounded container cards
+    const drawCard = (x: number, y: number, w: number, h: number, r: number) => {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    };
+
+    // 4. Candidate Profile Container
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.lineWidth = 1;
+    drawCard(100, 175, 450, 180, 16);
+
+    // Vertical Accent strip on left of card
+    ctx.fillStyle = accentColor;
+    ctx.fillRect(100, 195, 4, 140);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#94A3B8';
+    ctx.font = '900 10px "Inter", sans-serif';
+    ctx.fillText('CERTIFIED STUDENT PROFILE', 125, 205);
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '900 22px "Inter", "Segoe UI", sans-serif';
+    ctx.fillText(studentName || 'NSG SCHOLAR', 125, 235);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.font = '600 12px "JetBrains Mono", monospace';
+    ctx.fillText(`MATRIC: ${matricNumber || 'NSG-STUDENT-MOCK'}`, 125, 265);
+    ctx.fillText(`EXAM ID: ${examIdInput || 'CBT-MOCK'}`, 125, 290);
+    ctx.fillText(`DATE: ${new Date().toLocaleDateString()}`, 125, 315);
+
+    // 5. Score Radial Container Card
+    drawCard(580, 175, 320, 180, 16);
+
+    // Concentric Ring
+    ctx.textAlign = 'center';
+    ctx.beginPath();
+    ctx.arc(740, 260, 60, 0, 2 * Math.PI);
+    ctx.fillStyle = 'rgba(2, 6, 23, 0.8)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+    ctx.lineWidth = 12;
+    ctx.stroke();
+
+    // Actual Radial Score ring
+    ctx.beginPath();
+    ctx.arc(740, 260, 60, -0.5 * Math.PI, (2 * percentage / 100 - 0.5) * Math.PI);
+    ctx.strokeStyle = accentColor;
+    ctx.lineWidth = 12;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    // Score text
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '900 32px "Inter", sans-serif';
+    ctx.fillText(`${percentage}%`, 740, 268);
+    ctx.fillStyle = '#94A3B8';
+    ctx.font = '900 9px "Inter", sans-serif';
+    ctx.fillText('ACCURACY', 740, 285);
+
+    // Grade label
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#F59E0B';
+    ctx.font = '900 10px "Inter", sans-serif';
+    ctx.fillText('SCORE RATINGS', 605, 210);
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '900 26px "Inter", sans-serif';
+    ctx.fillText(`GRADE ${grade}`, 605, 245);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.font = 'bold 11px "Inter", sans-serif';
+    ctx.fillText(`${examScore} Correct`, 605, 275);
+    ctx.fillText(`${activeQuestionsPool.length - examScore} Missed`, 605, 295);
+
+    // 6. Subjects Breakdown Container
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#F59E0B';
+    ctx.font = '900 11px "Inter", sans-serif';
+    ctx.fillText('CURRICULUM COMPETENCY INDEX', 105, 395);
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+    ctx.beginPath();
+    ctx.moveTo(100, 408);
+    ctx.lineTo(900, 408);
+    ctx.stroke();
+
+    const distinctStudentSubjects = (examConfig.subjects && examConfig.subjects.length > 0)
+      ? examConfig.subjects.map(s => s.name).filter(name => activeQuestionsPool.some(q => (q.subject || "Mathematics").trim().toLowerCase() === name.trim().toLowerCase()))
+      : Array.from(new Set(activeQuestionsPool.map(q => q.subject || "Mathematics").filter(Boolean))) as string[];
+
+    let yPos = 445;
+    distinctStudentSubjects.slice(0, 5).forEach((subName) => {
+      const subQuestions = activeQuestionsPool.filter(q => (q.subject || "Mathematics").trim().toLowerCase() === subName.trim().toLowerCase());
+      let subScore = 0;
+      subQuestions.forEach((q) => {
+        const studentAns = examAnswers[q.id];
+        if (studentAns !== undefined && studentAns !== null && sanitizeCorrectAnswer(studentAns) === sanitizeCorrectAnswer(q.correctAnswer)) {
+          subScore++;
+        }
+      });
+      const subPercent = Math.round((subScore / (subQuestions.length || 1)) * 100);
+
+      // Subject container box
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.4)';
+      ctx.fillRect(100, yPos - 22, 800, 36);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+      ctx.strokeRect(100, yPos - 22, 800, 36);
+
+      ctx.fillStyle = '#F8FAFC';
+      ctx.font = '900 13px "Inter", sans-serif';
+      ctx.fillText(subName.toUpperCase(), 120, yPos + 1);
+
+      // Draw background bar track (pill shaped)
+      const barX = 380;
+      const barY = yPos - 8;
+      const barW = 340;
+      const barH = 10;
+      const barRadius = 5;
+
+      ctx.fillStyle = '#1E293B';
+      
+      const drawPill = (x: number, y: number, w: number, h: number, r: number) => {
+        ctx.beginPath();
+        ctx.arc(x + r, y + r, r, Math.PI, 1.5 * Math.PI);
+        ctx.lineTo(x + w - r, y);
+        ctx.arc(x + w - r, y + r, r, 1.5 * Math.PI, 2 * Math.PI);
+        ctx.lineTo(x + w, y + h - r);
+        ctx.arc(x + w - r, y + h - r, r, 0, 0.5 * Math.PI);
+        ctx.lineTo(x + r, y + h);
+        ctx.arc(x + r, y + h - r, r, 0.5 * Math.PI, Math.PI);
+        ctx.closePath();
+        ctx.fill();
+      };
+      drawPill(barX, barY, barW, barH, barRadius);
+
+      // Draw active progress bar
+      if (subPercent > 0) {
+        const fillW = Math.max(10, (subPercent / 100) * barW);
+        const barGrad = ctx.createLinearGradient(barX, 0, barX + fillW, 0);
+        barGrad.addColorStop(0, accentColor);
+        barGrad.addColorStop(1, '#F59E0B');
+        ctx.fillStyle = barGrad;
+        drawPill(barX, barY, fillW, barH, barRadius);
+      }
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '900 12px "JetBrains Mono", monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(`${subScore}/${subQuestions.length} (${subPercent}%)`, 880, yPos + 1);
+      ctx.textAlign = 'left';
+
+      yPos += 48;
+    });
+
+    // 7. Digital Stamp / Validation Seal
+    const sealX = 820;
+    const sealY = 645;
+    
+    // Outer radial bursts
+    ctx.strokeStyle = 'rgba(217, 119, 6, 0.3)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 24; i++) {
+      const angle = (i * Math.PI) / 12;
+      ctx.beginPath();
+      ctx.moveTo(sealX, sealY);
+      ctx.lineTo(sealX + Math.cos(angle) * 32, sealY + Math.sin(angle) * 32);
+      ctx.stroke();
+    }
+
+    ctx.beginPath();
+    ctx.arc(sealX, sealY, 25, 0, 2 * Math.PI);
+    ctx.fillStyle = '#D97706';
+    ctx.fill();
+    ctx.strokeStyle = '#F59E0B';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(sealX, sealY, 20, 0, 2 * Math.PI);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 7px "Inter", sans-serif';
+    ctx.fillText('NSG', sealX, sealY - 3);
+    ctx.fillText('SEAL', sealX, sealY + 5);
+
+    // Validation Signature
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.font = '800 9px "Inter", sans-serif';
+    ctx.fillText('ACADEMIC BOARD', 600, 630);
+    ctx.fillStyle = '#10B981';
+    ctx.font = 'italic 20px "Playfair Display", "Georgia", serif';
+    ctx.fillText('Verified', 600, 660);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(600, 670);
+    ctx.lineTo(760, 670);
+    ctx.stroke();
+
+    // 8. Footer Info
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+    ctx.font = 'italic bold 10px "JetBrains Mono", monospace';
+    const completedDateStr = `${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    ctx.fillText(`COMPLETED ON ${completedDateStr.toUpperCase()}`, 500, 715);
+
+    // Trigger download
+    const url = canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `NSG_Exam_Scorecard_${studentName ? studentName.replace(/\s+/g, '_') : 'Student'}.png`;
+    a.click();
+  };
+
+  const downloadQuizScorecard = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1000;
+    canvas.height = 700;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const percentage = Math.round((quizScore / (quizQuestions.length || 1)) * 100);
+
+    // Dynamic accent color based on score
+    let accentColor = '#3B82F6'; // Royal Blue for general study or dynamic accent
+    let accentGlow = 'rgba(59, 130, 246, 0.15)';
+    let grade = 'F';
+    let gradePhrase = 'Requires more practice. Revise materials.';
+    
+    if (percentage >= 90) {
+      accentColor = '#10B981'; // Green
+      accentGlow = 'rgba(16, 185, 129, 0.15)';
+      grade = 'A+';
+      gradePhrase = 'Exceptional knowledge! Outstanding masterclass.';
+    } else if (percentage >= 80) {
+      accentColor = '#10B981';
+      accentGlow = 'rgba(16, 185, 129, 0.15)';
+      grade = 'A';
+      gradePhrase = 'Magnificent performance! Highly competent.';
+    } else if (percentage >= 60) {
+      accentColor = '#F59E0B'; // Amber
+      accentGlow = 'rgba(245, 158, 11, 0.15)';
+      grade = 'B';
+      gradePhrase = 'Very good study! Solid passing results.';
+    } else if (percentage >= 40) {
+      accentColor = '#3B82F6'; // Blue
+      grade = 'C';
+      gradePhrase = 'Credit Pass. Review incorrect answers.';
+    } else {
+      accentColor = '#EF4444'; // Red
+      accentGlow = 'rgba(239, 68, 68, 0.15)';
+      grade = 'F';
+      gradePhrase = 'Requires revision. Plan another study cycle.';
+    }
+
+    // 1. Draw premium background
+    ctx.fillStyle = '#060B15';
+    ctx.fillRect(0, 0, 1000, 700);
+
+    // Glowing lights
+    const lightGlow = ctx.createRadialGradient(200, 200, 10, 200, 200, 400);
+    lightGlow.addColorStop(0, accentGlow);
+    lightGlow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = lightGlow;
+    ctx.fillRect(0, 0, 1000, 700);
+
+    const lightGlowRight = ctx.createRadialGradient(800, 500, 10, 800, 500, 400);
+    lightGlowRight.addColorStop(0, 'rgba(30, 41, 59, 0.3)');
+    lightGlowRight.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = lightGlowRight;
+    ctx.fillRect(0, 0, 1000, 700);
+
+    // Grid lines
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.02)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < 1000; x += 50) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, 700);
+      ctx.stroke();
+    }
+    for (let y = 0; y < 700; y += 50) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(1000, y);
+      ctx.stroke();
+    }
+
+    // Watermark
+    ctx.save();
+    ctx.translate(500, 350);
+    ctx.rotate(-Math.PI / 10);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.015)';
+    ctx.font = 'bold 64px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('NSG SMART STUDY QUIZ', 0, 0);
+    ctx.restore();
+
+    // 2. Dual borders & Corner ornaments
+    ctx.strokeStyle = '#D97706';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(20, 20, 960, 660);
+
+    ctx.strokeStyle = accentColor;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(28, 28, 944, 644);
+
+    // Corner L-shapes
+    ctx.strokeStyle = '#D97706';
+    ctx.lineWidth = 3;
+    const corners = [
+      { x: 15, y: 15, dx: 30, dy: 30 },
+      { x: 985, y: 15, dx: -30, dy: 30 },
+      { x: 15, y: 685, dx: 30, dy: -30 },
+      { x: 985, y: 685, dx: -30, dy: -30 }
+    ];
+    corners.forEach(c => {
+      ctx.beginPath();
+      ctx.moveTo(c.x + c.dx, c.y);
+      ctx.lineTo(c.x, c.y);
+      ctx.lineTo(c.x, c.y + c.dy);
+      ctx.stroke();
+    });
+
+    // 3. Titles
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#F59E0B';
+    ctx.font = '900 11px "Inter", sans-serif';
+    ctx.fillText('STUDY ASSESSMENT VERIFICATION RECORD', 500, 60);
+
+    const headerGradient = ctx.createLinearGradient(300, 0, 700, 0);
+    headerGradient.addColorStop(0, '#FFFFFF');
+    headerGradient.addColorStop(0.5, '#F8FAFC');
+    headerGradient.addColorStop(1, '#94A3B8');
+    ctx.fillStyle = headerGradient;
+    ctx.font = '900 34px "Inter", sans-serif';
+    ctx.fillText('QUIZ PERFORMANCE REPORT', 500, 100);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.font = 'medium 13px "Inter", sans-serif';
+    ctx.fillText('STUDENT SELF-ASSESSMENT RECORD & STUDY PROGRESS METRIC', 500, 125);
+
+    // Divider line
+    const dividerGrad = ctx.createLinearGradient(150, 0, 850, 0);
+    dividerGrad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+    dividerGrad.addColorStop(0.5, 'rgba(217, 119, 6, 0.4)');
+    dividerGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.strokeStyle = dividerGrad;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(150, 145);
+    ctx.lineTo(850, 145);
+    ctx.stroke();
+
+    const drawCard = (x: number, y: number, w: number, h: number, r: number) => {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    };
+
+    // Candidate Info Card
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.lineWidth = 1;
+    drawCard(100, 175, 450, 180, 16);
+
+    ctx.fillStyle = accentColor;
+    ctx.fillRect(100, 195, 4, 140);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#94A3B8';
+    ctx.font = '900 10px "Inter", sans-serif';
+    ctx.fillText('STUDENT DETAILED PROFILE', 125, 205);
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '900 22px "Inter", sans-serif';
+    ctx.fillText(currentUserData?.username || studentName || 'NSG SCHOLAR', 125, 245);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.font = '600 12px "JetBrains Mono", monospace';
+    ctx.fillText(`TOPIC: ${(quizTopic || 'General Study').toUpperCase()}`, 125, 280);
+    ctx.fillText(`DATE CONCLUDED: ${new Date().toLocaleDateString()}`, 125, 310);
+
+    // Score Radial Container
+    drawCard(580, 175, 320, 180, 16);
+
+    // Concentric Ring
+    ctx.textAlign = 'center';
+    ctx.beginPath();
+    ctx.arc(740, 260, 60, 0, 2 * Math.PI);
+    ctx.fillStyle = 'rgba(2, 6, 23, 0.8)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+    ctx.lineWidth = 12;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(740, 260, 60, -0.5 * Math.PI, (2 * percentage / 100 - 0.5) * Math.PI);
+    ctx.strokeStyle = accentColor;
+    ctx.lineWidth = 12;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '900 32px "Inter", sans-serif';
+    ctx.fillText(`${percentage}%`, 740, 268);
+    ctx.fillStyle = '#94A3B8';
+    ctx.font = '900 9px "Inter", sans-serif';
+    ctx.fillText('ACCURACY', 740, 285);
+
+    // Grade labels
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#F59E0B';
+    ctx.font = '900 10px "Inter", sans-serif';
+    ctx.fillText('SCORE RATINGS', 605, 210);
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '900 26px "Inter", sans-serif';
+    ctx.fillText(`GRADE ${grade}`, 605, 245);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.font = 'bold 11px "Inter", sans-serif';
+    ctx.fillText(`${quizScore} Correct`, 605, 275);
+    ctx.fillText(`${quizQuestions.length - quizScore} Missed`, 605, 295);
+
+    // 5. METRIC METADATA GRID
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#F59E0B';
+    ctx.font = '900 11px "Inter", sans-serif';
+    ctx.fillText('STUDY METRIC METADATA SUMMARY', 105, 395);
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+    ctx.beginPath();
+    ctx.moveTo(100, 408);
+    ctx.lineTo(900, 408);
+    ctx.stroke();
+
+    // Three metadata grids (Total, Correct, Incorrect)
+    const stats = [
+      { label: 'TOTAL ATTEMPTED', val: `${quizQuestions.length} Questions`, color: '#FFFFFF' },
+      { label: 'CORRECT ANSWERS', val: `${quizScore} Correct`, color: '#10B981' },
+      { label: 'INCORRECT ITEMS', val: `${quizQuestions.length - quizScore} Wrong`, color: '#EF4444' }
+    ];
+
+    stats.forEach((stat, i) => {
+      const boxX = 100 + i * 275;
+      const boxY = 430;
+      const boxW = 250;
+      const boxH = 75;
+
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.4)';
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+      ctx.lineWidth = 1;
+      drawCard(boxX, boxY, boxW, boxH, 12);
+
+      ctx.textAlign = 'left';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.font = '900 9px "Inter", sans-serif';
+      ctx.fillText(stat.label, boxX + 18, boxY + 28);
+
+      ctx.fillStyle = stat.color;
+      ctx.font = '900 18px "Inter", sans-serif';
+      ctx.fillText(stat.val, boxX + 18, boxY + 54);
+    });
+
+    // Omni Advisor Box below
+    const advY = 530;
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
+    ctx.strokeStyle = 'rgba(217, 119, 6, 0.15)';
+    drawCard(100, advY, 800, 60, 12);
+
+    ctx.fillStyle = '#D97706';
+    ctx.fillRect(100, advY + 12, 4, 36);
+
+    ctx.fillStyle = '#F59E0B';
+    ctx.font = '900 9px "Inter", sans-serif';
+    ctx.fillText('STUDY ADVISOR RECOMMENDATION', 125, advY + 23);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.font = 'bold italic 12px "Inter", sans-serif';
+    ctx.fillText(`"${gradePhrase}"`, 125, advY + 43);
+
+    // Validation Signature text / Stamp Seal
+    const sealX = 820;
+    const sealY = 615;
+
+    ctx.strokeStyle = 'rgba(217, 119, 6, 0.3)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 24; i++) {
+      const angle = (i * Math.PI) / 12;
+      ctx.beginPath();
+      ctx.moveTo(sealX, sealY);
+      ctx.lineTo(sealX + Math.cos(angle) * 32, sealY + Math.sin(angle) * 32);
+      ctx.stroke();
+    }
+
+    ctx.beginPath();
+    ctx.arc(sealX, sealY, 25, 0, 2 * Math.PI);
+    ctx.fillStyle = '#D97706';
+    ctx.fill();
+    ctx.strokeStyle = '#F59E0B';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(sealX, sealY, 20, 0, 2 * Math.PI);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 7px "Inter", sans-serif';
+    ctx.fillText('NSG', sealX, sealY - 3);
+    ctx.fillText('SEAL', sealX, sealY + 5);
+
+    // Autograph
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.font = '800 9px "Inter", sans-serif';
+    ctx.fillText('ACADEMIC BOARD', 600, 595);
+    ctx.fillStyle = '#10B981';
+    ctx.font = 'italic 20px "Playfair Display", "Georgia", serif';
+    ctx.fillText('Verified', 600, 622);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(600, 630);
+    ctx.lineTo(760, 630);
+    ctx.stroke();
+
+    // Footer Info
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+    ctx.font = 'italic bold 10px "JetBrains Mono", monospace';
+    const completedDateStr = `${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    ctx.fillText(`COMPLETED ON ${completedDateStr.toUpperCase()}`, 500, 665);
+
+    // Download
+    const url = canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `NSG_Quiz_Scorecard_${currentUserData?.username ? currentUserData.username.replace(/\s+/g, '_') : 'Student'}.png`;
+    a.click();
+  };
+
   const submitExam = async () => {
     if (examTimerRef.current) clearInterval(examTimerRef.current);
     
     let score = 0;
     const questionsToGrade = studentActiveQuestions.length > 0 ? studentActiveQuestions : examQuestions;
+    const totalSatFor = questionsToGrade.length || 1;
+
     questionsToGrade.forEach((q, idx) => {
-      const studentAns = examAnswers[q.id] !== undefined ? examAnswers[q.id] : examAnswers[idx];
+      const realPoolIndex = examQuestions.indexOf(q);
+      const studentAns = examAnswers[q.id] !== undefined 
+        ? examAnswers[q.id] 
+        : (realPoolIndex !== -1 && examAnswers[realPoolIndex] !== undefined ? examAnswers[realPoolIndex] : examAnswers[idx]);
       const correctAns = sanitizeCorrectAnswer(q.correctAnswer);
       if (studentAns !== undefined && studentAns !== null) {
         if (sanitizeCorrectAnswer(studentAns) === correctAns) {
@@ -5137,15 +5933,15 @@ export default function App() {
       date: new Date().toLocaleDateString(),
       timestamp: Date.now(),
       score: score,
-      total: questionsToGrade.length
+      total: totalSatFor
     });
 
     if (user) {
-      const p = Math.round((score / (questionsToGrade.length || 1)) * 100);
+      const p = Math.round((score / totalSatFor) * 100);
       addDoc(collection(db, 'notifications'), {
         to: user.uid,
         title: `🛡️ Professional CBT Exam Submitted!`,
-        message: `Congratulations ${studentName || currentUserData?.username || 'Scholar'}! You submitted CBT Exam "${examIdInput || 'CBT Mock'}" with a final score of ${score}/${questionsToGrade.length} (${p}%). Every milestone counts! 🔥🎓`,
+        message: `Congratulations ${studentName || currentUserData?.username || 'Scholar'}! You submitted CBT Exam "${examIdInput || 'CBT Mock'}" with a final score of ${score}/${totalSatFor} (${p}%). Every milestone counts! 🔥🎓`,
         type: 'congrats',
         subtype: 'exam_complete',
         targetTab: 'tools',
@@ -5607,6 +6403,211 @@ ${session.fullAnalysis}
     }
   };
 
+  const handleUploadAudioRecordPage = async (file: File) => {
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    const audioEl = new Audio(url);
+    
+    await new Promise<void>((resolve) => {
+      audioEl.onloadedmetadata = () => resolve();
+      audioEl.onerror = () => resolve();
+    });
+
+    const durationSec = audioEl.duration;
+    const maxSec = isPremium ? 4 * 3600 : 30 * 60;
+    if (!isNaN(durationSec) && isFinite(durationSec) && durationSec > maxSec) {
+      alert(`Audio duration (${Math.round(durationSec / 60)} mins) exceeds limit! ${isPremium ? '4 hours max for Premium users.' : 'Non-premium limit is 30 minutes. Upgrade to Premium for up to 4 hours!'}`);
+      return;
+    }
+
+    const formattedDuration = !isNaN(durationSec) && isFinite(durationSec)
+      ? `${Math.floor(durationSec / 60)}:${Math.floor(durationSec % 60).toString().padStart(2, '0')}`
+      : "Audio File";
+
+    const cleanFileName = file.name ? file.name.replace(/\.[^/.]+$/, "") : `Uploaded Audio ${new Date().toLocaleTimeString()}`;
+    const newSessionId = `session-upload-${Date.now()}`;
+
+    const aiInstance = getAiInstance();
+    let audioPart: any = null;
+    try {
+      audioPart = await fileToGenerativePart(file);
+    } catch (err) {
+      console.error("Error converting file:", err);
+    }
+
+    const uploadedSession: LectureSession = {
+      id: newSessionId,
+      title: cleanFileName,
+      date: new Date().toLocaleDateString(),
+      timestamp: Date.now(),
+      createdAt: Date.now(),
+      duration: formattedDuration,
+      imageCount: 0,
+      summary: "Uploaded audio file. Active transcription into note in progress...",
+      fullAnalysis: "",
+      notes: "Transcribing audio into structured study note...",
+      images: [],
+      audioUrl: url,
+      audioBase64: audioPart?.inlineData?.data,
+      status: 'analyzed'
+    };
+
+    if (user?.uid) {
+      try {
+        if (audioPart && audioPart.inlineData.data.length < 1000000) {
+          await setDoc(doc(db, 'users', user.uid, 'lectureSessions', newSessionId), uploadedSession);
+        } else {
+          await setDoc(doc(db, 'users', user.uid, 'lectureSessions', newSessionId), { ...uploadedSession, audioBase64: undefined });
+        }
+      } catch (err) {
+        console.error("Error saving uploaded session to Firestore:", err);
+      }
+    } else {
+      try {
+        const offlineData = localStorage.getItem('nsg_offline_recordings');
+        const list = offlineData ? JSON.parse(offlineData) : [];
+        list.push(uploadedSession);
+        localStorage.setItem('nsg_offline_recordings', circularSafeStringify(list));
+      } catch (e) {}
+    }
+
+    setSessions(prev => [uploadedSession, ...prev]);
+    setSelectedSession(uploadedSession);
+    setUserNotification("Audio uploaded! Preview ready below.");
+
+    const newNoteId = `note-audio-${Date.now()}`;
+    const initialNote = {
+      id: newNoteId,
+      title: `${cleanFileName}`,
+      content: "# Transcribing Audio...\n\nAudio analysis in progress. Please wait while the perfect study note is generated...",
+      isTranscribing: true,
+      createdAt: { toMillis: () => Date.now(), toDate: () => new Date() } as any,
+      updatedAt: { toMillis: () => Date.now(), toDate: () => new Date() } as any,
+      attachments: [{ name: file.name, url: url, type: file.type || 'audio/mpeg' }]
+    };
+
+    setActiveAudioNoteId(newNoteId);
+    setIsAudioTranscribing(true);
+    setAudioTranscribingPopup(true);
+
+    setUserNotes(prev => [initialNote, ...prev]);
+    if (user?.uid) {
+      try {
+        await setDoc(doc(db, 'notes', newNoteId), {
+          ...initialNote,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+      } catch (e) {}
+    }
+
+    (async () => {
+      try {
+        if (!audioPart) {
+          audioPart = await fileToGenerativePart(file);
+        }
+        const prompt = `You are an expert academic assistant. Analyze this audio recording thoroughly and generate a comprehensive, structured markdown study note ("perfect note"). Include clean headings, key concepts, detailed explanations, bullet points, summaries, and actionable study takeaways. Output ONLY the clean markdown note content.`;
+        
+        let accumulatedText = "";
+        try {
+          const streamResult = await aiInstance.models.generateContentStream({
+            model: 'gemini-2.5-flash',
+            contents: [{ parts: [audioPart, { text: prompt }] }]
+          });
+          for await (const chunk of streamResult) {
+            if (chunk.text) {
+              accumulatedText += chunk.text;
+              setUserNotes(prev => prev.map(n => n.id === newNoteId ? {
+                ...n,
+                content: accumulatedText,
+                updatedAt: { toMillis: () => Date.now(), toDate: () => new Date() } as any
+              } : n));
+              setSelectedNote(prev => prev && prev.id === newNoteId ? {
+                ...prev,
+                content: accumulatedText
+              } : prev);
+            }
+          }
+        } catch (streamErr) {
+          console.log("Stream fallback to generateContent:", streamErr);
+          const response = await aiInstance.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: [{ parts: [audioPart, { text: prompt }] }]
+          });
+          const fullText = response.text || "No note content generated.";
+          const words = fullText.split(" ");
+          let currentSim = "";
+          for (let i = 0; i < words.length; i += 4) {
+            currentSim += (i > 0 ? " " : "") + words.slice(i, i + 4).join(" ");
+            setUserNotes(prev => prev.map(n => n.id === newNoteId ? {
+              ...n,
+              content: currentSim,
+              updatedAt: { toMillis: () => Date.now(), toDate: () => new Date() } as any
+            } : n));
+            setSelectedNote(prev => prev && prev.id === newNoteId ? {
+              ...prev,
+              content: currentSim
+            } : prev);
+            await new Promise(r => setTimeout(r, 40));
+          }
+          accumulatedText = fullText;
+        }
+
+        setUserNotes(prev => prev.map(n => n.id === newNoteId ? {
+          ...n,
+          content: accumulatedText,
+          isTranscribing: false,
+          updatedAt: { toMillis: () => Date.now(), toDate: () => new Date() } as any
+        } : n));
+
+        setSelectedNote(prev => prev && prev.id === newNoteId ? {
+          ...prev,
+          content: accumulatedText,
+          isTranscribing: false
+        } : prev);
+
+        setSessions(prev => prev.map(s => s.id === newSessionId ? {
+          ...s,
+          notes: accumulatedText,
+          fullAnalysis: accumulatedText,
+          summary: "Successfully transcribed into note."
+        } : s));
+
+        if (user?.uid) {
+          try {
+            await updateDoc(doc(db, 'notes', newNoteId), {
+              content: accumulatedText,
+              isTranscribing: false,
+              updatedAt: serverTimestamp()
+            });
+            await updateDoc(doc(db, 'users', user.uid, 'lectureSessions', newSessionId), {
+              notes: accumulatedText,
+              fullAnalysis: accumulatedText,
+              summary: "Successfully transcribed into note."
+            });
+          } catch (e) {}
+        }
+
+        setIsAudioTranscribing(false);
+        setUserNotification("Audio conversion to note complete!");
+      } catch (err) {
+        console.error("Audio conversion failed:", err);
+        const errorText = "# Audio Transcription Failed\n\nWe couldn't process the audio file. Please ensure it is a valid audio format and within limits.";
+        setUserNotes(prev => prev.map(n => n.id === newNoteId ? {
+          ...n,
+          content: errorText,
+          isTranscribing: false
+        } : n));
+        setSelectedNote(prev => prev && prev.id === newNoteId ? {
+          ...prev,
+          content: errorText,
+          isTranscribing: false
+        } : prev);
+        setIsAudioTranscribing(false);
+      }
+    })();
+  };
+
   // --- \u{1F3A4} RECORDING LOGIC ---
   const [isStopping, setIsStopping] = useState(false);
   const [isProcessingFinal, setIsProcessingFinal] = useState(false);
@@ -5839,7 +6840,7 @@ ${session.fullAnalysis}
               const offlineData = localStorage.getItem('nsg_offline_recordings');
               const list = offlineData ? JSON.parse(offlineData) : [];
               list.push(offlineSession);
-              localStorage.setItem('nsg_offline_recordings', JSON.stringify(list));
+              localStorage.setItem('nsg_offline_recordings', circularSafeStringify(list));
 
               setUserNotification("Recording saved locally (Offline)!");
               setSelectedSession(offlineSession);
@@ -7076,6 +8077,33 @@ ${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\nopt
       if (quizDoc.exists()) {
         const data = quizDoc.data();
         
+        // Check if they already finished it
+        const alreadyFinished = finishedHistory.some(h => 
+          h.type === 'quiz' && 
+          (h.id === `quiz-${quizId}` || h.id === quizId) && 
+          h.score !== undefined
+        );
+        if (alreadyFinished) {
+          const finishedItem = finishedHistory.find(h => 
+            h.type === 'quiz' && 
+            (h.id === `quiz-${quizId}` || h.id === quizId) && 
+            h.score !== undefined
+          );
+          if (finishedItem) {
+            setQuizQuestions(finishedItem.questions || data.questions);
+            setQuizScore(finishedItem.score);
+            setQuizState('finished');
+            if (finishedItem.answers) setUserQuizAnswers(finishedItem.answers);
+            if (finishedItem.topic) setQuizTopic(finishedItem.topic);
+            else if (data.topic) setQuizTopic(data.topic);
+            setQuizDifficulty(finishedItem.difficulty as any || data.difficulty || 'Medium');
+            setUserNotification("You have already completed this quiz! Showing your scorecard.");
+            setActiveTab('tools');
+            setToolsSubTab('quiz');
+            return;
+          }
+        }
+
         // Auto Capture: Add to history immediately when opened
         const historyId = `quiz-${quizId}`;
         const historyItem: HomeHistoryItem = {
@@ -7269,7 +8297,7 @@ Respond professionally, concisely, and use LaTeX for math.` }];
     } else {
       window.speechSynthesis.cancel();
       // Remove LaTeX and Markdown artifacts from text for clear speaking
-      const cleanString = text.replace(/[#*`\$\(\)\[\]\\_]/g, '');
+      const cleanString = cleanTextForSpeech(text);
       const utterance = new SpeechSynthesisUtterance(cleanString);
       utterance.onend = () => setSpeechActiveId(null);
       utterance.onerror = () => setSpeechActiveId(null);
@@ -7358,6 +8386,20 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
     const activeCount = realCount !== undefined ? realCount : quizQuestionCount;
     const activeDifficulty = realDifficulty !== undefined ? realDifficulty : quizDifficulty;
 
+    // Prevent sitting for a quiz twice by checking finishedHistory
+    const alreadyCompleted = finishedHistory.some(h => 
+      h.type === 'quiz' && 
+      (h.progress === 100 || h.score !== undefined) && 
+      h.title && 
+      (h.title.toLowerCase().trim() === activeTopic.toLowerCase().trim() || 
+       (importedQuizNote && h.title.toLowerCase().trim() === importedQuizNote.title.toLowerCase().trim()))
+    );
+
+    if (alreadyCompleted) {
+      setUserNotification("You have already completed this quiz. Please choose a different topic or note to study next!");
+      return;
+    }
+
     if (realTopic !== undefined) setQuizTopic(realTopic);
     if (realCount !== undefined) setQuizQuestionCount(realCount);
     if (realDifficulty !== undefined) setQuizDifficulty(realDifficulty);
@@ -7435,7 +8477,11 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
         Difficulty Level: ${activeDifficulty}.
         
         To support LaTeX rendering for technical topics (only when relevant):
-        If and only if the topic is mathematical/scientific and expressions or equations are required, wrap them in LaTeX notation using $ ... $ for inline formatting.
+        CRITICAL FOR MATH & SCIENTIFIC TOPICS:
+        - For ALL mathematical expressions, vectors, formulas, variables, and scientific notations in BOTH questions AND options, ALWAYS wrap them in standard LaTeX notation enclosed in $ ... $ delimiters.
+        - Example options: ["$2\\hat{i} + 3\\hat{j}$", "$-2\\hat{i} + 3\\hat{j}$", "$2\\hat{i} - 3\\hat{j}$", "$-2\\hat{i} - 3\\hat{j}$"].
+        - Use standard LaTeX backslashes (e.g., \\hat{i}, \\vec{v}, \\frac{1}{2}, \\sqrt{x}). NEVER write forward slashes like /hat/I or /vec/v.
+        - Ensure all backslashes are properly escaped for JSON.
         
         Return ONLY a JSON object with this structure:
         {
@@ -7479,7 +8525,7 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
       const responseText = await askGemini() || await askTogether() || await askOpenRouter() || "{}";
       const data = robustJSONParse(responseText);
       if (data && data.questions) {
-        const genId = `gen-${Date.now()}`;
+        const genId = `quiz-gen-${Date.now()}`;
         if (data.quizTitle) {
           setQuizTopic(data.quizTitle);
         } else if (!activeTopic.trim() && importedQuizNote) {
@@ -7557,10 +8603,11 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
         Generate a ${quizQuestionCount}-question professional multiple choice examination about "${quizTopic}".
         Difficulty Level: ${quizDifficulty}.
         
-        CRITICAL: For ALL mathematical expressions, formulas, and scientific notation, 
-        ALWAYS wrap them in LaTeX notation using $ ... $ for inline and $$ ... $$ for blocks.
-        Example: $2^2 = 4$, $\pi r^2$, $H_2O$.
-        NEVER leave raw symbols like ^ or _ outside of LaTeX delimiters.
+        CRITICAL FOR MATH & SCIENTIFIC TOPICS:
+        - For ALL mathematical expressions, formulas, vectors, and scientific notations in BOTH questions AND options, ALWAYS wrap them in standard LaTeX notation enclosed in $ ... $ delimiters.
+        - Example options: ["$2\\hat{i} + 3\\hat{j}$", "$-2\\hat{i} + 3\\hat{j}$", "$2^2 = 4$", "$\\pi r^2$"].
+        - Use standard LaTeX backslashes (e.g., \\hat{i}, \\vec{v}, \\frac{1}{2}, \\sqrt{x}). NEVER write forward slashes like /hat/I or /vec/v.
+        - NEVER leave raw symbols like ^ or _ outside of LaTeX delimiters. Ensure all backslashes are properly escaped for JSON.
         
         Return ONLY a JSON object with this structure:
         {
@@ -7614,6 +8661,128 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
       }
     }
   }, [toolsSubTab, quizTopic, quizState, examLobbyState, examQuestions.length, isGeneratingQuiz]);
+
+  const handleHistoryItemClick = async (item: HomeHistoryItem) => {
+    setHistoryLoadingModal({
+      show: true,
+      title: item.title || item.type.toUpperCase(),
+      message: `Restoring your ${item.type} session and locking interface...`
+    });
+    try {
+      await new Promise(r => setTimeout(r, 650));
+      if (item.type === 'quiz') {
+        let targetQuizId = '';
+        if (item.id.startsWith('quiz-')) {
+          targetQuizId = item.id.replace('quiz-', '');
+          if (targetQuizId.startsWith('fin-')) targetQuizId = '';
+        }
+        if (targetQuizId && targetQuizId !== 'current-quiz') {
+          await loadSharedQuiz(targetQuizId);
+          if (item.score !== undefined) {
+            setQuizState('finished');
+            setQuizScore(item.score);
+            if (item.answers) setUserQuizAnswers(item.answers);
+          }
+          return;
+        }
+        if (item.score !== undefined && item.questions && item.questions.length > 0) {
+          setQuizQuestions(item.questions);
+          setQuizScore(item.score);
+          setQuizState('finished');
+          if (item.answers) setUserQuizAnswers(item.answers);
+          if (item.topic) setQuizTopic(item.topic);
+          if (item.difficulty) setQuizDifficulty(item.difficulty as any);
+          setActiveTab('tools');
+          setToolsSubTab('quiz');
+          return;
+        }
+        const cleanId = item.id.replace(/^quiz-/, '');
+        const progressKey = (cleanId === 'current-quiz' || item.id === 'current-quiz') ? 'nsg_current_quiz_progress' : `nsg_quiz_progress_${cleanId}`;
+        const localProgress = localStorage.getItem(progressKey);
+        if (localProgress) {
+          try {
+            const p = JSON.parse(localProgress);
+            setQuizQuestions(p.quizQuestions || []);
+            setQuizTopic(p.quizTopic || item.title || "Study Quiz");
+            setCurrentQuestionIndex(p.currentQuestionIndex || 0);
+            setQuizScore(p.quizScore || 0);
+            setUserQuizAnswers(p.userQuizAnswers || []);
+            setQuizDifficulty(p.quizDifficulty || 'Medium');
+            setQuizQuestionCount(p.quizQuestionCount || p.quizQuestions?.length || 10);
+            setCurrentQuizId(p.currentQuizId || item.id);
+            setQuizState('active');
+            setSelectedOption(p.userQuizAnswers?.[p.currentQuestionIndex] !== undefined ? p.userQuizAnswers[p.currentQuestionIndex] : null);
+            setIsAnswered(p.userQuizAnswers?.[p.currentQuestionIndex] !== undefined);
+            setActiveTab('tools');
+            setToolsSubTab('quiz');
+            return;
+          } catch (e) {
+            console.error("Failed to restore history quiz progress:", e);
+          }
+        }
+        if (item.questions && item.questions.length > 0) {
+          setQuizQuestions(item.questions);
+          setQuizTopic(item.title || item.topic || "Study Quiz");
+          setQuizState('active');
+          setCurrentQuestionIndex(0);
+          setActiveTab('tools');
+          setToolsSubTab('quiz');
+          return;
+        }
+        await generateQuiz(item.title || item.topic || "General Assessment", 10, (item.difficulty as any) || "Medium");
+        setActiveTab('tools');
+        setToolsSubTab('quiz');
+      } else if (item.type === 'exam') {
+        setActiveTab('tools');
+        setToolsSubTab('exam');
+        if (item.score !== undefined) {
+          setExamLobbyState('result');
+          setExamScore(item.score);
+          if (item.questions) setExamQuestions(item.questions);
+          if (item.answers) setExamAnswers(item.answers);
+          if (item.matric) setMatricNumber(item.matric);
+          if (item.studentName) setStudentName(item.studentName);
+        } else {
+          if (item.questions) setExamQuestions(item.questions);
+          if (item.answers) setExamAnswers(item.answers);
+          if (item.matric) setMatricNumber(item.matric);
+          if (item.studentName) setStudentName(item.studentName);
+          setExamLobbyState('exam');
+          setExamFinished(false);
+          setUserNotification("🔄 Restored your active exam session!");
+        }
+      } else if (item.type === 'recording') {
+        const session = sessions.find(s => s.id === item.id);
+        if (session) {
+          loadRecordingSession(session);
+        }
+        setActiveTab('tools');
+        setToolsSubTab('record');
+      } else if (item.type === 'assignment') {
+        setActiveTab('tools');
+        setToolsSubTab('assignment');
+        if (item.data) {
+          setActiveAssignmentSolution(item.data);
+        }
+      } else if (item.type === 'note' as any) {
+        const note = userNotes.find(n => n.id === item.id);
+        if (note) {
+          setSelectedNote(note);
+          setNoteHistory([]);
+          setRedoStack([]);
+        }
+        setActiveTab('tools');
+        setToolsSubTab('notebook');
+      } else if (item.type === 'faculty') {
+        setActiveTab('tools');
+        setToolsSubTab('faculty');
+      }
+    } catch (err) {
+      console.error("History item click error:", err);
+    } finally {
+      setHistoryLoadingModal({ show: false, title: '', message: '' });
+    }
+  };
 
   const sendQuizReportToAI = () => {
     const report = `
@@ -7836,6 +9005,40 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
           >
             <BlinkingBrain size={64} className="text-red-500" />
             <p className={`text-[10px] font-black uppercase tracking-[0.3em] ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'} animate-pulse`}>Processing Authentication...</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* HISTORY LOADING BLUR LOCK POPUP */}
+      <AnimatePresence>
+        {historyLoadingModal.show && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[99999] backdrop-blur-xl bg-black/80 flex flex-col items-center justify-center p-6 text-center select-none"
+          >
+            <motion.div
+              initial={{ scale: 0.85, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.85, opacity: 0 }}
+              className="bg-[#13111C] border border-white/15 p-8 rounded-[2.2rem] max-w-sm w-full shadow-[0_0_60px_rgba(220,38,38,0.3)] space-y-5"
+            >
+              <div className="relative w-16 h-16 mx-auto flex items-center justify-center">
+                <div className="absolute inset-0 rounded-full border-4 border-[#DC2626]/20 border-t-[#DC2626] animate-spin" />
+                <div className="w-10 h-10 rounded-full bg-[#DC2626]/10 flex items-center justify-center text-[#DC2626]">
+                  <History size={22} />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <h3 className="text-base font-black text-white uppercase tracking-wider">
+                  Loading {historyLoadingModal.title || "Session"}...
+                </h3>
+                <p className="text-xs text-white/60 leading-relaxed font-medium">
+                  {historyLoadingModal.message || "Please wait while we restore your session and lock the interface..."}
+                </p>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -8567,6 +9770,50 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
             </>
           )}
         </AnimatePresence>
+        <AnimatePresence>
+          {(isAudioTranscribing || audioTranscribingPopup) && (
+            <motion.div
+              initial={{ opacity: 0, y: 50, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 50, scale: 0.9 }}
+              className="fixed bottom-6 right-6 z-[2002] max-w-sm bg-[#13111C] border border-[#DC2626]/50 rounded-2xl p-4 shadow-[0_0_30px_rgba(220,38,38,0.3)] flex items-start gap-3.5"
+            >
+              <div className="w-10 h-10 rounded-xl bg-[#DC2626]/10 border border-[#DC2626]/20 flex items-center justify-center shrink-0">
+                <RefreshCcw size={18} className="text-[#DC2626] animate-spin" />
+              </div>
+              <div className="space-y-1 flex-1 text-left">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black text-[#DC2626] uppercase tracking-wider flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#DC2626] animate-ping" />
+                    Transcribing Audio
+                  </span>
+                  <button onClick={() => setAudioTranscribingPopup(false)} className="text-white/40 hover:text-white cursor-pointer">
+                    <X size={14} />
+                  </button>
+                </div>
+                <p className="text-xs font-bold text-white leading-tight">Audio is being transcribed at the note page!</p>
+                <p className="text-[10px] text-white/50 leading-relaxed">
+                  Go to Notes to see your note actively being written live.
+                </p>
+                <button
+                  onClick={() => {
+                    setActiveTab('tools');
+                    setToolsSubTab('notebook');
+                    if (userNotes) {
+                      const transNote = userNotes.find((n: any) => n.id === activeAudioNoteId || n.isTranscribing);
+                      if (transNote) setSelectedNote(transNote);
+                    }
+                    setAudioTranscribingPopup(false);
+                  }}
+                  className="mt-2.5 w-full py-1.5 px-3 bg-[#DC2626]/20 hover:bg-[#DC2626]/30 border border-[#DC2626]/40 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <span>Go to Note Page</span>
+                  <ArrowRight size={12} />
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <AnimatePresence mode="wait">
           
           {/* HOME TAB */}
@@ -8777,104 +10024,8 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                       {homeHistory.map((item) => (
                         <div 
                           key={item.id}
-                          onClick={async () => {
-                            if (item.type === 'quiz') {
-                              setActiveTab('tools');
-                              setToolsSubTab('quiz');
-                              
-                              // Load quiz data if it's a specific quiz ID
-                              let targetQuizId = '';
-                              if (item.id.startsWith('quiz-')) {
-                                targetQuizId = item.id.replace('quiz-', '');
-                                if (targetQuizId.startsWith('fin-')) targetQuizId = ''; // Not a persistent quiz link
-                              }
-
-                              if (targetQuizId && targetQuizId !== 'current-quiz') {
-                                  await loadSharedQuiz(targetQuizId);
-                                  
-                                  if (item.score !== undefined) {
-                                    setQuizState('finished');
-                                    setQuizScore(item.score);
-                                    if (item.answers) setUserQuizAnswers(item.answers);
-                                  }
-                                  return;
-                              }
-
-                              // If it's a finished local quiz with questions and score
-                              if (item.score !== undefined && item.questions) {
-                                setQuizQuestions(item.questions);
-                                setQuizScore(item.score);
-                                setQuizState('finished');
-                                if (item.answers) setUserQuizAnswers(item.answers);
-                                if (item.topic) setQuizTopic(item.topic);
-                                if (item.difficulty) setQuizDifficulty(item.difficulty as any);
-                                return;
-                              }
-
-                              // Try to restore unfinished progress
-                              const cleanId = item.id.replace(/^quiz-/, '');
-                              const progressKey = (cleanId === 'current-quiz' || item.id === 'current-quiz') ? 'nsg_current_quiz_progress' : `nsg_quiz_progress_${cleanId}`;
-                              const localProgress = localStorage.getItem(progressKey);
-                              
-                              if (localProgress) {
-                                try {
-                                  const p = JSON.parse(localProgress);
-                                  setQuizQuestions(p.quizQuestions);
-                                  setQuizTopic(p.quizTopic);
-                                  setCurrentQuestionIndex(p.currentQuestionIndex);
-                                  setQuizScore(p.quizScore);
-                                  setUserQuizAnswers(p.userQuizAnswers || []);
-                                  setQuizDifficulty(p.quizDifficulty || 'Medium');
-                                  setQuizQuestionCount(p.quizQuestionCount || p.quizQuestions.length);
-                                  setCurrentQuizId(p.currentQuizId);
-                                  setQuizState('active');
-                                  setSelectedOption(p.userQuizAnswers?.[p.currentQuestionIndex] !== undefined ? p.userQuizAnswers[p.currentQuestionIndex] : null);
-                                  setIsAnswered(p.userQuizAnswers?.[p.currentQuestionIndex] !== undefined);
-                                } catch (e) {
-                                  console.error("Failed to restore history quiz progress:", e);
-                                }
-                              } else if (item.questions) {
-                                  // Fallback: directly from history item if progress storage is gone but questions exist
-                                  setQuizQuestions(item.questions);
-                                  setQuizTopic(item.title);
-                                  setQuizState('active');
-                                  setCurrentQuestionIndex(0);
-                              }
-                            } else if (item.type === 'exam') {
-                              setActiveTab('tools');
-                              setToolsSubTab('exam');
-                              if (item.score !== undefined) {
-                                setExamLobbyState('result');
-                                setExamScore(item.score);
-                              }
-                            } else if (item.type === 'recording') {
-                              const session = sessions.find(s => s.id === item.id);
-                              if (session) {
-                                loadRecordingSession(session);
-                                setActiveTab('tools');
-                                setToolsSubTab('record');
-                              }
-                            } else if (item.type === 'assignment') {
-                              setActiveTab('tools');
-                              setToolsSubTab('assignment');
-                              if (item.data) {
-                                setActiveAssignmentSolution(item.data);
-                              }
-                            } else if (item.type === 'note' as any) {
-                              const note = userNotes.find(n => n.id === item.id);
-                              if (note) {
-                                setSelectedNote(note);
-                                setActiveTab('tools');
-                                setToolsSubTab('notebook');
-                                setNoteHistory([]);
-                                setRedoStack([]);
-                              }
-                            } else if (item.type === 'faculty') {
-                              setActiveTab('tools');
-                              setToolsSubTab('faculty');
-                            }
-                          }}
-                          className="history-item text-left border-none hover:bg-white/[0.01] transition-all duration-300"
+                          onClick={() => handleHistoryItemClick(item)}
+                          className="history-item text-left border-none hover:bg-white/[0.01] transition-all duration-300 cursor-pointer"
                         >
                           <div className="p-4 flex items-center justify-between w-full">
                             <div className="flex items-center gap-3.5 font-medium">
@@ -8939,7 +10090,6 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
               setShowHelp={setShowHelp}
               showAuthModal={showAuthModal}
               setShowAuthModal={setShowAuthModal}
-              GeminiLive={GeminiLive}
               CoursesTool={CoursesTool}
               AssignmentSolver={AssignmentSolver}
               AILibrary={AILibrary}
@@ -9084,2055 +10234,15 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
               fileToGenerativePart={fileToGenerativePart}
               setChatHistory={setChatHistory}
               setActiveChatSessionId={setActiveChatSessionId}
+              studentActiveQuestions={studentActiveQuestions}
+              activeStudentSubject={activeStudentSubject}
+              setActiveStudentSubject={setActiveStudentSubject}
+              handleUploadAudioRecordPage={handleUploadAudioRecordPage}
+              activeAudioNoteId={activeAudioNoteId}
+              isAudioTranscribing={isAudioTranscribing}
+              audioTranscribingPopup={audioTranscribingPopup}
+              setAudioTranscribingPopup={setAudioTranscribingPopup}
             />
-          )}
-
-          {/* OLD_TEMPORARY_DISABLE */}
-          {false && activeTab === 'tools' && (
-            <motion.div key="tools" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-6">
-              {toolsSubTab === 'menu' && (
-                <div className="space-y-6">
-                  <div className="flex items-center justify-between px-2">
-                    <h2 className="text-xl font-black uppercase tracking-tighter text-white">Tools & Study</h2>
-                    <Brain size={20} className="text-[#DC2626]" />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    {[
-                      { id: 'record', title: 'Record Lecture', icon: Mic, color: 'from-red-600 to-red-400', desc: 'AI-Powered Recording' },
-                      { id: 'live', title: 'Live AI Tutor', icon: Activity, color: 'from-[#DC2626] to-red-600', desc: 'Vision-Enabled Real-time Help' },
-                      { id: 'class', title: 'Live Classroom', icon: Video, color: 'from-pink-600 to-rose-400', desc: 'Host or Join Lectures', action: () => setActiveTab('class') },
-                      { id: 'quiz', title: 'Smart Quiz', icon: Zap, color: 'from-yellow-500 to-amber-400', desc: 'Test Your Knowledge' },
-                      { id: 'exam', title: 'CBT Exam', icon: ShieldCheck, color: 'from-orange-600 to-orange-400', desc: 'Professional Testing' },
-                      { id: 'faculty', title: 'Faculty Specials', icon: GraduationCap, color: 'from-blue-600 to-indigo-400', desc: 'Department Specific' },
-                      { id: 'assignment', title: 'Assignment Solver', icon: BookOpen, color: 'from-purple-600 to-pink-400', desc: 'Step-by-Step AI Solutions' },
-                      { id: 'courses', title: 'Courses Tool', icon: BookOpen, color: 'from-emerald-600 to-teal-400', desc: 'Course-Specific Learning' },
-                      { id: 'notebook', title: 'Notebook Tool', icon: FileText, color: 'from-amber-600 to-yellow-400', desc: 'AI-Powered Sources' },
-                      { id: 'whatsapp', title: 'Omni on WHATSAPP', icon: WhatsAppIcon, color: 'from-green-600 to-green-400', desc: '+2349064470122' }
-                    ].map((tool) => (
-                      <button 
-                        key={tool.id}
-                        onClick={() => {
-                          if (tool.id === 'whatsapp') {
-                            window.open("https://wa.me/2349064470122", "_blank");
-                            return;
-                          }
-                          if ((tool as any).action) {
-                            (tool as any).action();
-                            return;
-                          }
-                          setToolsSubTab(tool.id as any);
-                        }}
-                        className={`flex flex-col items-start p-5 rounded-[2rem] border transition-all text-left group relative overflow-hidden ${theme === 'dark' ? 'bg-gradient-to-br from-[#1E1B2E]/90 to-[#0A0714]/95 border-white/5 hover:border-[#DC2626]/40 shadow-2xl' : 'bg-white border-slate-200 hover:border-[#DC2626]/50 shadow-sm'}`}
-                      >
-                        {theme === 'dark' && (
-                          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(220,38,38,0.03),transparent_60%)] group-hover:bg-[radial-gradient(ellipse_at_top_right,rgba(220,38,38,0.07),transparent_50%)] transition-all duration-500 pointer-events-none" />
-                        )}
-                        <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${tool.color} flex items-center justify-center text-white mb-4 shadow-lg group-hover:scale-110 transition-transform relative z-10`}>
-                          <tool.icon size={24} />
-                        </div>
-                        <h3 className={`font-black text-sm uppercase tracking-tight relative z-10 ${theme === 'dark' ? 'text-white/90' : 'text-slate-900'}`}>{tool.title}</h3>
-                        <p className={`text-[10px] font-bold relative z-10 ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'} uppercase`}>{tool.desc}</p>
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="pt-4 border-t border-white/5 space-y-4">
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-white/20 text-center">Upcoming Tools</p>
-                    <div className="grid grid-cols-2 gap-4 opacity-70">
-                      {[
-                        { id: 'td', title: 'TD Tool', icon: BoxSelect, color: 'from-slate-500 to-slate-600', desc: '2D Projection Engine' },
-                      ].map((tool) => (
-                        <button 
-                          key={tool.id}
-                          onClick={() => {
-                            setUserNotification(`${tool.title} is currently in development and will be back soon.`);
-                          }}
-                          className={`flex flex-col items-start p-5 rounded-[2rem] border transition-all text-left group relative overflow-hidden ${theme === 'dark' ? 'bg-gradient-to-br from-[#1E1B2E]/50 to-[#0A0714]/70 border-white/5 hover:border-[#DC2626]/40 shadow-2xl' : 'bg-white border-slate-200 hover:border-[#DC2626]/50 shadow-sm'}`}
-                        >
-                          {theme === 'dark' && (
-                            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(220,38,38,0.01),transparent_60%)] group-hover:bg-[radial-gradient(ellipse_at_top_right,rgba(220,38,38,0.04),transparent_50%)] transition-all duration-500 pointer-events-none" />
-                          )}
-                          <div className="absolute top-2 right-2 bg-[#DC2626] text-white text-[7px] font-black px-2 py-0.5 rounded-full z-20 animate-pulse">
-                            SOON
-                          </div>
-                          <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${tool.color} flex items-center justify-center text-white mb-3 shadow-lg grayscale relative z-10`}>
-                            <tool.icon size={20} />
-                          </div>
-                          <h3 className={`font-black text-[12px] uppercase tracking-tight relative z-10 ${theme === 'dark' ? 'text-white/60' : 'text-slate-600'}`}>{tool.title}</h3>
-                          <p className={`text-[9px] font-bold relative z-10 ${theme === 'dark' ? 'text-white/20' : 'text-slate-400'} uppercase`}>Coming Soon</p>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {toolsSubTab !== 'menu' && (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between px-2">
-                    <button 
-                      onClick={() => setToolsSubTab('menu')}
-                      className="flex items-center gap-2 text-[10px] font-black text-[#DC2626] uppercase tracking-widest hover:opacity-70 transition-all"
-                    >
-                      <ArrowLeft size={14} /> Back to Tools
-                    </button>
-                    <div className="flex items-center gap-4">
-                       <button 
-                         onClick={() => setShowHelp(true)}
-                         className="text-[10px] font-black text-[#DC2626] uppercase tracking-widest hover:bg-white/5 px-3 py-1 rounded-full transition-all border border-[#DC2626]/20"
-                       >
-                         Help
-                       </button>
-                       <span className="text-[10px] font-black text-white/20 uppercase tracking-widest">
-                         {toolsSubTab === 'record' && 'Recording Engine'}
-                         {toolsSubTab === 'live' && 'Live AI Tutor'}
-                         {toolsSubTab === 'quiz' && 'Quiz Engine'}
-                        {toolsSubTab === 'exam' && 'CBT Examination'}
-                        {toolsSubTab === 'faculty' && 'Faculty Specials'}
-                        {toolsSubTab === 'assignment' && 'Assignment Solver'}
-                        {toolsSubTab === 'courses' && 'Course-Specific Tools'}
-                       </span>
-                    </div>
-                  </div>
-                  
-                  {toolsSubTab === 'record' && (
-                    <motion.div key="record" initial={{opacity:0, y: 10}} animate={{opacity:1, y: 0}} exit={{opacity: 0}} className="space-y-6 relative">
-                      {/* Sliding Record Sidebar */}
-                      <AnimatePresence>
-                        {showRecordSidebar && (
-                          <>
-                            <motion.div 
-                              initial={{ opacity: 0 }} 
-                              animate={{ opacity: 1 }} 
-                              exit={{ opacity: 0 }}
-                              onClick={() => setShowRecordSidebar(false)}
-                              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60]"
-                            />
-                            <motion.div 
-                              initial={{ x: '-100%' }} 
-                              animate={{ x: 0 }} 
-                              exit={{ x: '-100%' }}
-                              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-                              className={`fixed left-0 top-0 bottom-0 w-1/2 min-w-[280px] z-[70] border-r ${theme === 'dark' ? 'border-white/10 bg-[#13111C]' : 'border-slate-200 bg-white'} flex flex-col shadow-2xl`}
-                            >
-                              <div className={`p-4 border-b ${theme === 'dark' ? 'border-white/10' : 'border-slate-200'} flex items-center justify-between`}>
-                                <button 
-                                  onClick={() => {
-                                    setShowAnalysisInRecord(false);
-                                    setSelectedSession(null);
-                                    setShowRecordSidebar(false);
-                                    setAudioUrl(null);
-                                    setRecordedBlob(null);
-                                    setUploadedImages([]);
-                                  }} 
-                                  className="flex-1 flex items-center justify-center gap-2 bg-[#DC2626] text-white py-2.5 rounded-xl text-xs font-bold shadow-lg shadow-[#DC2626]/20 hover:bg-[#DC2626]/90 transition-all"
-                                >
-                                  <PlusCircle size={16} /> New Recording
-                                </button>
-                                <button onClick={() => setShowRecordSidebar(false)} className={`p-2 ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'} ml-2 hover:text-[#DC2626] transition-colors`}><XCircle size={20} /></button>
-                              </div>
-                              <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                                <p className={`text-[10px] font-black ${theme === 'dark' ? 'text-white/20' : 'text-slate-300'} uppercase tracking-widest px-3 py-2`}>Analysis History</p>
-                                {sessions.map(session => (
-                                  <div key={session.id} className={`p-3 rounded-xl cursor-pointer transition-all flex items-center justify-between group ${selectedSession?.id === session.id ? 'bg-[#DC2626]/10 border border-[#DC2626]/20 text-[#DC2626]' : `hover:bg-white/5 ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}`}>
-                                    <div 
-                                      onClick={() => loadRecordingSession(session)} 
-                                      className="flex items-center gap-2 overflow-hidden flex-1"
-                                    >
-                                      {session.isPinned ? <Pin size={12} className="text-red-500" /> : <FileAudio size={14} className="flex-shrink-0" />}
-                                      <div className="flex flex-col overflow-hidden">
-                                        <div className="flex items-center gap-1">
-                                          <span className="text-[10px] font-black truncate group-hover:text-red-500 transition-colors uppercase tracking-tight">{session.title}</span>
-                                          {session.status === 'pending' && <span className="text-[7px] bg-[#DC2626]/20 text-[#DC2626] px-1 rounded font-black uppercase tracking-tighter">Live</span>}
-                                        </div>
-                                        <span className="text-[8px] opacity-60">{session.date} | {session.duration}</span>
-                                      </div>
-                                    </div>
-                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                                      <button 
-                                        onClick={(e) => { 
-                                          e.stopPropagation(); 
-                                          const newName = prompt("Enter a name for this recording:", session.title);
-                                          if (newName && user) {
-                                            updateDoc(doc(db, 'users', user.uid, 'lectureSessions', session.id), { title: newName });
-                                            setUserNotification("Recording renamed successfully.");
-                                          }
-                                        }} 
-                                        className="p-1.5 hover:bg-blue-500 hover:text-white bg-slate-100 dark:bg-white/5 rounded-lg transition-all" 
-                                        title="Rename / Save Audio"
-                                      >
-                                        <Save size={12} />
-                                      </button>
-                                      {session.audioBase64 && (
-                                        <button 
-                                          onClick={(e) => { 
-                                            e.stopPropagation(); 
-                                            const link = document.createElement('a');
-                                            link.href = `data:audio/webm;base64,${session.audioBase64}`;
-                                            link.download = `${session.title || 'recording'}.webm`;
-                                            link.click();
-                                          }} 
-                                          className="p-1.5 hover:text-green-500 bg-slate-100 dark:bg-white/5 rounded-lg transition-all" 
-                                          title="Download Audio"
-                                        >
-                                          <Download size={12} className="text-slate-400" />
-                                        </button>
-                                      )}
-                                      <button onClick={(e) => { e.stopPropagation(); togglePinLectureSession(session.id); }} className="p-1.5 hover:text-red-500 bg-slate-100 dark:bg-white/5 rounded-lg transition-all" title="Pin Lecture">
-                                        <Pin size={12} className={session.isPinned ? 'fill-red-500 text-red-500' : 'text-slate-400'} />
-                                      </button>
-                                      <button 
-                                        onClick={(e) => { 
-                                          e.stopPropagation(); 
-                                          showConfirm(
-                                            "Delete Recording",
-                                            `Are you sure you want to delete "${session.title}"? This cannot be undone.`,
-                                            () => deleteLectureSession(session.id),
-                                            "Delete Permanently",
-                                            true
-                                          );
-                                        }} 
-                                        className="p-1.5 hover:text-red-500 bg-slate-100 dark:bg-white/5 rounded-lg transition-all" 
-                                        title="Delete Lecture"
-                                      >
-                                        <Trash2 size={12} className="text-slate-400" />
-                                      </button>
-                                    </div>
-                                  </div>
-                                ))}
-                                <AdUnit slot="7536999840" />
-                              </div>
-                            </motion.div>
-                          </>
-                        )}
-                      </AnimatePresence>
-
-                      <div className="flex items-center justify-between mb-2">
-                        <button onClick={() => setShowRecordSidebar(true)} className={`p-2 ${theme === 'dark' ? 'bg-[#13111C] border-white/10' : 'bg-white border-slate-200'} border rounded-xl ${theme === 'dark' ? 'text-white/60' : 'text-slate-500'} hover:text-[#DC2626] transition-all flex items-center gap-2`}>
-                          <History size={18} />
-                          <span className="text-[10px] font-black uppercase tracking-widest">History</span>
-                        </button>
-                      </div>
-
-                      <AnimatePresence mode="wait">
-                        {!showAnalysisInRecord ? (
-                          <motion.div key="recorder" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="space-y-6">
-                            <div className={`${theme === 'dark' ? 'bg-[#13111C] border-white/10' : 'bg-white border-slate-200'} rounded-3xl p-8 border relative overflow-hidden shadow-sm`}>
-                              <div className="flex flex-col items-center text-center relative z-10">
-                                <div className="relative mb-6">
-                                  {isRecording && <motion.div animate={{ scale: 1.6, opacity: 0.1 }} transition={{ repeat: Infinity, duration: 2 }} className="absolute inset-0 bg-[#DC2626] rounded-full blur-2xl pointer-events-none" />}
-                                  <button 
-                                    onClick={handleToggleRecording} 
-                                    className={`w-20 h-20 rounded-full flex items-center justify-center transition-all shadow-2xl ${isRecording ? (theme === 'dark' ? 'bg-white text-black' : 'bg-zinc-900 text-white') : 'bg-[#DC2626] text-white'} hover:scale-105 active:scale-95`}
-                                  >
-                                    {isRecording ? <StopCircle size={32} /> : <Mic size={32} />}
-                                  </button>
-                                </div>
-                                  <h2 className="text-xl font-black tracking-tighter mb-1 uppercase text-white">
-                                    {isRecording ? "Capture Active" : (isProcessingFinal ? "Finalizing Notes..." : "Engine Idle")}
-                                  </h2>
-                                  <p className="font-mono text-4xl text-[#DC2626] font-bold mb-6 tracking-tight">
-                                    {formatTime(recordingTime)}
-                                  </p>
-
-                                  {isProcessingFinal && (
-                                    <div className="flex items-center gap-2 mb-4">
-                                      <RefreshCcw size={14} className="animate-spin text-[#DC2626]" />
-                                      <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">Transcription finalizing...</span>
-                                    </div>
-                                  )}
-
-                                  {audioUrl && !isRecording && !isProcessingFinal && (
-                                    <div className="w-full max-w-sm bg-white/5 p-4 rounded-2xl border border-white/10 mb-6">
-                                      <div className="flex items-center justify-between mb-2">
-                                        <p className="text-[10px] font-black text-white/30 uppercase">Recording Preview</p>
-                                        <button onClick={handleManualSave} className="flex items-center gap-1.5 bg-[#DC2626] text-white px-3 py-1 rounded-full text-[9px] font-black hover:bg-[#DC2626]/90 transition-all">
-                                          <Save size={10} /> SAVE AS...
-                                        </button>
-                                      </div>
-                                      <audio key={audioUrl} src={audioUrl} controls className="w-full h-8" />
-                                    </div>
-                                  )}
-
-                                  <div className="flex gap-2 w-full max-w-xs">
-                                    {audioUrl && !isRecording && !isProcessingFinal && (
-                                      <a 
-                                        href={audioUrl} 
-                                        download="NSG_Lecture.mp3" 
-                                        className={`flex-1 flex items-center justify-center gap-2 ${theme === 'dark' ? 'bg-white/10 text-white border-white/10' : 'bg-zinc-100 text-zinc-900 border-zinc-200'} px-4 py-3 rounded-2xl text-xs font-bold transition-all border`}
-                                      >
-                                        <Download size={16} /> Download
-                                      </a>
-                                    )}
-                                    {!isRecording && !isProcessingFinal && (
-                                      <button onClick={triggerFullAnalysis} disabled={isAnalyzing || !recordedBlob} className="flex-1 flex items-center justify-center gap-2 bg-[#DC2626]/10 hover:bg-[#DC2626] text-[#DC2626] hover:text-white px-4 py-3 rounded-2xl text-xs font-bold border border-[#DC2626]/30 transition-all disabled:opacity-50">
-                                        <Sparkles size={16} /> Analyze
-                                      </button>
-                                    )}
-                                  </div>
-
-                                  {/* Real-time Transcription/Note Area */}
-                                  {(transcriptionNotes || isRecording || isProcessingFinal) && (
-                                    <motion.div 
-                                      initial={{ opacity: 0, y: 10 }}
-                                      animate={{ opacity: 1, y: 0 }}
-                                      className="w-full mt-8 bg-white/5 border border-white/10 rounded-3xl p-6 text-left"
-                                    >
-                                      <div className="flex items-center justify-between mb-4">
-                                        <div className="flex items-center gap-2">
-                                          <div className={`w-2 h-2 ${isRecording || isProcessingFinal ? 'bg-[#DC2626] animate-pulse' : 'bg-green-500'} rounded-full`} />
-                                          <p className="text-[10px] font-black text-white/40 uppercase tracking-widest">
-                                            {(isRecording || isProcessingFinal) ? "Capturing Lecture..." : "Transcribed Lecture Notes"}
-                                          </p>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                          {(isTranscribing || isProcessingFinal) && <RefreshCcw size={12} className="text-[#DC2626] animate-spin" />}
-                                          <button 
-                                            onClick={() => copyToClipboard(transcriptionNotes)}
-                                            className="p-2 hover:bg-white/10 rounded-lg text-white/40 hover:text-white transition-all"
-                                            title="Copy Notes"
-                                          >
-                                            <Copy size={14} />
-                                          </button>
-                                          <button 
-                                            onClick={() => {
-                                              saveNote(transcriptionNotes, `Lecture Note: ${new Date().toLocaleTimeString()}`);
-                                              setUserNotification("Note saved to Vault!");
-                                            }}
-                                            className="p-2 hover:bg-white/10 rounded-lg text-white/40 hover:text-green-500 transition-all border border-white/5"
-                                            title="Save to Notes Tool"
-                                          >
-                                            <Save size={14} />
-                                          </button>
-                                        </div>
-                                      </div>
-                                    <div className={`max-h-60 overflow-y-auto pr-2 custom-scrollbar ${theme === 'dark' ? 'text-white/80' : 'text-slate-700'} text-xs leading-relaxed`}>
-                                      <MarkdownRenderer selectable={true} content={transcriptionNotes || (isRecording ? "Listening for content..." : "No notes captured yet.")} />
-                                      {isTranscribing && <span className="inline-block w-1.5 h-3 ml-1 bg-[#DC2626]/50 animate-pulse" />}
-                                    </div>
-                                  </motion.div>
-                                )}
-                              </div>
-                            </div>
-                            <AdUnit slot="7536999840" />
-                          </motion.div>
-                        ) : (
-                          <motion.div key="analysis" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-6">
-                            <div className={`${theme === 'dark' ? 'bg-[#13111C] border-white/10' : 'bg-white border-slate-200'} p-8 rounded-3xl border shadow-sm space-y-6`}>
-                              <div className="flex items-center justify-between border-b border-white/5 pb-4">
-                                <div className="flex items-center gap-3">
-                                  <div className="w-10 h-10 bg-[#DC2626]/10 rounded-xl flex items-center justify-center">
-                                    <Sparkles size={20} className="text-[#DC2626]" />
-                                  </div>
-                                  <div>
-                                    <h2 className="text-lg font-black text-white uppercase tracking-tighter">Omni Ai Analysis</h2>
-                                    <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">
-                                      {selectedSession ? selectedSession.title : 'Deep Learning Insights'}
-                                    </p>
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <button 
-                                    onClick={() => {
-                                      showConfirm(
-                                        "Delete Analysis",
-                                        "Are you sure you want to delete this analysis result?",
-                                        () => {
-                                          setAnalysisResult(null);
-                                          setRefurbishedResult(null);
-                                          setShowAnalysisInRecord(false);
-                                        },
-                                        "Delete",
-                                        true
-                                      );
-                                    }}
-                                    className={`p-2 ${theme === 'dark' ? 'bg-white/5 text-white/40' : 'bg-zinc-100 text-zinc-500'} rounded-xl hover:text-red-500 transition-all`}
-                                    title="Delete Analysis"
-                                  >
-                                    <Trash2 size={20} />
-                                  </button>
-                                  <button 
-                                    onClick={() => selectedSession && uploadHistoryToOmni(selectedSession)} 
-                                    className={`flex items-center gap-2 ${theme === 'dark' ? 'bg-white/5 text-white/70 border-white/10' : 'bg-zinc-100 text-zinc-600 border-zinc-200'} px-3 py-2 rounded-xl text-[10px] font-black hover:text-[#DC2626] transition-all border`}
-                                  >
-                                    <UserPlus size={14} /> UPLOAD TO OMNI
-                                  </button>
-                                  <button 
-                                    onClick={() => setShowAnalysisInRecord(false)} 
-                                    className={`p-2 ${theme === 'dark' ? 'bg-white/5 text-white/40' : 'bg-zinc-100 text-zinc-500'} rounded-xl hover:text-[#DC2626] transition-all`}
-                                  >
-                                    <ArrowLeft size={20} />
-                                  </button>
-                                </div>
-                              </div>
-
-                              <div className="bg-white/5 rounded-2xl p-6 overflow-y-auto max-h-[60vh] shadow-inner space-y-6">
-                                {audioUrl && (
-                                  <div className="space-y-2">
-                                    <h3 className="text-[10px] font-black text-[#DC2626] uppercase tracking-widest flex items-center gap-2">
-                                      <FileAudio size={12} /> Recording Playback
-                                    </h3>
-                                    <audio key={audioUrl} src={audioUrl} controls className="w-full h-8" />
-                                  </div>
-                                )}
-                                {selectedSession?.notes && (
-                                  <div className="space-y-2">
-                                    <h3 className="text-[10px] font-black text-[#DC2626] uppercase tracking-widest flex items-center gap-2">
-                                      <Mic size={12} /> Transcribed Notes
-                                    </h3>
-                                    <div className="bg-white/5 p-4 rounded-xl text-xs text-white/70 italic border-l-2 border-[#DC2626]/30">
-                                      {selectedSession.notes}
-                                    </div>
-                                  </div>
-                                )}
-                                <div className="space-y-2">
-                                  <h3 className="text-[10px] font-black text-[#DC2626] uppercase tracking-widest flex items-center gap-2">
-                                    <Brain size={12} /> AI Analysis
-                                  </h3>
-                                  <div className="markdown-body text-sm text-white leading-relaxed">
-                                    <MarkdownRenderer content={analysisResult} />
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                <button onClick={() => copyToClipboard(analysisResult)} className={`flex items-center justify-center gap-2 ${theme === 'dark' ? 'bg-white/5 text-white/70' : 'bg-zinc-100 text-zinc-600'} py-4 rounded-2xl text-[10px] font-black hover:bg-zinc-200 transition-all`}>
-                                  <Copy size={16} /> COPY
-                                </button>
-                                <button onClick={() => shareAnalysis(analysisResult || '')} className={`flex items-center justify-center gap-2 ${theme === 'dark' ? 'bg-white/5 text-white/70' : 'bg-zinc-100 text-zinc-600'} py-4 rounded-2xl text-[10px] font-black hover:bg-zinc-200 transition-all`}>
-                                  <Share2 size={16} /> SHARE
-                                </button>
-                                <button 
-                                  onClick={() => {
-                                    const newHistory: ChatMessage[] = [...chatHistory, { role: 'model', text: analysisResult, timestamp: new Date().toLocaleTimeString() }];
-                                    setChatHistory(newHistory);
-                                    setActiveTab('ai');
-                                  }} 
-                                  className="flex items-center justify-center gap-2 bg-[#DC2626] text-white py-4 rounded-2xl text-[10px] font-black hover:bg-[#DC2626]/90 transition-all shadow-lg shadow-[#DC2626]/20"
-                                >
-                                  <Brain size={16} /> CHAT
-                                </button>
-                              </div>
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </motion.div>
-                  )}
-
-                  {toolsSubTab === 'notebook' && (
-                    <motion.div key="notebook" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 z-[100] flex flex-col bg-[#13111C] overflow-hidden">
-                       
-                       {/* Side Drawer Overlay */}
-                       <AnimatePresence>
-                         {isNotebookDrawerOpen && (
-                           <>
-                             <motion.div 
-                               initial={{ opacity: 0 }} 
-                               animate={{ opacity: 1 }} 
-                               exit={{ opacity: 0 }} 
-                               onClick={() => setIsNotebookDrawerOpen(false)}
-                               className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110]"
-                             />
-                             <motion.div 
-                               initial={{ x: '-100%' }} 
-                               animate={{ x: 0 }} 
-                               exit={{ x: '-100%' }} 
-                               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-                               className="fixed top-0 left-0 bottom-0 w-72 bg-[#0F172A] border-r border-white/10 z-[120] p-6 shadow-2xl"
-                             >
-                               <div className="flex items-center justify-between mb-8">
-                                 <h2 className="text-sm font-black text-white uppercase tracking-widest">Notebook Tools</h2>
-                                 <button onClick={() => setIsNotebookDrawerOpen(false)} className="text-white/40 hover:text-white"><X size={20} /></button>
-                               </div>
-                               <div className="space-y-4">
-                                 <button 
-                                   onClick={() => { setIsPodcastActive(true); setIsTeacherMode(false); setIsNotebookDrawerOpen(false); if (!podcastDialogue.length && selectedNote) generatePodcastDiscussion(selectedNote.content); }}
-                                   className={`w-full flex items-center gap-4 p-4 rounded-2xl border transition-all ${isPodcastActive && !isTeacherMode ? 'bg-[#DC2626] border-[#DC2626] shadow-lg shadow-[#DC2626]/20' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}
-                                 >
-                                   <div className={`p-2 rounded-lg ${isPodcastActive && !isTeacherMode ? 'bg-white/20' : 'bg-blue-600'}`}>
-                                     <Mic size={18} className="text-white" />
-                                   </div>
-                                   <div className="text-left">
-                                     <p className="text-[10px] font-black text-white uppercase tracking-tight">AI Podcast</p>
-                                     <p className="text-[8px] text-white/40 font-bold uppercase">Omni & Zeal Discussion</p>
-                                   </div>
-                                 </button>
-<div className="h-px bg-white/5 my-6" />
-                                 <div className="p-4 bg-white/2 rounded-2xl text-center space-y-2">
-                                   <p className="text-[8px] font-black text-white/20 uppercase tracking-[0.2em]">Source Statistics</p>
-                                   <p className="text-xs font-black text-[#DC2626] whitespace-nowrap overflow-hidden text-ellipsis">{userNotes.length} Saved Sources</p>
-                                 </div>
-                               </div>
-                             </motion.div>
-                           </>
-                         )}
-                       </AnimatePresence>
-
-                       {/* Header - Flushed to top */}
-                       <div className="flex items-center justify-between p-4 border-b border-white/5 bg-[#13111C]/80 backdrop-blur-md z-20 shrink-0">
-                         <div className="flex items-center gap-4">
-                           <button onClick={() => setIsNotebookDrawerOpen(true)} className="p-2 bg-white/5 rounded-xl text-white/40 hover:text-white transition-all"><Menu size={20} /></button>
-                           {!selectedNote && (
-                             <button onClick={() => setToolsSubTab('menu')} className="p-2 bg-white/5 rounded-xl text-white/40 hover:text-white transition-all"><ArrowLeft size={20}/></button>
-                           )}
-                           <div className="hidden sm:block">
-                             <h2 className="text-xs font-black text-white uppercase tracking-widest">{isPodcastActive ? 'Podcast AI' : 'Notebook'}</h2>
-                             <p className="text-[8px] text-[#DC2626] font-bold uppercase tracking-tight">{isPodcastActive ? 'Podcast Mode' : 'Source Library'}</p>
-                           </div>
-                         </div>
-                        <div className="flex items-center gap-2 ml-auto">
-                          {!selectedNote ? (
-                            <button 
-                              onClick={() => {
-                                setSelectedNote({ title: '', content: '', attachments: [], createdAt: new Date() });
-                                setNoteHistory([]);
-                                setRedoStack([]);
-                                setIsPodcastActive(false);
-                                setNotePreviewMode(false);
-                              }}
-                              className="bg-[#DC2626] text-white px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shadow-xl shadow-[#DC2626]/20 hover:scale-105 active:scale-95 transition-all text-nowrap"
-                            >
-                              <Plus size={14} /> New
-                            </button>
-                          ) : (
-                            <div className="flex items-center gap-2">
-                              {!isPodcastActive && (
-                                <button 
-                                  onClick={() => setIsPodcastActive(true)}
-                                  className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg shadow-purple-500/20"
-                                >
-                                  <Mic size={14} /> Create Podcast
-                                </button>
-                              )}
-                              <button onClick={undoNote} disabled={noteHistory.length === 0} className={`p-2 bg-white/5 rounded-xl transition-all ${noteHistory.length === 0 ? 'text-white/5' : 'text-white/40 hover:text-white'}`} title="Undo"><RotateCcw size={16} /></button>
-                              <button onClick={redoNote} disabled={redoStack.length === 0} className={`p-2 bg-white/5 rounded-xl transition-all ${redoStack.length === 0 ? 'text-white/5' : 'text-white/40 hover:text-white'}`} title="Redo" style={{ transform: 'scaleX(-1)' }}><RotateCcw size={16} /></button>
-                              <div className="w-px h-6 bg-white/10 mx-1" />
-                              <button 
-                                onClick={async () => {
-                                  const success = await saveNote(selectedNote.content, selectedNote.title, selectedNote.id, selectedNote.attachments);
-                                  if (success) {
-                                    setUserNotification("Saved to Notebook!");
-                                    setSelectedNote(null);
-                                  } else {
-                                    setUserNotification("Sync failed.");
-                                  }
-                                }} 
-                                className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${isSavingNote ? 'bg-zinc-800 text-white/40' : 'bg-green-600 text-white shadow-lg'}`}
-                                disabled={isSavingNote}
-                              >
-                                {isSavingNote ? "..." : <Save size={14} />} 
-                              </button>
-                              <button 
-                                onClick={async () => {
-                                  if (selectedNote) {
-                                    await saveNote(selectedNote.content, selectedNote.title, selectedNote.id, selectedNote.attachments);
-                                    setUserNotification("Saved to Notebook!");
-                                    setSelectedNote(null);
-                                    setIsPodcastActive(false);
-                                  } else {
-                                    setSelectedNote(null);
-                                    setIsPodcastActive(false);
-                                  }
-                                }} 
-                                className="p-2 bg-white/5 rounded-xl text-white/40 hover:text-red-500 transition-all"
-                              >
-                                <X size={20} />
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                            {selectedNote ? (
-                              <div className="flex flex-col flex-1 overflow-hidden min-h-0">
-                                {isPodcastActive ? (
-                                  <div className="flex-1 flex flex-col bg-[#050811] overflow-hidden min-h-0">
-                                    <div className="p-4 border-b border-white/5 flex items-center justify-between">
-                                      <div className="flex items-center gap-4">
-                                        <button onClick={() => setIsPodcastActive(false)} className="text-white/40 hover:text-white"><ArrowLeft size={18} /></button>
-                                        <div>
-                                          <h3 className="text-xs font-black text-white uppercase tracking-widest">Omni &amp; Zeal</h3>
-                                          <p className="text-[8px] text-white/40 font-bold uppercase">Podcast Discussion</p>
-                                        </div>
-                                      </div>
-                                      {podcastDialogue.length > 0 && (
-                                        <div className="flex items-center gap-2">
-                                          {podcastSpeechIndex !== null ? (
-                                            <button 
-                                              onClick={stopPodcastSpeech}
-                                              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600/20 border border-red-600/30 text-red-500 hover:bg-red-600/30 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all animate-pulse shadow-lg shadow-red-500/10 cursor-pointer"
-                                              title="Stop Audio Discussion"
-                                            >
-                                              <Volume2 size={12} className="animate-bounce" />
-                                              <span>Stop</span>
-                                            </button>
-                                          ) : (
-                                            <button 
-                                              onClick={() => playPodcastDialogueLine(0, podcastDialogue)}
-                                              className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 border border-white/10 text-white/60 hover:text-white hover:bg-white/10 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
-                                              title="Listen to Podcast"
-                                            >
-                                              <VolumeX size={12} />
-                                              <span>Speak</span>
-                                            </button>
-                                          )}
-                                        </div>
-                                      )}
-                                    </div>
-                                    
-                                    <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
-                                      {podcastDialogue.length === 0 ? (
-                                        <div className="h-full flex flex-col items-center justify-center text-center p-8 space-y-6">
-                                          <div className="relative">
-                                            <div className="flex items-center justify-center gap-4 relative">
-                                              <div className="absolute inset-0 bg-red-500/10 blur-3xl rounded-full" />
-                                              <div className="relative w-16 h-16 bg-black border-2 border-red-500/50 rounded-2xl flex items-center justify-center shadow-2xl shadow-red-500/20">
-                                                <Brain size={28} className="text-red-500 drop-shadow-[0_0_10px_#EF4444] animate-pulse" />
-                                              </div>
-                                              <span className="text-red-500/30 text-lg font-bold font-mono">&amp;</span>
-                                              <div className="relative w-16 h-16 bg-black border-2 border-red-950/50 rounded-2xl flex items-center justify-center shadow-2xl">
-                                                <span className="font-display font-black text-red-800 text-2xl">Z</span>
-                                              </div>
-                                            </div>
-                                          </div>
-                                          <div className="space-y-2">
-                                            <h4 className="text-lg font-black text-white uppercase tracking-tight">Podcast Analysis</h4>
-                                            <p className="text-xs text-white/40 max-w-xs mx-auto">Omni and Zeal are ready to discuss your source content.</p>
-                                          </div>
-                                          <button 
-                                            onClick={() => generatePodcastDiscussion(selectedNote.content)}
-                                            disabled={isGeneratingPodcast}
-                                            className="px-8 py-4 bg-white text-black font-black rounded-2xl text-[10px] uppercase tracking-widest hover:scale-110 active:scale-95 transition-all disabled:opacity-50 shadow-xl"
-                                          >
-                                            {isGeneratingPodcast ? 'Analyzing...' : 'Create Podcast'}
-                                          </button>
-                                        </div>
-                                      ) : (
-                                        podcastDialogue.map((d, i) => (
-                                          <motion.div 
-                                            key={d.id} 
-                                            initial={{ opacity: 0, y: 10 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            drag="x"
-                                            dragConstraints={{ left: 0, right: 0 }}
-                                            onDragEnd={(_, info) => {
-                                              if (Math.abs(info.offset.x) > 50 && d.char !== 'User') {
-                                                setReplyingTo(d);
-                                                document.getElementById('podcast-chat-input')?.focus();
-                                              }
-                                            }}
-                                            className={`flex flex-col ${d.char === 'User' ? 'items-end' : 'items-start'} cursor-grab active:cursor-grabbing`}
-                                          >
-                                            <div className={`max-w-[85%] p-4 rounded-3xl text-sm leading-relaxed relative group ${d.char === 'User' ? 'bg-[#DC2626] text-white' : (theme === 'dark' ? (d.char === 'Omni' ? 'bg-blue-600/10 text-blue-100 border border-blue-600/20 shadow-lg shadow-blue-500/5' : 'bg-purple-600/10 text-purple-100 border border-purple-600/20 shadow-lg shadow-purple-500/5') : 'bg-white border-slate-200')}`}>
-                                              <div className="flex items-center justify-between mb-2">
-                                                <span className={`text-[8px] font-black uppercase tracking-widest ${d.char === 'User' ? 'text-white/60' : (d.char === 'Omni' ? 'text-blue-400' : 'text-purple-400')}`}>{d.char}</span>
-                                                {d.char !== 'User' && (
-                                                  <button 
-                                                    onClick={() => {
-                                                      setReplyingTo(d);
-                                                      document.getElementById('podcast-chat-input')?.focus();
-                                                    }}
-                                                    className="opacity-0 group-hover:opacity-100 transition-opacity bg-white/10 hover:bg-white/20 px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-tighter"
-                                                  >
-                                                    Tag & Reply
-                                                  </button>
-                                                )}
-                                              </div>
-                                              
-                                              {d.replyTo && (
-                                                <div className="mb-3 p-3 bg-white/5 border-l-4 border-white/20 rounded-xl text-[10px] opacity-60 italic line-clamp-2">
-                                                  {/* Fix: Avoid displaying ID if replyTo is garbled or an ID string */}
-                                                  {typeof d.replyTo === 'string' && d.replyTo.length < 15 && !d.replyTo.includes(' ') ? 'Replying to previous message...' : d.replyTo}
-                                                </div>
-                                              )}
-
-                                              <MarkdownRenderer content={d.text} />
-                                            </div>
-                                          </motion.div>
-                                        ))
-                                      )}
-                                      {isGeneratingPodcast && (
-                                        <div className="flex items-center gap-2 text-white/20 ml-2">
-                                          <div className="animate-bounce">●</div>
-                                          <div className="animate-bounce delay-75">●</div>
-                                          <div className="animate-bounce delay-150">●</div>
-                                        </div>
-                                      )}
-                                    </div>
-                                    
-                                    <div className="p-4 sm:p-4 pb-20 border-t border-white/5 bg-[#050811] relative z-20">
-                                      {/* Reply Tag Preview */}
-                                      <AnimatePresence>
-                                        {replyingTo && (
-                                          <motion.div 
-                                            initial={{ y: 20, opacity: 0 }} 
-                                            animate={{ y: 0, opacity: 1 }} 
-                                            exit={{ y: 20, opacity: 0 }}
-                                            className="mx-2 mb-4 p-4 bg-[#DC2626]/10 border border-[#DC2626]/20 rounded-2xl flex items-center justify-between"
-                                          >
-                                            <div className="flex items-center gap-3 overflow-hidden">
-                                              <div className="p-2 bg-[#DC2626]/20 rounded-xl shrink-0">
-                                                <CornerDownRight size={14} className="text-[#DC2626]" />
-                                              </div>
-                                              <div className="overflow-hidden">
-                                                <p className="text-[8px] font-black text-[#DC2626] uppercase tracking-widest">Tagging {replyingTo.char}</p>
-                                                <p className="text-[10px] text-white/60 line-clamp-1 truncate">{replyingTo.text}</p>
-                                              </div>
-                                            </div>
-                                            <button onClick={() => setReplyingTo(null)} className="p-2 text-white/20 hover:text-white shrink-0"><X size={16} /></button>
-                                          </motion.div>
-                                        )}
-                                      </AnimatePresence>
-
-                                      <div className="relative">
-                                        <div className="absolute left-3 top-1/2 -translate-y-1/2">
-                                          <button 
-                                            onClick={() => setShowPodcastUploadMenu(!showPodcastUploadMenu)}
-                                            className={`p-2 rounded-xl transition-all ${showPodcastUploadMenu ? 'bg-[#DC2626] text-white shadow-lg' : 'bg-white/5 text-white/40 hover:text-white'}`}
-                                          >
-                                            <Plus size={20} />
-                                          </button>
-                                          
-                                          {/* Upload Menu Popover - Slides up from button */}
-                                          <AnimatePresence>
-                                            {showPodcastUploadMenu && (
-                                              <>
-                                                <div className="fixed inset-0 z-40" onClick={() => setShowPodcastUploadMenu(false)} />
-                                                <motion.div 
-                                                  initial={{ y: 20, opacity: 0, scale: 0.9 }}
-                                                  animate={{ y: -180, opacity: 1, scale: 1 }}
-                                                  exit={{ y: 20, opacity: 0, scale: 0.9 }}
-                                                  className="absolute left-0 w-56 bg-[#0F172A] border border-white/10 rounded-2xl p-2 shadow-2xl z-50 flex flex-col gap-1 ring-1 ring-white/10"
-                                                >
-                                                  <p className="px-3 py-2 text-[8px] font-black text-white/20 uppercase tracking-widest border-b border-white/5 mb-1">Upload to Podcast AI</p>
-                                                  <label className="flex items-center gap-3 p-3 bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer group">
-                                                    <div className="p-2 bg-blue-500/20 rounded-lg group-hover:scale-110 transition-transform"><ImageIcon size={16} className="text-blue-400" /></div>
-                                                    <span className="text-[9px] font-black text-white uppercase tracking-widest">Image Source</span>
-                                                    <input type="file" className="hidden" accept="image/*" onChange={(e) => { uploadNoteFile(e, 'image'); setShowPodcastUploadMenu(false); }} />
-                                                  </label>
-                                                  <label className="flex items-center gap-3 p-3 bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer group">
-                                                    <div className="p-2 bg-green-500/20 rounded-lg group-hover:scale-110 transition-transform"><Mic size={16} className="text-green-400" /></div>
-                                                    <span className="text-[9px] font-black text-white uppercase tracking-widest">Voice Memo</span>
-                                                    <input type="file" className="hidden" accept="audio/*" onChange={(e) => { uploadNoteFile(e, 'audio'); setShowPodcastUploadMenu(false); }} />
-                                                  </label>
-                                                  <label className="flex items-center gap-3 p-3 bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer group">
-                                                    <div className="p-2 bg-yellow-500/20 rounded-lg group-hover:scale-110 transition-transform"><FileText size={16} className="text-yellow-400" /></div>
-                                                    <span className="text-[9px] font-black text-white uppercase tracking-widest">Document</span>
-                                                    <input type="file" className="hidden" accept=".pdf,.doc,.docx,.txt" onChange={(e) => { uploadNoteFile(e, 'doc'); setShowPodcastUploadMenu(false); }} />
-                                                  </label>
-                                                </motion.div>
-                                              </>
-                                            )}
-                                          </AnimatePresence>
-                                        </div>
-
-                                        <textarea 
-                                          id="podcast-chat-input"
-                                          autoComplete="off"
-                                          placeholder="Chat with Omni &amp; Zeal..."
-                                          className="w-full bg-white/5 border border-white/10 rounded-3xl pl-16 pr-14 py-4 text-sm text-white outline-none focus:border-blue-500/50 transition-all placeholder:text-white/20 shadow-inner resize-none h-[54px] min-h-[54px] max-h-[144px] custom-scrollbar leading-relaxed"
-                                          onKeyDown={(e) => {
-                                            if (e.key === 'Enter' && !e.shiftKey) {
-                                              e.preventDefault();
-                                              const target = e.target as HTMLTextAreaElement;
-                                              if (target.value.trim()) {
-                                                handlePodcastInput(target.value);
-                                                target.value = '';
-                                                target.style.height = '54px';
-                                              }
-                                            }
-                                          }}
-                                          onInput={(e) => {
-                                            const target = e.target as HTMLTextAreaElement;
-                                            target.style.height = 'auto';
-                                            target.style.height = `${Math.min(target.scrollHeight, 144)}px`;
-                                          }}
-                                        />
-                                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                                          <button 
-                                            onClick={() => {
-                                              const input = document.getElementById('podcast-chat-input') as HTMLTextAreaElement;
-                                              if (input && input.value.trim()) {
-                                                handlePodcastInput(input.value);
-                                                input.value = '';
-                                                input.style.height = '54px';
-                                              }
-                                            }}
-                                            className="p-2 bg-[#DC2626] text-white rounded-xl shadow-lg hover:scale-110 active:scale-95 transition-all"
-                                          >
-                                            <Send size={18} />
-                                          </button>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
-                                ) : (
-                                <div className="flex flex-col flex-1 overflow-hidden bg-[#13111C]">
-                                  {/* Formatting Toolbar */}
-                                  <div className="relative flex items-center gap-2 p-2 bg-[#13111C] border-b border-white/5 z-50 shrink-0 shadow-sm">
-                                     <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1 flex-1">
-                                     <button onClick={() => setNotePreviewMode(!notePreviewMode)} className={`px-4 py-2 rounded-xl text-[9px] font-black transition-all ${notePreviewMode ? 'bg-[#DC2626] text-white shadow-lg shadow-[#DC2626]/20' : 'bg-white/5 text-white hover:bg-white/10'}`}>
-                                        {notePreviewMode ? 'EDIT MODE' : 'READER MODE'}
-                                     </button>
-                                     <div className="w-px h-4 bg-white/10 mx-1" />
-                                     
-                                     <div className="relative">
-                                       <button 
-                                         onClick={() => setShowNoteInsertMenu(!showNoteInsertMenu)}
-                                         className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg shadow-blue-500/20 active:scale-95 transition-all"
-                                       >
-                                         <Plus size={14} /> Insert
-                                       </button>
-                                       
-                                       {/* Notebook Insert Menu */}
-                                       <AnimatePresence>
-                                         {showNoteInsertMenu && (
-                                           <>
-                                             <div className="fixed inset-0 z-[100]" onClick={() => setShowNoteInsertMenu(false)} />
-                                             <motion.div 
-                                               initial={{ y: 10, opacity: 0, scale: 0.95 }}
-                                               animate={{ y: 0, opacity: 1, scale: 1 }}
-                                               exit={{ y: 10, opacity: 0, scale: 0.95 }}
-                                               className="absolute inset-x-2 sm:inset-x-4 top-14 bg-gradient-to-b from-[#1C1929]/95 to-[#0A0714]/98 border border-[#DC2626]/30 rounded-[2rem] p-6 shadow-2xl z-[110] overflow-hidden backdrop-blur-md animate-in fade-in zoom-in-95 duration-200"
-                                             >
-                                                <div className="flex justify-between items-center mb-4 pb-2 border-b border-white/5">
-                                                  <div>
-                                                    <h4 className="text-[10px] font-black text-white uppercase tracking-wider">Insert Study Source</h4>
-                                                    <p className="text-[7px] text-white/40 uppercase font-bold tracking-[0.1em] mt-0.5">Support compilation by uploading materials directly</p>
-                                                  </div>
-                                                  <button 
-                                                    onClick={() => setShowNoteInsertMenu(false)} 
-                                                    className="w-5 h-5 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/50 hover:text-white transition-colors outline-none"
-                                                  >
-                                                    <X size={10} />
-                                                  </button>
-                                                </div>
-
-                                                <div className="grid grid-cols-3 gap-3">
-                                                  <label className="flex flex-col items-center justify-center p-4 bg-white/5 hover:bg-white/10 hover:border-blue-500/30 border border-white/5 rounded-2xl transition-all cursor-pointer group text-center">
-                                                     <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform"><ImageIcon size={18} className="text-blue-400" /></div>
-                                                     <span className="block text-[9px] font-black text-white uppercase tracking-wide">Image</span>
-                                                     <span className="block text-[7px] text-white/40 uppercase mt-0.5">Photos</span>
-                                                     <input type="file" className="hidden" onChange={(e) => { uploadNoteFile(e, 'image'); setShowNoteInsertMenu(false); }} accept="image/*" />
-                                                  </label>
-                                                  <label className="flex flex-col items-center justify-center p-4 bg-white/5 hover:bg-white/10 hover:border-green-500/30 border border-white/5 rounded-2xl transition-all cursor-pointer group text-center">
-                                                     <div className="w-10 h-10 rounded-xl bg-green-500/10 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform"><Mic size={18} className="text-green-400" /></div>
-                                                     <span className="block text-[9px] font-black text-white uppercase tracking-wide">Audio</span>
-                                                     <span className="block text-[7px] text-white/40 uppercase mt-0.5">Memos</span>
-                                                     <input type="file" className="hidden" onChange={(e) => { uploadNoteFile(e, 'audio'); setShowNoteInsertMenu(false); }} accept="audio/*" />
-                                                  </label>
-                                                  <label className="flex flex-col items-center justify-center p-4 bg-white/5 hover:bg-white/10 hover:border-yellow-500/30 border border-white/5 rounded-2xl transition-all cursor-pointer group text-center">
-                                                     <div className="w-10 h-10 rounded-xl bg-yellow-500/10 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform"><FileText size={18} className="text-yellow-400" /></div>
-                                                     <span className="block text-[9px] font-black text-white uppercase tracking-wide">Doc</span>
-                                                     <span className="block text-[7px] text-white/40 uppercase mt-0.5">PDF/TXT</span>
-                                                     <input type="file" className="hidden" onChange={(e) => { uploadNoteFile(e, 'doc'); setShowNoteInsertMenu(false); }} accept=".pdf,.doc,.docx,.txt" />
-                                                  </label>
-                                                </div>
-                                             </motion.div>
-                                           </>
-                                         )}
-                                       </AnimatePresence>
-                                     </div>
-
-                                     {!notePreviewMode && (
-                                       <>
-                                         <div className="w-px h-4 bg-white/10 mx-1" />
-                                         <button onMouseDown={(e) => { e.preventDefault(); insertText('**', '**'); }} className="p-2 bg-white/5 hover:bg-white/10 rounded-lg text-white/40 hover:text-white transition-all"><Bold size={14} /></button>
-                                         <button onMouseDown={(e) => { e.preventDefault(); insertText('*', '*'); }} className="p-2 bg-white/5 hover:bg-white/10 rounded-lg text-white/40 hover:text-white transition-all"><Italic size={14} /></button>
-                                         <button onMouseDown={(e) => { e.preventDefault(); insertText('\n- '); }} className="p-2 bg-white/5 hover:bg-white/10 rounded-lg text-white/40 hover:text-white transition-all"><List size={14} /></button>
-                                       </>
-                                     )}
-                                   </div>
-                                  </div>
-
-                                  {/* Independent Active Note Writing Container */}
-                                  <div className="flex-1 flex flex-col min-h-0 bg-[#13111C]">
-                                     {notePreviewMode ? (
-                                       <div 
-                                         ref={scrollContainerRef}
-                                         onScroll={handleNoteScroll}
-                                         className="flex-1 overflow-y-auto p-4 sm:p-8 custom-scrollbar relative bg-[#13111C]"
-                                       >
-                                         <div className="space-y-6 relative z-10 max-w-4xl mx-auto">
-                                           <h1 className="text-2xl font-black text-white uppercase tracking-tighter">{selectedNote.title || 'Untitled Source'}</h1>
-                                           <div className="markdown-body prose prose-invert prose-p:text-white/70 prose-headings:text-white prose-strong:text-[#DC2626] prose-img:rounded-3xl max-w-none text-white/80 text-sm leading-relaxed">
-                                             <MarkdownRenderer selectable={true} content={selectedNote.content || "_No source content yet._"} />
-                                           </div>
-                                         </div>
-                                       </div>
-                                     ) : (
-                                       <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[#13111C]">
-                                         <div className="px-6 py-4 bg-[#13111C] border-b border-white/5 shrink-0">
-                                           <input 
-                                             value={selectedNote.title} 
-                                             onChange={(e) => setSelectedNote({...selectedNote, title: e.target.value})}
-                                             className="bg-transparent border-none text-xl font-black text-white uppercase tracking-tighter outline-none w-full placeholder:text-white/15"
-                                             placeholder="Source Title..."
-                                           />
-                                         </div>
-                                         
-                                         <textarea
-                                           id="note-main-textarea"
-                                           value={selectedNote.content || ''}
-                                           onChange={(e) => handleNoteContentChange(e.target.value)}
-                                           onFocus={(e) => {
-                                             lastFocusedBlock.current = { id: 'main', start: e.target.selectionStart, end: e.target.selectionEnd };
-                                           }}
-                                           onBlur={(e) => {
-                                             lastFocusedBlock.current = { id: 'main', start: e.target.selectionStart, end: e.target.selectionEnd };
-                                           }}
-                                           className="flex-1 w-full bg-[#13111C] border-none text-white/80 text-sm leading-[1.75rem] outline-none resize-none font-mono placeholder:text-white/10 p-6 sm:p-8 overflow-y-auto custom-scrollbar focus:outline-none"
-                                           placeholder="Start writing or typing..."
-                                         />
-                                       </div>
-                                     )}
-                                  </div>
-
-                                  {/* Floating Scroll Button */}
-                                  <AnimatePresence>
-                                    {noteScrollPos && (
-                                      <motion.button
-                                        initial={{ opacity: 0, scale: 0.8, y: 20 }}
-                                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                                        exit={{ opacity: 0, scale: 0.8, y: 20 }}
-                                        onClick={() => scrollToPosition(noteScrollPos)}
-                                        className="absolute bottom-20 right-6 z-50 w-12 h-12 rounded-full bg-[#DC2626] text-white shadow-xl shadow-[#DC2626]/40 flex items-center justify-center border-2 border-white/10 hover:scale-110 active:scale-95 transition-all"
-                                      >
-                                        {noteScrollPos === 'top' ? <ChevronUp size={24} /> : <ChevronDown size={24} />}
-                                      </motion.button>
-                                    )}
-                                  </AnimatePresence>
-
-                                  <div className="p-3 border-t border-white/5 bg-white/2 backdrop-blur-md flex items-center justify-between shrink-0">
-                                     <p className="text-[7px] font-bold text-white/20 uppercase tracking-[0.3em]">Notebook AI Engine Active</p>
-                                  </div>
-                                </div>
-                                )}
-                              </div>
-                            ) : (
-                        <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 custom-scrollbar bg-[#13111C]">
-                           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 pb-20">
-                            {userNotes.length === 0 ? (
-                              <div className="col-span-full py-20 text-center opacity-10 space-y-6">
-                                <FileText size={64} className="mx-auto" />
-                                <p className="text-[10px] font-black uppercase tracking-[0.4em]">Notebook Empty</p>
-                              </div>
-                            ) : (
-                              userNotes.map(note => (
-                                <motion.div 
-                                  key={note.id} 
-                                  onClick={() => {
-                                    setSelectedNote(note);
-                                    setNoteHistory([]);
-                                    setRedoStack([]);
-                                    setIsPodcastActive(false);
-                                  }}
-                                  className={`p-2 rounded-xl border transition-all cursor-pointer relative group overflow-hidden ${theme === 'dark' ? 'bg-[#151B2B] border-white/10 hover:border-[#DC2626]/50 shadow-xl' : 'bg-white border-slate-200 shadow-sm'}`}
-                                >
-                                  {note.attachments?.length > 0 && (
-                                    <div className="absolute top-0 right-0 p-1 text-[5px] font-black text-[#DC2626] bg-[#DC2626]/10 rounded-bl-lg border-l border-b border-white/10 uppercase">
-                                      {note.attachments.length}
-                                    </div>
-                                  )}
-                                  <div className="flex items-start justify-between relative z-10 w-full h-full">
-                                    <div className="space-y-0.5 w-full">
-                                      <h4 className="text-[9px] font-black text-white uppercase tracking-tight line-clamp-1 group-hover:text-[#DC2626] transition-colors">
-                                        {note.title || 'Untitled Source'}
-                                      </h4>
-                                      <p className="text-[7px] text-white/40 line-clamp-2 leading-tight">
-                                        {note.content ? note.content.replace(/[#*`_!\[\]\(\)]/g, '').substring(0, 50) : '...'}
-                                      </p>
-                                      <div className="flex items-center justify-between mt-1 pt-1 border-t border-white/5">
-                                        <p className="text-[6px] font-bold text-white/10 uppercase tracking-widest">{note.updatedAt?.toDate ? note.updatedAt.toDate().toLocaleDateString() : 'Now'}</p>
-                                        <div onClick={(e) => deleteNote(note.id, e)} className="p-1 opacity-0 group-hover:opacity-100 text-white/20 hover:text-red-500 transition-all bg-white/5 rounded-md">
-                                          <Trash2 size={8} />
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
-                                </motion.div>
-                              ))
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </motion.div>
-                  )}
-
-          {/* TOOLS SUB-SECTIONS CONTINUED */}
-          {toolsSubTab === 'live' && (
-            <motion.div key="live" initial={{opacity:0, scale: 0.95}} animate={{opacity:1, scale: 1}} exit={{opacity: 0}} className="fixed inset-0 z-[100]">
-                           <GeminiLive 
-                            onClose={() => setToolsSubTab('menu')} 
-                            setUserNotification={setUserNotification} 
-                            theme={theme}
-                            isPremium={isPremium}
-                            checkAndIncrementUsage={checkAndIncrementUsage}
-                          />
-            </motion.div>
-          )}
-
-          {toolsSubTab === 'quiz' && (
-            <motion.div key="quiz" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity: 0}} className="space-y-6">
-              <AdUnit slot="7536999840" />
-              <div className="flex items-center justify-between px-2">
-                <h2 className="text-xl font-black uppercase tracking-tighter text-white">Quiz Engine</h2>
-                <Zap size={20} className="text-[#DC2626]" />
-              </div>
-
-              {quizState === 'idle' && (
-                <div className={`${theme === 'dark' ? 'bg-[#13111C] border-white/10' : 'bg-white border-slate-200'} p-8 rounded-3xl border space-y-6 shadow-sm`}>
-                  <div className="text-center space-y-2 mb-4">
-                    <div className="w-12 h-12 bg-[#DC2626]/10 rounded-2xl flex items-center justify-center mx-auto mb-2"><Sparkles size={24} className="text-[#DC2626]" /></div>
-                    <h3 className="font-bold text-lg text-white">Generate Interactive Quiz</h3>
-                    <p className="text-xs text-white/40">Test your knowledge with AI-generated questions.</p>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    {!user ? (
-                      <div className="text-center space-y-4 py-6">
-                        <p className="text-sm text-white/60">You must be logged in to generate quizzes.</p>
-                        <button onClick={() => setShowAuthModal(true)} className="w-full bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black py-4 rounded-2xl text-sm shadow-xl shadow-[#DC2626]/20 transition-all">
-                          LOGIN TO PROCEED
-                        </button>
-                      </div>
-                    ) : (
-                      <>
-                        <div>
-                          <div className="flex items-center justify-between mb-2 ml-1">
-                            <p className="text-[10px] font-black text-white/30 uppercase">Topic or Analysis Context</p>
-                            <div className="flex items-center gap-2">
-                              {/* Import Note Button */}
-                              <button 
-                                type="button"
-                                onClick={() => setShowNoteSelectorForQuiz(prev => !prev)}
-                                className="flex items-center gap-1.5 px-2.5 py-1 bg-violet-600/20 border border-violet-500/30 rounded-lg hover:bg-violet-600/30 hover:border-violet-500/50 transition-all cursor-pointer"
-                              >
-                                <BookOpen size={10} className="text-violet-400" />
-                                <span className="text-[8px] font-black text-violet-300 uppercase">Import Note</span>
-                              </button>
-
-                              <label className="cursor-pointer group flex items-center gap-1.5 px-2.5 py-1 bg-[#DC2626]/10 border border-[#DC2626]/20 rounded-lg hover:bg-[#DC2626]/20 transition-all">
-                                <Camera size={10} className="text-[#DC2626]" />
-                                <span className="text-[8px] font-black text-[#DC2626] uppercase">Snap/Upload</span>
-                                <input type="file" className="hidden" accept="image/*" multiple onChange={handleQuizImageUpload} />
-                              </label>
-                            </div>
-                          </div>
-
-                          {/* Note Selector panel */}
-                          {showNoteSelectorForQuiz && (
-                            <motion.div 
-                              initial={{ opacity: 0, y: -10 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              className="mb-3 p-3 bg-white/5 border border-white/10 rounded-2xl space-y-2 max-h-[180px] overflow-y-auto custom-scrollbar"
-                            >
-                              <div className="flex items-center justify-between border-b border-white/5 pb-1.5 mb-1.5">
-                                <p className="text-[9px] font-black text-violet-400 uppercase tracking-wider">Select Note to Import</p>
-                                <button type="button" onClick={() => setShowNoteSelectorForQuiz(false)} className="text-white/40 hover:text-white">
-                                  <X size={10} />
-                                </button>
-                              </div>
-                              {userNotes.length === 0 ? (
-                                <p className="text-[10px] text-white/40 text-center py-4">No notes found. Create a study note in the notebook first!</p>
-                              ) : (
-                                <div className="grid grid-cols-1 gap-1.5">
-                                  {userNotes.map(n => (
-                                    <button
-                                      type="button"
-                                      key={n.id}
-                                      onClick={() => {
-                                        setImportedQuizNote(n);
-                                        setShowNoteSelectorForQuiz(false);
-                                        setUserNotification(`Imported note: "${n.title}"`);
-                                      }}
-                                      className="flex flex-col items-start text-left p-2 rounded-xl bg-white/5 hover:bg-[#DC2626]/10 border border-white/5 hover:border-[#DC2626]/30 transition-all w-full"
-                                    >
-                                      <p className="text-xs font-bold text-white line-clamp-1">{n.title || 'Untitled note'}</p>
-                                      <p className="text-[8px] text-white/40 line-clamp-1 mt-0.5">{n.content ? n.content.substring(0, 80) : 'Empty note'}</p>
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
-                            </motion.div>
-                          )}
-
-                          <div className="relative">
-                            <textarea 
-                              value={quizTopic} 
-                              onChange={(e) => setQuizTopic(e.target.value)} 
-                              placeholder="Describe the topic or ask AI to analyze the images below..." 
-                              className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm outline-none focus:border-[#DC2626]/50 transition-all text-white min-h-[100px] resize-none"
-                            />
-
-                            {/* Imported Note tag inside container if selected */}
-                            {importedQuizNote && (
-                              <div className="flex items-center justify-between p-2 mt-2 bg-violet-600/10 border border-violet-500/20 rounded-xl">
-                                <div className="flex items-center gap-2 overflow-hidden">
-                                  <BookOpen size={12} className="text-violet-400 shrink-0" />
-                                  <div className="leading-tight overflow-hidden">
-                                    <p className="text-[7px] font-black uppercase tracking-widest text-violet-400">Imported Study Source</p>
-                                    <p className="text-[10px] font-bold text-white truncate">{importedQuizNote.title || 'Untitled Note'}</p>
-                                  </div>
-                                </div>
-                                <button 
-                                  type="button"
-                                  onClick={() => {
-                                    setImportedQuizNote(null);
-                                    setUserNotification("Study note removed from quiz context.");
-                                  }} 
-                                  className="p-1 hover:bg-white/5 rounded-lg text-white/40 hover:text-red-400 transition-colors cursor-pointer"
-                                >
-                                  <X size={12} />
-                                </button>
-                              </div>
-                            )}
-                            <div className="absolute bottom-3 right-3 flex items-center gap-2">
-                              <p className={`text-[8px] font-black uppercase ${quizTopic.split(/\s+/).filter(Boolean).length > (importedQuizNote ? 5000 : (isPremium ? 20000 : 300)) ? 'text-red-500' : 'text-white/20'}`}>
-                                {quizTopic.split(/\s+/).filter(Boolean).length} / {importedQuizNote ? 5000 : (isPremium ? 20000 : 300)} Words
-                              </p>
-                            </div>
-                          </div>
-
-                          {quizImages.length > 0 && (
-                            <div className="flex flex-wrap gap-2 mt-3">
-                              {quizImages.map(img => (
-                                <div key={img.id} className="relative group w-16 h-16 rounded-xl overflow-hidden border border-white/10">
-                                  <img src={img.preview} className="w-full h-full object-cover" />
-                                  <button onClick={() => removeQuizImage(img.id)} className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center">
-                                    <Trash2 size={12} className="text-white" />
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <p className="text-[10px] font-black text-white/30 uppercase mb-2 ml-1">Questions</p>
-                            <div className="flex flex-wrap gap-2 items-center">
-                              {[15, 25, 50].map(count => (
-                                <button key={count} onClick={() => setQuizQuestionCount(count)} className={`px-3 py-2 rounded-xl text-[10px] font-bold border transition-all ${quizQuestionCount === count ? 'bg-[#DC2626] border-[#DC2626] text-white' : 'bg-white/5 border-white/10 text-white/40'}`}>
-                                  {count}
-                                </button>
-                              ))}
-                              <div className="flex items-center gap-1.5 ml-1">
-                                <p className="text-[8px] font-bold text-white/20 uppercase">Custom:</p>
-                                <input 
-                                  type="number" 
-                                  min="1"
-                                  max="200"
-                                  value={![15, 25, 50].includes(quizQuestionCount) ? quizQuestionCount : ''} 
-                                  onChange={(e) => {
-                                    const val = parseInt(e.target.value);
-                                    if(!isNaN(val)) setQuizQuestionCount(val);
-                                    else if (e.target.value === '') setQuizQuestionCount(0); // Allow clearing to type
-                                  }}
-                                  onBlur={(e) => {
-                                    if(!e.target.value || parseInt(e.target.value) <= 0) setQuizQuestionCount(25);
-                                  }}
-                                  className={`w-14 px-2 py-1.5 rounded-xl bg-white/5 border text-white text-[10px] font-bold outline-none transition-all ${![15, 25, 50].includes(quizQuestionCount) && quizQuestionCount !== 0 ? 'border-[#DC2626] bg-[#DC2626]/10' : 'border-white/10'}`}
-                                  placeholder="No."
-                                />
-                              </div>
-                            </div>
-                          </div>
-                          <div>
-                            <p className="text-[10px] font-black text-white/30 uppercase mb-2 ml-1">Difficulty</p>
-                            <div className="flex flex-wrap gap-2">
-                              {['Easy', 'Medium', 'Hard', 'Professional'].map(level => (
-                                <button key={level} onClick={() => setQuizDifficulty(level as any)} className={`px-3 py-2 rounded-xl text-[10px] font-bold border transition-all ${quizDifficulty === level ? 'bg-[#DC2626] border-[#DC2626] text-white' : 'bg-white/5 border-white/10 text-white/40'}`}>
-                                  {level}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  <button onClick={generateQuiz} disabled={isGeneratingQuiz} className="w-full bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black py-4 rounded-2xl text-sm shadow-xl shadow-[#DC2626]/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50">
-                    {isGeneratingQuiz ? <><RefreshCcw size={18} className="animate-spin" /> GENERATING...</> : <><Zap size={18} /> START ASSESSMENT</>}
-                  </button>
-                </div>
-              )}
-
-              {quizState === 'active' && quizQuestions.length > 0 && (
-                <div className="space-y-6">
-                  <div className={`flex items-center justify-between ${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-4 rounded-2xl border shadow-sm`}>
-                    <button onClick={() => setQuizState('idle')} className="text-white/40 hover:text-[#DC2626] flex items-center gap-1 text-xs font-bold uppercase"><ArrowLeft size={14} /> Back</button>
-                    <div className="text-center"><p className="text-[10px] font-black text-white/30 uppercase">Progress</p><p className="text-sm font-black text-[#DC2626]">{currentQuestionIndex + 1} / {quizQuestions.length}</p></div>
-                    <button onClick={shareQuiz} className="text-white/40 hover:text-[#DC2626] flex items-center gap-1 text-xs font-bold uppercase">
-                      <Share2 size={14} /> Share
-                    </button>
-                  </div>
-
-                  {/* Quiz Question Navigation */}
-                  <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
-                    {quizQuestions.map((_, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => {
-                          setCurrentQuestionIndex(idx);
-                          setSelectedOption(userQuizAnswers[idx] !== undefined ? userQuizAnswers[idx] : null);
-                          setIsAnswered(userQuizAnswers[idx] !== undefined);
-                        }}
-                        className={`flex-shrink-0 w-8 h-8 rounded-lg text-[10px] font-black border transition-all ${
-                          currentQuestionIndex === idx 
-                            ? 'bg-[#DC2626] border-[#DC2626] text-white' 
-                            : userQuizAnswers[idx] !== undefined 
-                              ? 'bg-green-500/20 border-green-500/30 text-green-500' 
-                              : 'bg-white/5 border-white/10 text-white/40'
-                        }`}
-                      >
-                        {idx + 1}
-                      </button>
-                    ))}
-                  </div>
-                  <div className={`${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-8 rounded-3xl border space-y-8 shadow-sm`}>
-                    <MarkdownRenderer 
-                      content={quizQuestions[currentQuestionIndex].question}
-                      className="text-lg font-bold leading-tight text-white"
-                    />
-                    <div className="space-y-3">
-                      {quizQuestions[currentQuestionIndex].options.map((option, idx) => {
-                        const isCorrect = idx === quizQuestions[currentQuestionIndex].correctAnswer;
-                        const isSelected = selectedOption === idx;
-                        const hasAnswered = userQuizAnswers[currentQuestionIndex] !== undefined;
-                        
-                        let variantClasses = 'bg-white/5 border-white/10 text-white/80';
-                        let badgeClasses = 'border-white/20 text-white/40';
-                        
-                        if (hasAnswered) {
-                          if (isCorrect) {
-                            variantClasses = 'border-green-500 bg-green-500/10 text-green-500';
-                            badgeClasses = 'border-green-500 bg-green-500 text-white';
-                          } else if (isSelected) {
-                            variantClasses = 'border-red-500 bg-red-500/10 text-red-500';
-                            badgeClasses = 'border-red-500 bg-red-500 text-white';
-                          }
-                        } else if (isSelected) {
-                          variantClasses = 'border-[#DC2626] bg-[#DC2626]/5 text-[#DC2626]';
-                          badgeClasses = 'border-[#DC2626] bg-[#DC2626] text-white';
-                        }
-
-                        return (
-                          <button 
-                            key={idx} 
-                            onClick={() => handleOptionSelect(idx)} 
-                            disabled={hasAnswered}
-                            className={`w-full text-left p-4 rounded-2xl border transition-all flex items-center gap-3 ${variantClasses}`}
-                          >
-                            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] border shrink-0 ${badgeClasses}`}>
-                              {hasAnswered && isCorrect ? <Check size={12} /> : hasAnswered && isSelected && !isCorrect ? <X size={12} /> : String.fromCharCode(65 + idx)}
-                            </div>
-                            <div className="flex-1">
-                              <MarkdownRenderer 
-                                content={option}
-                                className="text-sm font-medium"
-                              />
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {userQuizAnswers[currentQuestionIndex] !== undefined && quizQuestions[currentQuestionIndex].explanation && (
-                      <motion.div 
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="p-5 bg-white/5 border border-white/10 rounded-2xl space-y-2"
-                      >
-                        <div className="flex items-center gap-2 text-[#DC2626] text-[10px] font-black uppercase tracking-[0.2em]">
-                          <Info size={14} /> Explanation
-                        </div>
-                        <MarkdownRenderer 
-                          content={quizQuestions[currentQuestionIndex].explanation}
-                          className="text-sm text-white/60 leading-relaxed font-medium"
-                        />
-                      </motion.div>
-                    )}
-
-                    <div className="pt-4 flex gap-3">
-                      {currentQuestionIndex > 0 && (
-                        <button 
-                          onClick={prevQuestion}
-                          className={`flex-1 ${theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-100 border-slate-200 text-slate-700'} font-black py-4 rounded-2xl text-sm border transition-all flex items-center justify-center gap-2 uppercase tracking-widest`}
-                        >
-                          <ChevronRight size={18} className="rotate-180" /> Back
-                        </button>
-                      )}
-                      <button 
-                        onClick={nextQuestion}
-                        disabled={selectedOption === null}
-                        className="flex-[2] bg-[#DC2626] text-white font-black py-4 rounded-2xl text-sm shadow-xl shadow-[#DC2626]/20 transition-all flex items-center justify-center gap-2 uppercase tracking-widest disabled:opacity-50"
-                      >
-                        {currentQuestionIndex < quizQuestions.length - 1 ? 'Next Question' : 'Finish Quiz'} <ChevronRight size={18} />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {quizState === 'finished' && (() => {
-                const percentage = Math.round((quizScore / (quizQuestions.length || 1)) * 100);
-                
-                let colorTheme = {
-                  bg: 'bg-emerald-500/10',
-                  text: 'text-emerald-500',
-                  border: 'border-emerald-500/20',
-                  glow: 'shadow-emerald-500/20',
-                  grade: 'A+',
-                  phrase: 'Academic Legend! You completely understand this topic! 👑🧠',
-                  badgeColor: 'bg-gradient-to-r from-emerald-500 to-green-600',
-                };
-
-                if (percentage >= 80) {
-                  colorTheme = {
-                    bg: 'bg-emerald-500/10',
-                    text: 'text-emerald-500',
-                    border: 'border-emerald-500/20',
-                    glow: 'shadow-emerald-500/20',
-                    grade: 'A',
-                    phrase: 'Magnificent performance! Keep striving for perfection! 🏆✨',
-                    badgeColor: 'bg-gradient-to-r from-emerald-500 to-green-600',
-                  };
-                } else if (percentage >= 60) {
-                  colorTheme = {
-                    bg: 'bg-amber-500/10',
-                    text: 'text-amber-500',
-                    border: 'border-amber-500/20',
-                    glow: 'shadow-amber-500/20',
-                    grade: 'B',
-                    phrase: 'Solid work! Just a few gaps left to conquer. 📚💪',
-                    badgeColor: 'bg-gradient-to-r from-amber-500 to-yellow-600',
-                  };
-                } else if (percentage >= 40) {
-                  colorTheme = {
-                    bg: 'bg-blue-500/10',
-                    text: 'text-blue-500',
-                    border: 'border-blue-500/20',
-                    glow: 'shadow-blue-500/20',
-                    grade: 'C',
-                    phrase: 'Passable result. Focus on the wrong answers to grow! 📊💡',
-                    badgeColor: 'bg-gradient-to-r from-blue-500 to-indigo-600',
-                  };
-                } else {
-                  colorTheme = {
-                    bg: 'bg-red-500/10',
-                    text: 'text-red-500',
-                    border: 'border-red-500/20',
-                    glow: 'shadow-red-500/20',
-                    grade: 'F',
-                    phrase: 'You can do better! Revise the notes, study harder, and try again! 💡❌',
-                    badgeColor: 'bg-gradient-to-r from-red-500 to-rose-600',
-                  };
-                }
-
-                return (
-                  <div className={`${theme === 'dark' ? 'bg-[#13111C] border-white/10' : 'bg-white border-slate-200'} p-8 sm:p-10 rounded-3xl border text-center space-y-8 shadow-2xl relative overflow-hidden`}>
-                    <div className="absolute top-0 left-0 w-48 h-48 bg-gradient-to-br from-red-500/10 to-blue-500/0 rounded-full blur-3xl pointer-events-none" />
-                    <div className="absolute bottom-0 right-0 w-48 h-48 bg-gradient-to-tl from-[#DC2626]/10 to-blue-500/0 rounded-full blur-3xl pointer-events-none" />
-
-                    <div className="space-y-4 relative">
-                      <div className="w-24 h-24 bg-gradient-to-tr from-[#DC2626] to-red-500 rounded-full flex items-center justify-center mx-auto shadow-2xl shadow-red-500/30 relative">
-                        <Trophy size={48} className="text-white" />
-                        <motion.div animate={{ scale: [1, 1.25, 1] }} transition={{ repeat: Infinity, duration: 2.5 }} className="absolute inset-0 bg-red-500/20 rounded-full -z-10" />
-                      </div>
-                      <div>
-                        <span className={`px-4 py-1 text-[10px] font-black uppercase tracking-widest text-white rounded-full ${colorTheme.badgeColor} shadow-md`}>
-                          Grade {colorTheme.grade}
-                        </span>
-                        <h3 className={`text-3xl font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'} uppercase tracking-tighter mt-3`}>
-                          Assessment Report
-                        </h3>
-                        <p className={`${theme === 'dark' ? 'text-white/50' : 'text-slate-500'} text-xs font-medium`}>
-                          Generated for {quizTopic || 'General Material'}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className={`p-5 rounded-2xl border ${theme === 'dark' ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-100'} flex flex-col justify-between text-left`}>
-                        <div>
-                          <p className={`text-[10px] font-black ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'} uppercase tracking-wider`}>Overall Proficiency</p>
-                          <h4 className="text-4xl font-black text-[#DC2626] mt-2">{percentage}%</h4>
-                        </div>
-                        <div className="w-full bg-slate-200 dark:bg-white/10 h-2.5 rounded-full overflow-hidden mt-4">
-                          <motion.div 
-                            initial={{ width: 0 }} 
-                            animate={{ width: `${percentage}%` }} 
-                            transition={{ duration: 1 }} 
-                            className="bg-gradient-to-r from-[#DC2626] to-red-400 h-full rounded-full" 
-                          />
-                        </div>
-                      </div>
-
-                      <div className={`p-5 rounded-2xl border ${theme === 'dark' ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-100'} text-left space-y-1`}>
-                        <p className={`text-[10px] font-black ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'} uppercase tracking-wider`}>Correct Answers</p>
-                        <div className="flex items-baseline gap-2 mt-2">
-                          <span className="text-4xl font-black text-emerald-500">{quizScore}</span>
-                          <span className={`text-lg font-bold ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>/ {quizQuestions.length || 1}</span>
-                        </div>
-                        <p className={`text-[10px] font-medium ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} pt-1`}>
-                          {quizQuestions.length - quizScore} questions missed
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className={`p-5 rounded-2xl border ${colorTheme.bg} ${colorTheme.border} text-left flex items-start gap-3 shadow-lg ${colorTheme.glow}`}>
-                      <span className="text-2xl select-none mt-0.5">💡</span>
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-black text-red-500 uppercase tracking-widest">Omni Study Advisor</p>
-                        <p className={`text-xs font-bold leading-relaxed ${theme === 'dark' ? 'text-white/90' : 'text-slate-800'}`}>
-                          {colorTheme.phrase}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col gap-3">
-                      <div className="grid grid-cols-2 gap-3">
-                        <button onClick={shareQuiz} className="w-full bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-white/60 font-bold py-4 rounded-2xl text-xs hover:bg-slate-200 dark:hover:bg-white/10 transition-all flex items-center justify-center gap-2 border border-transparent dark:border-white/5">
-                          <Share2 size={16} /> SHARE LINK
-                        </button>
-                        <button onClick={handleShareResult} className="w-full bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-white/60 font-bold py-4 rounded-2xl text-xs hover:bg-slate-200 dark:hover:bg-white/10 transition-all flex items-center justify-center gap-2 border border-transparent dark:border-white/5">
-                          <Share2 size={16} /> SHARE STATS
-                        </button>
-                      </div>
-
-                      <button onClick={() => setQuizState('review')} className="w-full bg-[#DC2626] text-white font-black py-4 rounded-2xl text-xs sm:text-sm shadow-xl shadow-[#DC2626]/20 hover:bg-[#DC2626]/90 transition-all flex items-center justify-center gap-2">
-                        <Search size={18} /> CHECK RESULTS & DETAILED EXPLANATIONS
-                      </button>
-                      
-                      <button onClick={() => setQuizState('idle')} className="w-full bg-white/5 text-white/40 font-bold py-3 rounded-2xl text-xs hover:bg-white/10 transition-all">
-                        TRY ANOTHER TOPIC
-                      </button>
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {quizState === 'review' && (
-                <div className="space-y-6">
-                  <div className={`flex items-center justify-between ${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-4 rounded-2xl border shadow-sm`}>
-                    <button onClick={() => setQuizState('finished')} className="text-white/40 hover:text-[#DC2626] flex items-center gap-1 text-xs font-bold uppercase"><ArrowLeft size={14} /> Back to Results</button>
-                    <h3 className="text-sm font-black text-white uppercase tracking-tighter">Detailed Review</h3>
-                    <div className="w-10"></div>
-                  </div>
-
-                  <div className="space-y-4">
-                    {quizQuestions.map((q, qIdx) => {
-                      const userAns = userQuizAnswers[qIdx];
-                      const isCorrect = userAns === q.correctAnswer;
-                      
-                      return (
-                        <div key={qIdx} className={`${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-6 rounded-3xl border space-y-4 shadow-sm`}>
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="flex-1">
-                              <p className="text-[10px] font-black text-[#DC2626] uppercase mb-1">Question {qIdx + 1}</p>
-                              <MarkdownRenderer content={q.question} className="text-sm font-bold text-white leading-tight" />
-                            </div>
-                            <div className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase ${isCorrect ? 'bg-green-500/10 text-green-500' : 'bg-[#DC2626]/10 text-[#DC2626]'}`}>
-                              {isCorrect ? 'Correct' : 'Incorrect'}
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-1 gap-2">
-                            {q.options.map((opt, oIdx) => {
-                              const isUserChoice = userAns === oIdx;
-                              const isCorrectChoice = q.correctAnswer === oIdx;
-                              
-                              let borderClass = 'border-white/5 bg-white/5';
-                              let textClass = 'text-white/60';
-                              let label = '';
-                              
-                              if (isCorrectChoice) {
-                                borderClass = 'border-green-500/50 bg-green-500/10';
-                                textClass = 'text-green-500 font-bold';
-                                label = 'CORRECT ANSWER';
-                              } else if (isUserChoice && !isCorrect) {
-                                borderClass = 'border-[#DC2626]/50 bg-[#DC2626]/10';
-                                textClass = 'text-[#DC2626] font-bold';
-                                label = 'YOUR CHOICE';
-                              } else if (isUserChoice && isCorrect) {
-                                label = 'YOUR CHOICE (CORRECT)';
-                              }
-
-                              return (
-                                <div key={oIdx} className={`p-3 rounded-xl border text-xs flex items-center gap-3 ${borderClass} ${textClass}`}>
-                                  <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] border ${isCorrectChoice ? 'border-green-500 bg-green-500 text-white' : (isUserChoice ? 'border-[#DC2626] bg-[#DC2626] text-white' : 'border-white/20')}`}>
-                                    {String.fromCharCode(65 + oIdx)}
-                                  </div>
-                                  <div className="flex-1 flex flex-col">
-                                    <MarkdownRenderer content={opt} />
-                                    {label && <span className="text-[8px] font-black uppercase mt-1 opacity-60">{label}</span>}
-                                  </div>
-                                  {isCorrectChoice && <Check size={14} />}
-                                  {isUserChoice && !isCorrect && <X size={14} />}
-                                </div>
-                              );
-                            })}
-                          </div>
-
-                          {q.explanation && (
-                            <div className={`p-4 rounded-2xl ${theme === 'dark' ? 'bg-white/5' : 'bg-slate-50'} border border-dashed border-white/10`}>
-                              <p className="text-[9px] font-black text-white/30 uppercase mb-2 flex items-center gap-1.5">
-                                <Info size={12} className="text-[#DC2626]" /> Explanation
-                              </p>
-                              <MarkdownRenderer content={q.explanation} className="text-xs text-white/70 leading-relaxed" />
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <button onClick={() => setQuizState('idle')} className="w-full bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black py-4 rounded-2xl text-sm shadow-xl shadow-[#DC2626]/20 transition-all flex items-center justify-center gap-2">
-                    RETAKE OR TRY NEW TOPIC
-                  </button>
-                </div>
-              )}
-            </motion.div>
-          )}
-                  {toolsSubTab === 'exam' && (
-
-            <motion.div key="exam" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity: 0}} className="space-y-6">
-              <div className="flex items-center justify-between px-2">
-                <h2 className="text-xl font-black uppercase tracking-tighter text-white">CBT Examination</h2>
-                <ShieldCheck size={20} className="text-[#DC2626]" />
-              </div>
-
-              {examLobbyState === 'login' && (
-                <div className={`${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-5 sm:p-8 rounded-3xl border space-y-6 shadow-sm`}>
-                  <div className="text-center space-y-2">
-                    <div className="w-12 h-12 bg-[#DC2626]/10 rounded-2xl flex items-center justify-center mx-auto mb-2"><User size={24} className="text-[#DC2626]" /></div>
-                    <h3 className={`font-bold text-lg ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Student Verification</h3>
-                    <p className={`text-xs ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}>Enter your credentials to access the examination hall.</p>
-                  </div>
-                  {!showAdminLogin ? (
-                    <div className="space-y-4">
-                      {!user ? (
-                        <div className="text-center space-y-4 py-6">
-                          <p className={`text-sm ${theme === 'dark' ? 'text-white/60' : 'text-slate-600'}`}>You must be logged in to access examinations.</p>
-                          <button onClick={() => setShowAuthModal(true)} className="w-full bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black py-4 rounded-2xl text-sm shadow-xl shadow-[#DC2626]/20 transition-all">
-                            LOGIN TO PROCEED
-                          </button>
-                        </div>
-                      ) : studentName ? (
-                        <div className={`p-6 ${theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'} rounded-3xl border space-y-4 text-center`}>
-                          <div className="w-16 h-16 bg-[#DC2626] rounded-full flex items-center justify-center text-white font-black text-2xl mx-auto shadow-lg shadow-[#DC2626]/20">{(studentName || '?').charAt(0)}</div>
-                          <div>
-                            <p className={`text-[10px] font-black ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} uppercase tracking-widest`}>Authenticated Student</p>
-                            <p className={`text-xl font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{studentName}</p>
-                            <p className="text-xs font-mono text-[#DC2626] font-bold">{matricNumber}</p>
-                          </div>
-                          
-                          {isTakingPaid ? (
-                            <div className={`pt-4 space-y-3 border-t ${theme === 'dark' ? 'border-white/10' : 'border-slate-100'}`}>
-                              <button onClick={handleMatricLogin} className="w-full bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black py-4 rounded-2xl text-sm shadow-xl shadow-[#DC2626]/20 transition-all">PROCEED TO HALL</button>
-                              <button onClick={() => { setStudentName(''); setMatricNumber(''); }} className={`w-full text-[10px] font-black ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} uppercase hover:text-[#DC2626] transition-all`}>Not you? Switch Account</button>
-                            </div>
-                          ) : (
-                            <div className={`pt-4 space-y-3 border-t ${theme === 'dark' ? 'border-white/10' : 'border-slate-100'}`}>
-                              <p className={`text-[10px] ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'} leading-relaxed italic`}>
-                                {isPremium ? "Premium Active: Exam access granted for free." : `This examination requires a one-time access fee of \u{20A6}100. Please complete payment to proceed.`}
-                              </p>
-                              <button 
-                                onClick={() => {
-                                  if (isPremium || currentUserData?.bypassTakingPayment || currentUserData?.bypassAllPayments || (currentUserData?.role === 'admin')) {
-                                    handleTakingPaymentSuccess({ reference: 'GOD_MODE_BYPASS' });
-                                  } else {
-                                    initializePayment({ onSuccess: handleTakingPaymentSuccess, onClose: handlePaystackClose });
-                                  }
-                                }} 
-                                className="w-full bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black py-4 rounded-2xl text-sm shadow-xl shadow-[#DC2626]/20 transition-all flex items-center justify-center gap-2"
-                              >
-                                <CreditCard size={18} /> 
-                                {isPremium || currentUserData?.role === 'admin' ? "ENTER EXAM HALL" : "PAY \u{20A6}100 & PROCEED"}
-                              </button>
-                              <button onClick={() => { setStudentName(''); setMatricNumber(''); }} className={`w-full text-[10px] font-black ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} uppercase hover:text-[#DC2626] transition-all`}>Not you? Switch Account</button>
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="space-y-4">
-                          <div className="space-y-2">
-                            <p className="text-[8px] font-black text-white/30 uppercase tracking-widest ml-2">Exam ID</p>
-                            <input type="text" value={examIdInput} onChange={(e) => setExamIdInput(e.target.value.toUpperCase())} placeholder="Enter 7-Character ID" className={`w-full ${theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'} border rounded-2xl px-5 py-4 text-sm outline-none focus:border-[#DC2626]/50 transition-all font-mono`} />
-                          </div>
-                          <div className="space-y-2">
-                            <p className="text-[8px] font-black text-white/30 uppercase tracking-widest ml-2">Matric Number</p>
-                            <input type="text" value={matricNumber} onChange={(e) => setMatricNumber(e.target.value)} placeholder="Enter Matric Number" className={`w-full ${theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'} border rounded-2xl px-5 py-4 text-sm outline-none focus:border-[#DC2626]/50 transition-all`} />
-                          </div>
-                          <button onClick={handleMatricLogin} disabled={isAuthLoading} className="w-full bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black py-4 rounded-2xl text-sm shadow-xl shadow-[#DC2626]/20 transition-all flex items-center justify-center gap-2">
-                            {isAuthLoading ? <RefreshCcw size={18} className="animate-spin" /> : <Zap size={18} />} VERIFY & PROCEED
-                          </button>
-                          <button 
-                            onClick={() => setAdminMode(true)} 
-                            className={`w-full ${theme === 'dark' ? 'bg-white/5 text-white/60' : 'bg-zinc-100 text-zinc-500'} font-bold py-3 rounded-2xl text-xs hover:bg-[#DC2626]/10 transition-all`}
-                          >
-                            {"HOST AN EXAM (\u{20A6}200)"}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      <input type="password" value={adminPin} onChange={(e) => setAdminPin(e.target.value)} placeholder="Admin PIN" className={`w-full ${theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'} border rounded-2xl px-5 py-4 text-sm outline-none focus:border-[#DC2626]/50 transition-all`} />
-                      <div className="flex gap-2">
-                        <button 
-                          onClick={() => setShowAdminLogin(false)} 
-                          className={`flex-1 ${theme === 'dark' ? 'bg-white/5 text-white/60' : 'bg-zinc-100 text-zinc-500'} font-bold py-4 rounded-2xl text-sm`}
-                        >
-                          BACK
-                        </button>
-                        <button onClick={handleAdminLogin} className="flex-[2] bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black py-4 rounded-2xl text-sm shadow-xl shadow-[#DC2626]/20 transition-all">LOGIN AS ADMIN</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {examLobbyState === 'briefing' && (
-                <div className={`${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-5 sm:p-8 rounded-3xl border space-y-6 shadow-sm`}>
-                  <div className={`flex items-center gap-4 p-4 ${theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'} rounded-2xl border`}>
-                    <div className="w-12 h-12 bg-[#DC2626] rounded-full flex items-center justify-center text-white font-black text-xl">{(studentName || '?').charAt(0)}</div>
-                    <div><p className={`font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'} uppercase tracking-tighter`}>{studentName}</p><p className={`text-[10px] ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'} font-mono`}>{matricNumber}</p></div>
-                  </div>
-                  <div className="space-y-4">
-                    <h3 className={`font-bold text-lg ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Examination Briefing</h3>
-                    <div className={`${theme === 'dark' ? 'bg-[#DC2626]/5 border-[#DC2626]/20' : 'bg-red-50 border-red-100'} p-4 rounded-2xl border space-y-3`}>
-                      <p className="text-xs text-[#DC2626] font-bold flex items-center gap-2"><XCircle size={14} /> IMPORTANT BRIEFING</p>
-                      <div className={`text-xs ${theme === 'dark' ? 'text-white/60' : 'text-slate-600'} leading-relaxed space-y-2 text-left`}>
-                        {examConfig.warningMessage ? (
-                          <MarkdownRenderer content={examConfig.warningMessage} />
-                        ) : (
-                          <>
-                            <p>WARNING: {studentName}, if you leave this app, you automatically forfeit the exam.</p>
-                            <p>This is a professional CBT Mock Exam. You have {examConfig.duration} minutes to answer {examConfig.questionCount} randomized questions. Use only your brain. Good luck.</p>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <button onClick={startExam} className="w-full bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black py-4 rounded-2xl text-sm shadow-xl shadow-[#DC2626]/20 transition-all flex items-center justify-center gap-2">
-                    <Zap size={18} /> START EXAMINATION NOW
-                  </button>
-                </div>
-              )}
-
-              {examLobbyState === 'exam' && (() => {
-                const activeQuestionsPool = studentActiveQuestions.length > 0 ? studentActiveQuestions : examQuestions;
-                
-                // Keep the exact configured order of subjects if present, filtering to those that have questions
-                const distinctStudentSubjects = (examConfig.subjects && examConfig.subjects.length > 0)
-                  ? examConfig.subjects.map(s => s.name).filter(name => activeQuestionsPool.some(q => (q.subject || "Mathematics").trim().toLowerCase() === name.trim().toLowerCase()))
-                  : Array.from(new Set(activeQuestionsPool.map(q => q.subject || "Mathematics").filter(Boolean))) as string[];
-
-                const activeSub = activeStudentSubject || distinctStudentSubjects[0] || "Mathematics";
-                const activeSubjectQuestions = activeSub ? activeQuestionsPool.filter(q => (q.subject || "Mathematics").trim().toLowerCase() === activeSub.trim().toLowerCase()) : activeQuestionsPool;
-                const currentQuestion = activeSubjectQuestions[currentExamIndex] || activeSubjectQuestions[0];
-                
-                const handleNextQuestion = () => {
-                  if (currentExamIndex < activeSubjectQuestions.length - 1) {
-                    setCurrentExamIndex(currentExamIndex + 1);
-                  } else {
-                    const currentSubIdx = distinctStudentSubjects.findIndex(s => s.trim().toLowerCase() === activeSub.trim().toLowerCase());
-                    const nextSubIdx = currentSubIdx + 1;
-                    if (nextSubIdx < distinctStudentSubjects.length) {
-                      const nextSubName = distinctStudentSubjects[nextSubIdx];
-                      setActiveStudentSubject(nextSubName);
-                      setCurrentExamIndex(0);
-                      setUserNotification(`Moved to next subject: ${nextSubName}`);
-                      // Save active subject
-                      try {
-                        const sKey = `nsg_exam_session_${activeExamId}_${matricNumber}`;
-                        const curStr = localStorage.getItem(sKey);
-                        if (curStr) {
-                          const curObj = JSON.parse(curStr);
-                          curObj.activeStudentSubject = nextSubName;
-                          localStorage.setItem(sKey, circularSafeStringify(curObj));
-                        }
-                      } catch (e) {}
-                    }
-                  }
-                };
-
-                const handlePrevQuestion = () => {
-                  if (currentExamIndex > 0) {
-                    setCurrentExamIndex(currentExamIndex - 1);
-                  } else {
-                    const currentSubIdx = distinctStudentSubjects.findIndex(s => s.trim().toLowerCase() === activeSub.trim().toLowerCase());
-                    const prevSubIdx = currentSubIdx - 1;
-                    if (prevSubIdx >= 0) {
-                      const prevSubName = distinctStudentSubjects[prevSubIdx];
-                      const prevSubQuestions = activeQuestionsPool.filter(q => (q.subject || "Mathematics").trim().toLowerCase() === prevSubName.trim().toLowerCase());
-                      setActiveStudentSubject(prevSubName);
-                      setCurrentExamIndex(Math.max(0, prevSubQuestions.length - 1));
-                      setUserNotification(`Moved to previous subject: ${prevSubName}`);
-                      // Save active subject
-                      try {
-                        const sKey = `nsg_exam_session_${activeExamId}_${matricNumber}`;
-                        const curStr = localStorage.getItem(sKey);
-                        if (curStr) {
-                          const curObj = JSON.parse(curStr);
-                          curObj.activeStudentSubject = prevSubName;
-                          localStorage.setItem(sKey, circularSafeStringify(curObj));
-                        }
-                      } catch (e) {}
-                    }
-                  }
-                };
-
-                const currentSubIdx = distinctStudentSubjects.findIndex(s => s.trim().toLowerCase() === activeSub.trim().toLowerCase());
-                const isFirstSubAndQuestion = currentExamIndex === 0 && currentSubIdx === 0;
-                const isLastSubAndQuestion = currentExamIndex === activeSubjectQuestions.length - 1 && currentSubIdx === distinctStudentSubjects.length - 1;
-
-                return (
-                  <div className="space-y-4 sm:space-y-6">
-                    {/* Confirmation Popup for Submission */}
-                    {showSubmitConfirm && (
-                      <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                        <div className={`w-full max-w-sm rounded-[24px] border p-6 text-center space-y-4 shadow-2xl ${
-                          theme === 'dark' ? 'bg-[#0F1424] border-white/10' : 'bg-white border-slate-200'
-                        }`}>
-                          <div className="w-12 h-12 bg-[#DC2626]/10 rounded-full flex items-center justify-center mx-auto text-[#DC2626]">
-                            <HelpCircle size={24} />
-                          </div>
-                          <div className="space-y-1.5">
-                            <h3 className={`text-xs font-black uppercase tracking-wider ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
-                              Submit Examination?
-                            </h3>
-                            <p className={`text-[10px] leading-relaxed ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
-                              Are you sure you want to submit your CBT exam? This action is irreversible, and your responses will be scored instantly.
-                            </p>
-                          </div>
-                          <div className="flex gap-2.5 pt-2">
-                            <button 
-                              onClick={() => setShowSubmitConfirm(false)}
-                              className={`flex-1 py-3 rounded-xl text-[9px] font-black uppercase tracking-wider transition-colors border ${
-                                theme === 'dark' ? 'bg-white/5 border-white/10 text-white hover:bg-white/10' : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
-                              }`}
-                            >
-                              No, Go Back
-                            </button>
-                            <button 
-                              onClick={() => {
-                                setShowSubmitConfirm(false);
-                                submitExam();
-                              }}
-                              className="flex-1 py-3 rounded-xl bg-[#DC2626] hover:bg-[#DC2626]/90 text-white text-[9px] font-black uppercase tracking-wider transition-colors shadow-lg shadow-[#DC2626]/10"
-                            >
-                              Yes, Submit
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className={`flex items-center justify-between ${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-3 sm:p-4 rounded-2xl border shadow-sm sticky top-16 sm:top-20 z-30`}>
-                      <div className="flex items-center gap-2 text-[#DC2626] font-black">
-                        <Clock size={16} className="sm:size-[18px]" />
-                        <span className="font-mono text-base sm:text-lg">{Math.floor(examTimer / 60)}:{(examTimer % 60).toString().padStart(2, '0')}</span>
-                      </div>
-                      <div className="text-center">
-                        <p className={`text-[8px] sm:text-[10px] font-black ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} uppercase`}>Exam Progress</p>
-                        <p className={`text-xs sm:text-sm font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
-                          {activeSub ? `${activeSub}: ` : ""} {currentExamIndex + 1} / {activeSubjectQuestions.length}
-                        </p>
-                      </div>
-                      <button onClick={() => setShowSubmitConfirm(true)} className="bg-[#DC2626] text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-[#DC2626]/90 transition-all shadow-md">Submit Exam</button>
-                    </div>
-
-                    {/* Subject Tabs (As seen in JAMB) */}
-                    {distinctStudentSubjects.length > 1 && (
-                      <div className="flex flex-wrap gap-2 pb-1 border-b border-white/5">
-                        {distinctStudentSubjects.map((subName) => (
-                          <button
-                            key={subName}
-                            onClick={() => {
-                              setActiveStudentSubject(subName);
-                              setCurrentExamIndex(0);
-                              // Save active subject
-                              try {
-                                const sKey = `nsg_exam_session_${activeExamId}_${matricNumber}`;
-                                const curStr = localStorage.getItem(sKey);
-                                if (curStr) {
-                                  const curObj = JSON.parse(curStr);
-                                  curObj.activeStudentSubject = subName;
-                                  localStorage.setItem(sKey, circularSafeStringify(curObj));
-                                }
-                              } catch (e) {}
-                            }}
-                            className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wide border transition-all ${
-                              activeSub.trim().toLowerCase() === subName.trim().toLowerCase()
-                                ? 'bg-[#DC2626] border-[#DC2626] text-white shadow-md'
-                                : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
-                            }`}
-                          >
-                            {subName}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Question Navigation Bubbles */}
-                    {activeSubjectQuestions.length > 0 && (
-                      <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
-                        {activeSubjectQuestions.map((_, idx) => {
-                          const associatedQ = activeSubjectQuestions[idx];
-                          const isAnswered = examAnswers[associatedQ.id] !== undefined;
-                          return (
-                            <button
-                              key={associatedQ.id || idx}
-                              onClick={() => setCurrentExamIndex(idx)}
-                              className={`flex-shrink-0 w-8 h-8 rounded-lg text-[10px] font-black border transition-all ${
-                                currentExamIndex === idx 
-                                  ? 'bg-[#DC2626] border-[#DC2626] text-white' 
-                                  : isAnswered 
-                                    ? 'bg-green-500/20 border-green-500/30 text-green-400 font-bold' 
-                                    : 'bg-white/5 border-white/10 text-white/40'
-                              }`}
-                            >
-                              {idx + 1}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {currentQuestion ? (
-                      <div className={`${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-5 sm:p-8 rounded-3xl border space-y-6 sm:space-y-8 shadow-sm`}>
-                        <MarkdownRenderer 
-                          content={currentQuestion.question}
-                          className={`text-base sm:text-lg font-bold leading-tight ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}
-                        />
-                        <div className="space-y-3">
-                          {currentQuestion.options.map((option, idx) => {
-                            const isSelected = examAnswers[currentQuestion.id] === idx;
-                            return (
-                              <button 
-                                key={idx} 
-                                onClick={() => {
-                                  const updatedAnswers = { ...examAnswers, [currentQuestion.id]: idx };
-                                  setExamAnswers(updatedAnswers);
-                                  // Save to localStorage
-                                  try {
-                                    const sKey = `nsg_exam_session_${activeExamId}_${matricNumber}`;
-                                    const curStr = localStorage.getItem(sKey);
-                                    if (curStr) {
-                                      const curObj = JSON.parse(curStr);
-                                      curObj.examAnswers = updatedAnswers;
-                                      localStorage.setItem(sKey, circularSafeStringify(curObj));
-                                    }
-                                  } catch (e) {}
-                                }} 
-                                className={`w-full text-left p-4 rounded-2xl border transition-all ${isSelected ? 'border-[#DC2626] bg-[#DC2626]/5 text-[#DC2626]' : `${theme === 'dark' ? 'bg-white/5 border-white/10 text-white/80' : 'bg-slate-50 border-slate-200 text-slate-700'}`}`}
-                              >
-                                <div className="flex items-start gap-3">
-                                  <MarkdownRenderer 
-                                    content={option}
-                                    className="flex-1 text-sm font-medium"
-                                  />
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                        <div className="flex justify-between pt-4">
-                          <button onClick={handlePrevQuestion} disabled={isFirstSubAndQuestion} className={`p-3 ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'} hover:text-[#DC2626] disabled:opacity-20`}><ArrowLeft size={24} /></button>
-                          <button onClick={handleNextQuestion} disabled={isLastSubAndQuestion} className={`p-3 ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'} hover:text-[#DC2626] disabled:opacity-20`}><ChevronRight size={24} /></button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="py-20 text-center text-white/40">No questions found in this section.</div>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {examLobbyState === 'result' && (
-                <div className={`${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-10 rounded-3xl border text-center space-y-6 shadow-sm`}>
-                  <div className="w-20 h-20 bg-[#DC2626]/10 rounded-full flex items-center justify-center mx-auto">
-                    <CheckCircle2 size={48} className="text-[#DC2626]" />
-                  </div>
-                  <div>
-                    <h3 className={`text-2xl font-black uppercase tracking-tighter ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Exam Submitted</h3>
-                    <p className={`text-sm mt-1 ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}>Your results have been recorded in the system.</p>
-                  </div>
-                  <div className={`py-6 border-y ${theme === 'dark' ? 'border-white/5' : 'border-slate-100'}`}>
-                    <p className={`text-[10px] font-black ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} uppercase tracking-widest mb-1`}>Final Score</p>
-                    <p className="text-5xl font-black text-[#DC2626]">{examScore} / {(studentActiveQuestions.length > 0 ? studentActiveQuestions : examQuestions).length}</p>
-                    <p className={`text-sm font-bold mt-2 ${theme === 'dark' ? 'text-white' : 'text-slate-700'}`}>{Math.round((examScore / ((studentActiveQuestions.length > 0 ? studentActiveQuestions : examQuestions).length || 1)) * 100)}% Proficiency</p>
-                  </div>
-                  <div className="flex flex-col gap-3">
-                    <button 
-                      onClick={() => setExamLobbyState('review')} 
-                      className="w-full bg-[#DC2626] text-white font-black py-4 rounded-2xl text-sm shadow-xl shadow-[#DC2626]/20 hover:bg-[#DC2626]/90 transition-all flex items-center justify-center gap-2"
-                    >
-                      <Search size={18} /> REVIEW EXAM & EXPLANATIONS
-                    </button>
-                    <button 
-                      onClick={() => setExamLobbyState('login')} 
-                      className={`w-full ${theme === 'dark' ? 'bg-white/5 text-white/60' : 'bg-slate-100 text-slate-600'} font-black py-4 rounded-2xl text-sm transition-all`}
-                    >
-                      LOGOUT
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {examLobbyState === 'review' && (
-                <div className="space-y-6">
-                  <div className={`flex items-center justify-between ${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-4 rounded-2xl border shadow-sm`}>
-                    <button onClick={() => setExamLobbyState('result')} className="text-white/40 hover:text-[#DC2626] flex items-center gap-1 text-xs font-bold uppercase"><ArrowLeft size={14} /> Back to Results</button>
-                    <h3 className="text-sm font-black text-white uppercase tracking-tighter">Exam Review</h3>
-                    <div className="w-10"></div>
-                  </div>
-
-                  <div className="space-y-4">
-                    {(studentActiveQuestions.length > 0 ? studentActiveQuestions : examQuestions).map((q, qIdx) => {
-                      const userAns = examAnswers[q.id] !== undefined ? examAnswers[q.id] : examAnswers[qIdx];
-                      const isCorrect = userAns !== undefined && userAns !== null && sanitizeCorrectAnswer(userAns) === sanitizeCorrectAnswer(q.correctAnswer);
-                      
-                      return (
-                        <div key={qIdx} className={`${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-6 rounded-3xl border space-y-4 shadow-sm`}>
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="flex-1">
-                              <p className="text-[10px] font-black text-[#DC2626] uppercase mb-1">Question {qIdx + 1}</p>
-                              <MarkdownRenderer content={q.question} className="text-sm font-bold text-white leading-tight" />
-                            </div>
-                            <div className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase ${isCorrect ? 'bg-green-500/10 text-green-500' : 'bg-[#DC2626]/10 text-[#DC2626]'}`}>
-                              {isCorrect ? 'Correct' : 'Incorrect'}
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-1 gap-2">
-                            {q.options.map((opt, oIdx) => {
-                              const isUserChoice = userAns === oIdx;
-                              const isCorrectChoice = q.correctAnswer === oIdx;
-                              
-                              let borderClass = 'border-white/5 bg-white/5';
-                              let textClass = 'text-white/60';
-                              let label = '';
-                              
-                              if (isCorrectChoice) {
-                                borderClass = 'border-green-500/50 bg-green-500/10';
-                                textClass = 'text-green-500 font-bold';
-                                label = 'CORRECT ANSWER';
-                              } else if (isUserChoice && !isCorrect) {
-                                borderClass = 'border-[#DC2626]/50 bg-[#DC2626]/10';
-                                textClass = 'text-[#DC2626] font-bold';
-                                label = 'YOUR CHOICE';
-                              } else if (isUserChoice && isCorrect) {
-                                label = 'YOUR CHOICE (CORRECT)';
-                              }
-
-                              return (
-                                <div key={oIdx} className={`p-3 rounded-xl border text-xs flex items-center gap-3 ${borderClass} ${textClass}`}>
-                                  <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] border ${isCorrectChoice ? 'border-green-500 bg-green-500 text-white' : (isUserChoice ? 'border-[#DC2626] bg-[#DC2626] text-white' : 'border-white/20')}`}>
-                                    {String.fromCharCode(65 + oIdx)}
-                                  </div>
-                                  <div className="flex-1 flex flex-col">
-                                    <MarkdownRenderer content={opt} />
-                                    {label && <span className="text-[8px] font-black uppercase mt-1 opacity-60">{label}</span>}
-                                  </div>
-                                  {isCorrectChoice && <Check size={14} />}
-                                  {isUserChoice && !isCorrect && <X size={14} />}
-                                </div>
-                              );
-                            })}
-                          </div>
-
-                          {q.explanation && (
-                            <div className={`p-4 rounded-2xl ${theme === 'dark' ? 'bg-white/5' : 'bg-slate-50'} border border-dashed border-white/10`}>
-                              <p className="text-[9px] font-black text-white/30 uppercase mb-2 flex items-center gap-1.5">
-                                <Info size={12} className="text-[#DC2626]" /> Explanation
-                              </p>
-                              <MarkdownRenderer content={q.explanation} className="text-xs text-white/70 leading-relaxed" />
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <button onClick={() => setExamLobbyState('login')} className="w-full bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black py-4 rounded-2xl text-sm shadow-xl shadow-[#DC2626]/20 transition-all flex items-center justify-center gap-2">
-                    FINISH REVIEW & LOGOUT
-                  </button>
-                </div>
-              )}
-            </motion.div>
-          )}
-                  {toolsSubTab === 'assignment' && (
-                    <motion.div key="assignment" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-                      <AssignmentSolver 
-                        theme={theme} 
-                        user={user} 
-                        isPremium={isPremium} 
-                        getAiInstance={getAiInstance} 
-                        fileToGenerativePart={fileToGenerativePart}
-                        setUserNotification={setUserNotification}
-                        setChatHistory={setChatHistory}
-                        setActiveTab={setActiveTab}
-                        setActiveChatSessionId={setActiveChatSessionId}
-                        addToFinishedHistory={addToFinishedHistory}
-                        finishedHistory={finishedHistory}
-                        solution={activeAssignmentSolution}
-                        setSolution={setActiveAssignmentSolution}
-                        checkAndIncrementUsage={checkAndIncrementUsage}
-                        generateQuiz={generateQuiz}
-                        setToolsSubTab={setToolsSubTab}
-                      />
-                    </motion.div>
-                  )}
-                  {toolsSubTab === 'courses' && (
-                    <motion.div key="courses" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-                      <CoursesTool 
-                        theme={theme}
-                        user={user}
-                        getAiInstance={getAiInstance}
-                        getHfInstance={getHfInstance}
-                        setUserNotification={setUserNotification}
-                        quizTopic={quizTopic}
-                        setQuizTopic={setQuizTopic}
-                        quizQuestionCount={quizQuestionCount}
-                        setQuizQuestionCount={setQuizQuestionCount}
-                        quizDifficulty={quizDifficulty}
-                        setQuizDifficulty={setQuizDifficulty}
-                        generateQuiz={generateQuiz}
-                        setToolsSubTab={setToolsSubTab}
-                        quizState={quizState}
-                        setQuizState={setQuizState}
-                        checkAndIncrementUsage={checkAndIncrementUsage}
-                        customCourses={customCourses}
-                      />
-                    </motion.div>
-                  )}
-                  {toolsSubTab === 'faculty' && (
-                    <div className="h-full">
-                      <AILibrary 
-                        theme={theme} 
-                        setUserNotification={setUserNotification} 
-                        onSaveHistory={handleSaveFacultyHistory}
-                        checkAndIncrementUsage={checkAndIncrementUsage}
-                      />
-                    </div>
-                  )}
-                  
-                  <HelpOverlay 
-                    isOpen={showHelp} 
-                    onClose={() => setShowHelp(false)} 
-                    toolId={toolsSubTab} 
-                    theme={theme} 
-                  />
-                </div>
-              )}
-            </motion.div>
           )}
 
           {/* CHAT ROOM TAB */}
@@ -11398,13 +10508,6 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                       style={{ fontFamily: 'var(--font-display)' }}
                     >
                       <Terminal size={12} /> Note Board
-                    </button>
-                    <button 
-                      onClick={() => setToolsSubTab('live')}
-                      className="flex items-center gap-2 bg-[#DC2626]/10 hover:bg-[#DC2626]/20 text-[#DC2626] px-3.5 py-1.5 rounded-full text-[10px] font-black uppercase transition-all border border-[#DC2626]/20"
-                      style={{ fontFamily: 'var(--font-display)' }}
-                    >
-                      <Activity size={12} className="animate-pulse" /> LIVE TUTOR
                     </button>
                     {isPremium && <div className="bg-yellow-500/10 text-yellow-500 px-2.5 py-1 rounded-md text-[8px] font-black uppercase border border-yellow-500/20" style={{ fontFamily: 'var(--font-display)' }}>Premium</div>}
                   </div>
@@ -12152,6 +11255,7 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
               setUserNotification={setUserNotification}
               setActiveTab={setActiveTab}
               setToolsSubTab={setToolsSubTab}
+              setProfileSubTab={setProfileSubTab}
               setShowInviteModal={setShowInviteModal}
               theme={theme}
               quests={dailyQuests}
@@ -15148,30 +14252,82 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
 
               {/* HIDDEN SHARE CARD FOR GENERATION */}
               <div className="fixed -left-[9999px] top-0">
-                <div ref={shareCardRef} className={`w-[600px] h-[400px] ${theme === 'dark' ? 'bg-[#13111C]' : 'bg-white'} p-10 flex flex-col items-center justify-center text-center relative overflow-hidden border-[10px] border-[#DC2626]`}>
-                  <div className="absolute top-0 left-0 w-32 h-32 bg-[#DC2626]/5 rounded-full -translate-x-16 -translate-y-16" />
-                  <div className="absolute bottom-0 right-0 w-48 h-48 bg-[#DC2626]/5 rounded-full translate-x-24 translate-y-24" />
-                  
-                  <div className="mb-6">
-                    <h1 className="text-4xl font-black text-white uppercase tracking-tighter mb-1">NSG STUDY GUIDE</h1>
-                    <p className="text-[10px] font-black text-[#DC2626] uppercase tracking-[0.3em]">Official Assessment Certificate</p>
+                <div 
+                  ref={shareCardRef} 
+                  className="w-[600px] h-[400px] bg-[#060B15] p-8 flex flex-col justify-between text-center relative overflow-hidden border-2 border-amber-600"
+                  style={{ fontFamily: '"Inter", sans-serif' }}
+                >
+                  {/* Outer delicate border */}
+                  <div className="absolute inset-1 border border-amber-500/20 pointer-events-none" />
+                  <div className="absolute inset-2 border border-zinc-900/40 pointer-events-none" />
+
+                  {/* Corner notches/ornaments */}
+                  <div className="absolute top-2 left-2 w-6 h-6 border-t-2 border-l-2 border-amber-500 pointer-events-none" />
+                  <div className="absolute top-2 right-2 w-6 h-6 border-t-2 border-r-2 border-amber-500 pointer-events-none" />
+                  <div className="absolute bottom-2 left-2 w-6 h-6 border-b-2 border-l-2 border-amber-500 pointer-events-none" />
+                  <div className="absolute bottom-2 right-2 w-6 h-6 border-b-2 border-r-2 border-amber-500 pointer-events-none" />
+
+                  {/* Glowing background radial spot */}
+                  <div className="absolute -top-16 -left-16 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+                  <div className="absolute -bottom-16 -right-16 w-48 h-48 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+
+                  {/* Header */}
+                  <div className="space-y-1 relative z-10">
+                    <p className="text-amber-500 text-[8px] font-black tracking-[0.35em] uppercase">VERIFIED STUDY PERFORMANCE CREDENTIAL</p>
+                    <h2 className="text-white text-xl font-black tracking-tight uppercase">NSG STUDY CERTIFICATE</h2>
+                    <div className="w-24 h-[1px] bg-gradient-to-r from-transparent via-amber-500/50 to-transparent mx-auto mt-2" />
                   </div>
 
-                  <div className="space-y-2 mb-8">
-                    <p className="text-xs text-white/40 uppercase font-bold tracking-widest">This certifies that</p>
-                    <p className="text-3xl font-black text-white uppercase">{shareName || 'Student'}</p>
-                    <p className="text-xs text-white/40 uppercase font-bold tracking-widest">has achieved a score of</p>
+                  {/* Certificate Body */}
+                  <div className="space-y-1.5 relative z-10 my-auto">
+                    <p className="text-zinc-500 text-[10px] font-black uppercase tracking-widest">This certifies that the scholar</p>
+                    <p className="text-white text-2xl font-black uppercase tracking-tight drop-shadow-md">{shareName || 'NSG SCHOLAR'}</p>
+                    <p className="text-zinc-500 text-[10px] font-medium tracking-normal">has successfully completed the assessment for the topic</p>
+                    <p className="text-blue-400 text-xs font-mono font-bold uppercase tracking-wider bg-white/5 border border-white/5 py-1 px-3 rounded-full inline-block">
+                      {toolsSubTab === 'exam' ? (examIdInput ? `EXAM: ${examIdInput}` : 'CBT EXAMINATION') : (quizTopic || 'GENERAL STUDY')}
+                    </p>
                   </div>
 
-                  <div className="bg-[#DC2626] text-white px-10 py-4 rounded-2xl">
-                    <p className="text-5xl font-black">{quizScore} / {quizQuestions.length || 1}</p>
-                    <p className="text-[10px] font-bold uppercase tracking-widest mt-1">{Math.round((quizScore / (quizQuestions.length || 1)) * 100)}% Proficiency</p>
+                  {/* Metrics & Authentication Seal row */}
+                  <div className="grid grid-cols-2 items-center gap-6 pt-3 border-t border-zinc-900 relative z-10">
+                    {/* Score Panel */}
+                    <div className="text-left space-y-1 bg-zinc-950/40 p-3 rounded-xl border border-zinc-900">
+                      <p className="text-[8px] font-black text-zinc-500 uppercase tracking-wider">Proficiency Matrix</p>
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-xl font-black text-emerald-400">
+                          {Math.round((quizScore / (quizQuestions.length || 1)) * 100)}%
+                        </span>
+                        <span className="text-xs font-bold text-zinc-400">
+                          ({quizScore}/{quizQuestions.length} Correct)
+                        </span>
+                      </div>
+                      <p className="text-[8px] text-zinc-500 font-mono">
+                        Date: {new Date().toLocaleDateString()}
+                      </p>
+                    </div>
+
+                    {/* Official Signatures & Seal */}
+                    <div className="flex items-center justify-between pl-4">
+                      <div className="text-left space-y-0.5">
+                        <p className="text-[8px] font-black text-zinc-500 uppercase tracking-widest">VALIDATED BY</p>
+                        <p className="text-emerald-400 font-serif italic text-sm">Verified</p>
+                        <div className="w-24 h-[1px] bg-zinc-800" />
+                        <p className="text-[7px] text-zinc-600 font-bold uppercase">Academic Board</p>
+                      </div>
+
+                      {/* Seal circle */}
+                      <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-amber-600 to-amber-400 flex items-center justify-center border-2 border-amber-300 shadow-lg relative">
+                        <span className="text-white text-[8px] font-black tracking-tighter">NSG</span>
+                        <div className="absolute inset-0 rounded-full border border-dashed border-white/30" />
+                      </div>
+                    </div>
                   </div>
 
-                  <div className="mt-10 flex items-center gap-2">
-                    <div className="w-1.5 h-1.5 bg-[#DC2626] rounded-full" />
-                    <p className="text-[8px] font-black text-white/20 uppercase tracking-widest">Generated by Omni Ai | {new Date().toLocaleDateString()}</p>
-                    <div className="w-1.5 h-1.5 bg-[#DC2626] rounded-full" />
+                  {/* Footer */}
+                  <div className="relative z-10">
+                    <p className="text-[8px] font-mono text-zinc-600 tracking-widest uppercase">
+                      COMPLETED ON {new Date().toLocaleDateString()} {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </p>
                   </div>
                 </div>
               </div>

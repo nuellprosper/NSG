@@ -53,6 +53,10 @@ export function circularSafeClone(val: any, cache = new WeakMap()): any {
   if (val === null || val === undefined) return val;
   if (typeof val !== 'object') return val;
 
+  if (typeof window !== 'undefined' && (val instanceof Element || val instanceof Node || val instanceof Event || val === window)) {
+    return `[DOMElementOrEvent:${val.constructor?.name || 'DOMObject'}]`;
+  }
+
   // Handle circular reference
   if (cache.has(val)) {
     return "[Circular]";
@@ -165,6 +169,10 @@ export function circularSafeStringify(obj: any, replacer?: (key: string, value: 
 
     // 2. Filter circular references and key Firestore SDK objects
     if (processedValue !== null && typeof processedValue === 'object') {
+      if (typeof window !== 'undefined' && (processedValue instanceof Element || processedValue instanceof Node || processedValue instanceof Event || processedValue === window)) {
+        return `[DOMElementOrEvent:${processedValue.constructor?.name || 'DOMObject'}]`;
+      }
+
       const constructorName = processedValue.constructor?.name || '';
       
       if (

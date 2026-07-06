@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { cleanTextForSpeech } from './lib/tts';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -12,7 +13,7 @@ import {
   ArrowLeft, RefreshCcw, Camera, Award, ShieldCheck, BookOpen, FileText, Zap, Info, AlertTriangle,
   Share2, Trophy, Search, Check, X, ArrowLeft as ChevronLeft, GraduationCap, Users, User, Clock as ClockIcon,
   Activity, Video, Copy, PlusCircle, Plus, Italic, List, XCircle, CheckCircle2,
-  Undo2, Redo2, Save, CornerDownRight, Menu, ExternalLink
+  Undo2, Redo2, Save, CornerDownRight, Menu, ExternalLink, Percent, Bookmark, AlertCircle, Book, HelpCircle, Calculator
 } from 'lucide-react';
 
 const WhatsAppIcon = ({ size = 24, className = "" }: { size?: number, className?: string }) => (
@@ -200,6 +201,18 @@ const MarkdownRenderer = ({ content, className = "", selectable = false }: { con
   );
 };
 
+const LOCAL_DICTIONARY: Record<string, string> = {
+  hemisphere: "A half of a sphere, especially of the earth divided into northern and southern halves by the equator, or into eastern and western halves by a meridian.",
+  volume: "The amount of space that a substance or object occupies, or that is enclosed within a container.",
+  radius: "A straight line from the center to the circumference of a circle or sphere.",
+  mathematics: "The abstract science of number, quantity, and space, either as abstract concepts (pure mathematics), or as applied to other disciplines such as physics and engineering.",
+  physics: "The branch of science concerned with the nature and properties of matter and energy.",
+  chemistry: "The branch of science that deals with the identification of the substances of which matter is composed.",
+  constant: "A situation or state of affairs that does not change; in mathematics, a number or quantity that is placed in a formula to represent a fixed value.",
+  rate: "A measure, quantity, or frequency, typically one measured against some other quantity or measure.",
+  biology: "The study of living organisms, divided into many specialized fields that cover their morphology, physiology, anatomy, behavior, origin, and distribution."
+};
+
 export const ToolsPage = (props: any) => {
   const {
     theme,
@@ -218,7 +231,6 @@ export const ToolsPage = (props: any) => {
     setShowAuthModal,
 
     // Custom Components from props
-    GeminiLive,
     CoursesTool,
     AssignmentSolver,
     AILibrary,
@@ -366,13 +378,20 @@ export const ToolsPage = (props: any) => {
     addToFinishedHistory,
     finishedHistory,
     activeAssignmentSolution,
-    setActiveAssignmentSolution
+    setActiveAssignmentSolution,
+    studentActiveQuestions,
+    activeStudentSubject,
+    setActiveStudentSubject,
+    handleUploadAudioRecordPage,
+    activeAudioNoteId,
+    isAudioTranscribing,
+    audioTranscribingPopup,
+    setAudioTranscribingPopup
   } = props;
 
   const getAudioSrc = useCallback((session: any) => {
     if (!session) return "";
-    if (session.audioUrl && session.audioUrl.startsWith('http')) return session.audioUrl;
-    if (session.audioUrl && session.audioUrl.startsWith('blob:')) return session.audioUrl;
+    if (session.audioUrl) return session.audioUrl;
     if (session.audioBase64) {
       return `data:audio/webm;base64,${session.audioBase64}`;
     }
@@ -384,6 +403,132 @@ export const ToolsPage = (props: any) => {
   const [activeNotebookTab, setActiveNotebookTab] = useState<'write' | 'sources'>('write');
   const [noteToDelete, setNoteToDelete] = useState<any | null>(null);
   const [showSubmitConfirmLocal, setShowSubmitConfirmLocal] = useState(false);
+  const [showExamCalculator, setShowExamCalculator] = useState(false);
+  const [showQuizCalculator, setShowQuizCalculator] = useState(false);
+  const [calcQuestionInput, setCalcQuestionInput] = useState('');
+  const [calcSolutionOutput, setCalcSolutionOutput] = useState('');
+  const [isSolvingCalc, setIsSolvingCalc] = useState(false);
+  const [examCalcValue, setExamCalcValue] = useState('');
+  const [showExamDictionary, setShowExamDictionary] = useState(false);
+  const [examDictSearch, setExamDictSearch] = useState('');
+  const [examDictResult, setExamDictResult] = useState('');
+  const [examBookmarked, setExamBookmarked] = useState<Record<string | number, boolean>>({});
+  const [isSpeakingQuestion, setIsSpeakingQuestion] = useState(false);
+  const [localStudentSubject, setLocalStudentSubject] = useState<string>("");
+
+  const validateAndEvaluateMath = useCallback((str: string): { isValid: boolean; result?: number; error?: string } => {
+    const trimmed = str.trim();
+    if (!trimmed) return { isValid: true, result: undefined };
+
+    // Pre-process: convert 'sqrt' to '√'
+    const preProcessed = trimmed.replace(/sqrt/gi, '√');
+
+    // 1. Check for letters or text words
+    if (/[a-zA-UW-Zu-z]/.test(preProcessed)) {
+      return { isValid: false, error: 'Contains text or non-mathematical letters' };
+    }
+
+    // 2. Check for disallowed symbols
+    if (/[^0-9+\-*/×÷^√.()% \t]/.test(preProcessed)) {
+      return { isValid: false, error: 'Contains unsupported symbols' };
+    }
+
+    // 3. Check for invalid consecutive operator sequences (e.g., ÷/, 1-+, ++, --, etc.)
+    if (/[\+\*\/\×\÷\^]{2,}|[\+\-\*\/\×\÷\^][\+\*\/\×\÷\^]|\-\+|\+\-|\-\-/.test(preProcessed)) {
+      return { isValid: false, error: 'Invalid operator sequence (e.g. ÷/, 1-+)' };
+    }
+
+    // 4. Cannot start with binary operator
+    if (/^[*/×÷^%]/.test(preProcessed)) {
+      return { isValid: false, error: 'Cannot start with an operator' };
+    }
+
+    // 5. Cannot end with operator
+    if (/[+\-*/×÷^√]$/.test(preProcessed)) {
+      return { isValid: false, error: 'Cannot end with an operator' };
+    }
+
+    // 6. Check brackets balance
+    let parenCount = 0;
+    for (const char of preProcessed) {
+      if (char === '(') parenCount++;
+      if (char === ')') parenCount--;
+      if (parenCount < 0) return { isValid: false, error: 'Mismatched parentheses' };
+    }
+    if (parenCount !== 0) return { isValid: false, error: 'Unclosed parentheses' };
+    if (/\(\s*\)/.test(preProcessed)) return { isValid: false, error: 'Empty parentheses' };
+
+    // 7. Evaluate math expression safely
+    try {
+      let expr = preProcessed
+        .replace(/×/g, '*')
+        .replace(/÷/g, '/');
+
+      // Implicit multiplication before/after brackets or √ e.g. 2(3+4) -> 2*(3+4), 2√16 -> 2*√16
+      expr = expr.replace(/(\d)\s*\(/g, '$1*(');
+      expr = expr.replace(/(\d)\s*√/g, '$1*√');
+      expr = expr.replace(/\)\s*(\d|\(|√)/g, ')*$1');
+
+      // Handle percentages e.g. 50% -> (50/100)
+      expr = expr.replace(/(\d+(?:\.\d+)?)%/g, '($1/100)');
+
+      // Handle square roots
+      let maxIter = 20;
+      while (expr.includes('√') && maxIter-- > 0) {
+        expr = expr.replace(/√\s*\(([^()]+)\)/g, 'Math.sqrt($1)');
+        expr = expr.replace(/√\s*(\d+(?:\.\d+)?)/g, 'Math.sqrt($1)');
+      }
+      if (expr.includes('√')) return { isValid: false, error: 'Invalid square root syntax' };
+
+      // Handle exponentiation
+      expr = expr.replace(/\^/g, '**');
+
+      const result = new Function(`return ${expr}`)();
+      if (typeof result !== 'number' || isNaN(result) || !isFinite(result)) {
+        return { isValid: false, error: 'Mathematical error (e.g. division by zero)' };
+      }
+
+      const formattedResult = Number.isInteger(result) ? result : Number(result.toFixed(8));
+      return { isValid: true, result: formattedResult };
+    } catch (err) {
+      return { isValid: false, error: 'Invalid mathematical syntax' };
+    }
+  }, []);
+
+  const mathValidation = useMemo(() => validateAndEvaluateMath(calcQuestionInput), [calcQuestionInput, validateAndEvaluateMath]);
+  const isCalcInputInvalid = Boolean(calcQuestionInput.trim() && !mathValidation.isValid);
+
+  const handleSolveCalcQuestion = () => {
+    if (!calcQuestionInput.trim()) return;
+    if (!mathValidation.isValid) {
+      setCalcSolutionOutput(`Error: ${mathValidation.error || 'Invalid mathematical expression'}`);
+      return;
+    }
+    if (mathValidation.result !== undefined) {
+      setCalcSolutionOutput(`${mathValidation.result}`);
+    }
+  };
+
+  const toggleSpeakQuestion = (text: string, options?: string[]) => {
+    if ('speechSynthesis' in window) {
+      if (isSpeakingQuestion || window.speechSynthesis.speaking) {
+        window.speechSynthesis.cancel();
+        setIsSpeakingQuestion(false);
+      } else {
+        let fullSpeech = `Question: ${text}`;
+        if (options && Array.isArray(options) && options.length > 0) {
+          const formattedOptions = options.map((opt, i) => `Option ${String.fromCharCode(65 + i)}: ${opt}`).join('. ');
+          fullSpeech += `. ${formattedOptions}`;
+        }
+        const cleanText = cleanTextForSpeech(fullSpeech);
+        const utterance = new SpeechSynthesisUtterance(cleanText);
+        utterance.onend = () => setIsSpeakingQuestion(false);
+        utterance.onerror = () => setIsSpeakingQuestion(false);
+        setIsSpeakingQuestion(true);
+        window.speechSynthesis.speak(utterance);
+      }
+    }
+  };
 
   // Navigation stack for back button tracking
   const [navigationHistory, setNavigationHistory] = useState<string[]>(['menu']);
@@ -436,8 +581,6 @@ export const ToolsPage = (props: any) => {
 
   const toolItems = useMemo(() => [
     { id: 'record', title: 'Record Lecture', icon: Mic, color: 'from-red-600 to-red-400', desc: 'AI-Powered Recording' },
-    { id: 'live', title: 'Live AI Tutor', icon: Activity, color: 'from-[#DC2626] to-red-600', desc: 'Vision-Enabled Help' },
-    { id: 'class', title: 'Live Classroom', icon: Video, color: 'from-pink-600 to-rose-400', desc: 'Host or Join Lectures', action: () => setActiveTab('class') },
     { id: 'quiz', title: 'Smart Quiz', icon: Zap, color: 'from-yellow-500 to-amber-400', desc: 'Test Your Knowledge' },
     { id: 'exam', title: 'CBT Exam', icon: ShieldCheck, color: 'from-orange-600 to-orange-400', desc: 'Professional Testing' },
     { id: 'faculty', title: 'Faculty Specials', icon: GraduationCap, color: 'from-blue-600 to-indigo-400', desc: 'Department Specific' },
@@ -446,6 +589,11 @@ export const ToolsPage = (props: any) => {
     { id: 'notebook', title: 'Notebook Tool', icon: FileText, color: 'from-amber-600 to-yellow-400', desc: 'AI-Powered Sources' },
     { id: 'whatsapp', title: 'Omni WhatsApp', icon: WhatsAppIcon, color: 'from-green-600 to-green-400', desc: '+2349064470122' }
   ], [setActiveTab]);
+
+  const comingSoonTools = useMemo(() => [
+    { id: 'class', title: 'Live Classroom', icon: Video, color: 'from-pink-600/60 to-rose-400/60', desc: 'Coming Soon' },
+    { id: 'gst', title: 'Study GST Tool', icon: GraduationCap, color: 'from-teal-600/60 to-cyan-400/60', desc: 'Coming Soon' }
+  ], []);
 
   return (
     <motion.div key="tools" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-6">
@@ -456,7 +604,7 @@ export const ToolsPage = (props: any) => {
             <Brain size={20} className="text-[#DC2626]" />
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 pb-12">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 pb-8">
             {toolItems.map((tool) => (
               <button
                 key={tool.id}
@@ -477,6 +625,39 @@ export const ToolsPage = (props: any) => {
               </button>
             ))}
           </div>
+
+          {/* COMING SOON SECTION BELOW ALL TOOLS */}
+          <div className="pt-6 border-t border-white/10 space-y-4 pb-12">
+            <div className="flex items-center justify-between px-2">
+              <h3 className={`text-xs font-black uppercase tracking-widest ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'}`}>Coming Soon</h3>
+              <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-white/40 uppercase tracking-widest">In Development</span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              {comingSoonTools.map((tool) => (
+                <div
+                  key={tool.id}
+                  onClick={() => setUserNotification && setUserNotification(`🚧 ${tool.title} is coming soon! Stay tuned.`)}
+                  className={`flex flex-col items-center justify-center text-center p-5 rounded-3xl h-44 transition-all duration-300 relative overflow-hidden select-none cursor-pointer opacity-75 hover:opacity-100 ${
+                    theme === 'dark' 
+                      ? 'bg-white/[0.02] border border-dashed border-white/10 hover:border-white/20' 
+                      : 'bg-slate-100/60 border border-dashed border-slate-300 hover:border-slate-400'
+                  }`}
+                >
+                  <div className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full bg-[#DC2626]/15 border border-[#DC2626]/30 text-[#DC2626] text-[7px] font-black uppercase tracking-wider">
+                    Coming Soon
+                  </div>
+                  <div className={`p-4 rounded-2xl bg-gradient-to-tr ${tool.color} text-white shadow-md shrink-0 mb-3 grayscale-[25%]`}>
+                    <tool.icon size={24} />
+                  </div>
+                  <div className="space-y-1 w-full text-center z-10">
+                    <h3 className={`font-extrabold text-[11px] sm:text-xs uppercase tracking-tight leading-tight truncate px-1 ${theme === 'dark' ? 'text-white/70' : 'text-slate-700'}`}>{tool.title}</h3>
+                    <p className={`text-[8px] uppercase tracking-wider font-bold leading-none truncate px-1 block text-[#DC2626]`}>{tool.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
@@ -485,6 +666,28 @@ export const ToolsPage = (props: any) => {
           <div className="flex items-center justify-between px-2">
             <button onClick={handleToolsBack} className="text-white/40 hover:text-[#DC2626] transition-colors flex items-center gap-1.5 text-xs font-black uppercase"><ArrowLeft size={14} /> Back</button>
             <div className="flex items-center gap-2">
+              <input 
+                type="file" 
+                id="record-page-audio-upload" 
+                accept="audio/*" 
+                className="hidden" 
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file && handleUploadAudioRecordPage) {
+                    handleUploadAudioRecordPage(file);
+                  }
+                  e.target.value = '';
+                }} 
+              />
+              <button 
+                onClick={() => document.getElementById('record-page-audio-upload')?.click()}
+                className="px-3.5 py-1.5 bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black text-[10px] rounded-xl shadow-lg shadow-[#DC2626]/20 transition-all uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
+                title={`Upload audio (${isPremium ? 'Up to 4 hours for Premium' : 'Up to 30 mins'})`}
+              >
+                <PlusCircle size={14} />
+                <span>Upload Audio</span>
+                <span className="text-[8px] px-1.5 py-0.5 rounded bg-black/20 font-mono">{isPremium ? '4HR MAX' : '30MIN MAX'}</span>
+              </button>
               <button onClick={() => setShowHelp(true)} className="p-2 hover:bg-white/5 rounded-xl transition-all"><Info size={18} className="text-white/40 hover:text-white" /></button>
             </div>
           </div>
@@ -1018,6 +1221,17 @@ export const ToolsPage = (props: any) => {
                   >
                     {notePreviewMode ? (
                       <div className="space-y-6 relative z-10 select-text">
+                        {(selectedNote.isTranscribing || selectedNote.id === activeAudioNoteId) && (
+                          <div className="mb-2 flex items-center gap-2.5 px-3 py-1.5 bg-[#DC2626]/10 border border-[#DC2626]/30 rounded-xl w-fit">
+                            <span className="relative flex h-2.5 w-2.5">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#DC2626]"></span>
+                            </span>
+                            <span className="text-[9px] font-black text-[#DC2626] uppercase tracking-widest flex items-center gap-1.5">
+                              <RefreshCcw size={11} className="animate-spin" /> IN PROGRESS: Actively transcribing & writing study note...
+                            </span>
+                          </div>
+                        )}
                         <h1 className="text-2xl font-black text-white uppercase tracking-tighter border-b border-white/5 pb-2">{selectedNote.title || 'Untitled Source'}</h1>
                         <div className="markdown-body prose prose-invert max-w-none text-white/80 text-sm leading-relaxed">
                           <MarkdownRenderer selectable={true} content={selectedNote.content || "_No source content yet._"} />
@@ -1025,6 +1239,17 @@ export const ToolsPage = (props: any) => {
                       </div>
                     ) : (
                       <>
+                        {(selectedNote.isTranscribing || selectedNote.id === activeAudioNoteId) && (
+                          <div className="mb-4 flex items-center gap-2.5 px-3 py-1.5 bg-[#DC2626]/10 border border-[#DC2626]/30 rounded-xl w-fit">
+                            <span className="relative flex h-2.5 w-2.5">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#DC2626]"></span>
+                            </span>
+                            <span className="text-[9px] font-black text-[#DC2626] uppercase tracking-widest flex items-center gap-1.5">
+                              <RefreshCcw size={11} className="animate-spin" /> IN PROGRESS: Actively transcribing & writing study note...
+                            </span>
+                          </div>
+                        )}
                         <input 
                           value={selectedNote.title} 
                           onChange={(e) => setSelectedNote({...selectedNote, title: e.target.value})}
@@ -1230,13 +1455,26 @@ export const ToolsPage = (props: any) => {
                         onTouchEnd={cancelPress}
                         className={`p-4 rounded-xl border transition-all cursor-pointer relative group overflow-hidden ${theme === 'dark' ? 'bg-[#151B2B] border-white/5 hover:border-[#DC2626]/50 shadow-xl' : 'bg-white border-slate-200 shadow-sm'}`}
                       >
+                        {(note.isTranscribing || note.id === activeAudioNoteId) && (
+                          <div className="absolute top-2.5 left-2.5 z-30 flex items-center justify-center">
+                            <span className="relative flex h-2.5 w-2.5">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#DC2626]"></span>
+                            </span>
+                          </div>
+                        )}
                         {note.attachments?.length > 0 && (
                           <div className="absolute top-0 right-0 p-1 text-[5px] font-black text-[#DC2626] bg-[#DC2626]/10 rounded-bl-lg border-l border-b border-white/10 uppercase">
                             {note.attachments.length}
                           </div>
                         )}
                         <div className="flex items-start justify-between relative z-10 w-full h-full">
-                          <div className="space-y-0.5 w-full">
+                          <div className="space-y-1 w-full">
+                            {(note.isTranscribing || note.id === activeAudioNoteId) && (
+                              <div className="mb-1 pl-4 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#DC2626]/15 border border-[#DC2626]/30 text-[#DC2626] text-[8px] font-black uppercase tracking-widest">
+                                <RefreshCcw size={9} className="animate-spin" /> IN PROGRESS
+                              </div>
+                            )}
                             <h4 className="text-[10px] font-black text-white uppercase tracking-tight line-clamp-1 group-hover:text-[#DC2626] transition-colors font-sans">
                               {note.title || 'Untitled Source'}
                             </h4>
@@ -1302,18 +1540,6 @@ export const ToolsPage = (props: any) => {
               )}
             </div>
           )}
-        </motion.div>
-      )}
-
-      {toolsSubTab === 'live' && (
-        <motion.div key="live" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100]">
-          <GeminiLive 
-            onClose={() => setToolsSubTab('menu')} 
-            setUserNotification={setUserNotification} 
-            theme={theme}
-            isPremium={isPremium}
-            checkAndIncrementUsage={checkAndIncrementUsage}
-          />
         </motion.div>
       )}
 
@@ -1444,121 +1670,217 @@ export const ToolsPage = (props: any) => {
             </div>
           )}
 
-          {quizState === 'active' && quizQuestions && quizQuestions.length > 0 && (
-            <div className="space-y-6">
-              <div className={`flex items-center justify-between ${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-4 rounded-2xl border shadow-sm`}>
-                <button onClick={() => setQuizState('idle')} className="text-white/40 hover:text-[#DC2626] flex items-center gap-1 text-xs font-black uppercase"><ArrowLeft size={14} /> Exit Quiz</button>
-                <div className="text-center"><p className="text-[10px] font-black text-white/30 uppercase">Progress</p><p className="text-sm font-black text-[#DC2626]">{currentQuestionIndex + 1} / {quizQuestions.length}</p></div>
-                <button onClick={shareQuiz} className="text-white/40 hover:text-[#DC2626] flex items-center gap-1 text-xs font-bold uppercase">
-                  <Share2 size={14} /> Share
-                </button>
-              </div>
+          {quizState === 'active' && quizQuestions && quizQuestions.length > 0 && (() => {
+            const quizSubjectsPool = Array.from(new Set(quizQuestions.map((q: any) => (q.subject || quizTopic || "General Section").trim()))).filter(Boolean) as string[];
+            const currentQuizQuestion = quizQuestions[currentQuestionIndex || 0] || quizQuestions[0];
+            const realPoolIndex = currentQuizQuestion ? quizQuestions.indexOf(currentQuizQuestion) : (currentQuestionIndex || 0);
+            const activeQuizSub = (currentQuizQuestion?.subject || localStudentSubject || quizSubjectsPool[0] || "General Section").trim();
+            const filteredQuizQuestions = quizQuestions.filter((q: any) => {
+              const qSub = (q.subject || quizTopic || "General Section").trim();
+              return qSub.toLowerCase() === activeQuizSub.toLowerCase();
+            });
+            const gridQuestions = quizSubjectsPool.length > 1 ? filteredQuizQuestions : quizQuestions;
 
-              <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
-                {quizQuestions.map((_: any, idx: number) => (
-                  <button
-                    key={idx}
-                    onClick={() => {
-                      setCurrentQuestionIndex(idx);
-                      setSelectedOption(userQuizAnswers[idx] !== undefined ? userQuizAnswers[idx] : null);
-                      setIsAnswered(userQuizAnswers[idx] !== undefined);
-                    }}
-                    className={`flex-shrink-0 w-8 h-8 rounded-lg text-[10px] font-black border transition-all ${
-                      currentQuestionIndex === idx 
-                        ? 'bg-[#DC2626] border-[#DC2626] text-white' 
-                        : userQuizAnswers[idx] !== undefined 
-                          ? 'bg-green-500/20 border-green-500/30 text-green-500' 
-                          : 'bg-white/5 border-white/10 text-white/40'
-                    }`}
-                  >
-                    {idx + 1}
-                  </button>
-                ))}
-              </div>
-              <div className={`${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-8 rounded-3xl border space-y-8 shadow-sm`}>
-                <MarkdownRenderer 
-                  content={quizQuestions[currentQuestionIndex].question}
-                  className="text-lg font-bold leading-tight text-white"
-                />
-                <div className="space-y-3">
-                  {quizQuestions[currentQuestionIndex].options.map((option: string, idx: number) => {
-                    const isCorrect = idx === quizQuestions[currentQuestionIndex].correctAnswer;
-                    const isSelected = selectedOption === idx;
-                    const hasAnswered = userQuizAnswers[currentQuestionIndex] !== undefined;
-                    
-                    let variantClasses = 'bg-white/5 border-white/10 text-white/80';
-                    let badgeClasses = 'border-white/20 text-white/40';
-                    
-                    if (hasAnswered) {
-                      if (isCorrect) {
-                        variantClasses = 'border-green-500 bg-green-500/10 text-green-500';
-                        badgeClasses = 'border-green-500 bg-green-500 text-white';
-                      } else if (isSelected) {
-                        variantClasses = 'border-red-500 bg-red-500/10 text-red-500';
-                        badgeClasses = 'border-red-500 bg-red-500 text-white';
-                      }
-                    } else if (isSelected) {
-                      variantClasses = 'border-[#DC2626] bg-[#DC2626]/5 text-[#DC2626]';
-                      badgeClasses = 'border-[#DC2626] bg-[#DC2626] text-white';
-                    }
+            const gridBtnSize = gridQuestions.length > 40 ? 'w-4.5 h-4.5 text-[8px]' : gridQuestions.length > 20 ? 'w-5 h-5 text-[9px]' : 'w-6 h-6 text-[10px]';
 
+            return (
+            <div className="flex flex-col h-[calc(100vh-130px)] max-h-[850px] justify-between space-y-2 overflow-hidden">
+              {/* CONSTANTLY VISIBLE COMPACT GRADIENT HEADING BAR */}
+              <div className="sticky top-0 z-30 shrink-0 bg-gradient-to-r from-red-600 via-purple-700 to-blue-700 text-white p-2 sm:p-2.5 rounded-xl shadow-md border border-white/20 space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setShowQuizCalculator(true)}
+                      className="w-7.5 h-7.5 rounded-lg bg-black/30 hover:bg-black/50 border border-white/30 flex items-center justify-center text-white shadow-inner shrink-0 transition-all"
+                      title="Calculator"
+                    >
+                      <Calculator size={15} />
+                    </button>
+                    <button
+                      onClick={() => toggleSpeakQuestion(currentQuizQuestion?.question || '', currentQuizQuestion?.options || [])}
+                      className={`w-7.5 h-7.5 rounded-lg border flex items-center justify-center shrink-0 transition-all ${isSpeakingQuestion ? 'bg-amber-500 border-amber-400 text-white animate-pulse' : 'bg-black/30 border-white/30 text-white hover:bg-black/50'}`}
+                      title="Read Aloud"
+                    >
+                      <Volume2 size={15} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] font-black uppercase tracking-widest bg-black/30 px-2.5 py-1 rounded-lg border border-white/20 text-white font-mono">
+                      PROGRESS: {realPoolIndex + 1}/{quizQuestions.length}
+                    </span>
+                    <button
+                      onClick={() => setQuizState('idle')}
+                      className="px-2.5 py-1 bg-black/30 hover:bg-black/50 rounded-lg text-[9px] font-black uppercase tracking-widest border border-white/20 text-white transition-all shrink-0"
+                    >
+                      Back to Lobby
+                    </button>
+                  </div>
+                </div>
+
+                {/* Subject / Sections Bar if more than 1 section */}
+                {quizSubjectsPool.length > 1 && (
+                  <div className="flex items-center gap-1 overflow-x-auto pb-1 pt-0.5 no-scrollbar border-t border-white/15">
+                    <span className="text-[8px] font-black text-white/60 uppercase tracking-wider px-1 shrink-0">Sections:</span>
+                    {quizSubjectsPool.map((sub: string) => {
+                      const isSelectedSub = sub.toLowerCase() === activeQuizSub.toLowerCase();
+                      return (
+                        <button
+                          key={sub}
+                          onClick={() => {
+                            setLocalStudentSubject(sub);
+                            const firstMatch = quizQuestions.findIndex((q: any) => (q.subject || quizTopic || "General Section").trim().toLowerCase() === sub.toLowerCase());
+                            if (firstMatch !== -1) setCurrentQuestionIndex(firstMatch);
+                          }}
+                          className={`px-2.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider transition-all shrink-0 border ${
+                            isSelectedSub
+                              ? 'bg-white text-slate-900 border-white shadow-sm'
+                              : 'bg-black/30 text-white/70 border-white/20 hover:bg-white/20'
+                          }`}
+                        >
+                          {sub}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* NUMBER OF QUESTIONS ARRANGED IN GRID */}
+                <div className="flex flex-wrap items-center gap-1 max-h-14 sm:max-h-16 overflow-y-auto custom-scrollbar pt-1 border-t border-white/15">
+                  {gridQuestions.map((q: any, idx: number) => {
+                    const realIdx = quizQuestions.indexOf(q);
+                    const isAns = userQuizAnswers[realIdx] !== undefined;
+                    const isCur = realIdx === realPoolIndex;
                     return (
-                      <button 
-                        key={idx} 
-                        onClick={() => handleOptionSelect(idx)} 
-                        disabled={hasAnswered}
-                        className={`w-full text-left p-4 rounded-2xl border transition-all flex items-center gap-3 ${variantClasses}`}
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          setCurrentQuestionIndex(realIdx);
+                          setSelectedOption(userQuizAnswers[realIdx] !== undefined ? userQuizAnswers[realIdx] : null);
+                          setIsAnswered(userQuizAnswers[realIdx] !== undefined);
+                        }}
+                        className={`${gridBtnSize} rounded-md font-black border flex items-center justify-center transition-all shrink-0 ${
+                          isCur
+                            ? 'bg-white text-slate-900 border-white shadow-md scale-110 z-10'
+                            : isAns
+                            ? 'bg-green-500 text-white border-green-400'
+                            : 'bg-black/30 text-white/70 border-white/20 hover:bg-white/20'
+                        }`}
                       >
-                        <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] border shrink-0 ${badgeClasses}`}>
-                          {hasAnswered && isCorrect ? <Check size={12} /> : hasAnswered && isSelected && !isCorrect ? <X size={12} /> : String.fromCharCode(65 + idx)}
-                        </div>
-                        <div className="flex-1">
-                          <MarkdownRenderer 
-                            content={option}
-                            className="text-xs sm:text-sm font-medium"
-                          />
-                        </div>
+                        {realIdx + 1}
                       </button>
                     );
                   })}
                 </div>
+              </div>
 
-                {userQuizAnswers[currentQuestionIndex] !== undefined && quizQuestions[currentQuestionIndex].explanation && (
-                  <motion.div 
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="p-5 bg-white/5 border border-white/10 rounded-2xl space-y-2"
-                  >
-                    <div className="flex items-center gap-2 text-[#DC2626] text-[10px] font-black uppercase tracking-[0.2em]">
-                      <Info size={14} /> Explanation
-                    </div>
+              {/* CONSTANTLY VISIBLE QUESTIONS AND OPTIONS CONTAINER WITH FIXED BOTTOM BAR */}
+              {currentQuizQuestion && (
+              <div className={`flex-1 flex flex-col justify-between overflow-hidden ${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-3.5 sm:p-5 rounded-2xl border shadow-sm`}>
+                <div className="space-y-3 sm:space-y-4 overflow-y-auto custom-scrollbar pr-1 flex-1">
+                  <div className="flex items-center justify-between border-b border-white/10 pb-2 shrink-0">
+                    <span className="text-xs font-black uppercase tracking-widest text-[#DC2626]">
+                      Question {realPoolIndex + 1} of {quizQuestions.length}
+                    </span>
+                    <span className="text-[10px] font-black uppercase text-white/40">
+                      {currentQuizQuestion.subject || quizTopic || "General Section"}
+                    </span>
+                  </div>
+
+                  <div className="shrink-0">
                     <MarkdownRenderer 
-                      content={quizQuestions[currentQuestionIndex].explanation}
-                      className="text-xs sm:text-sm text-white/60 leading-relaxed font-semibold"
+                      content={currentQuizQuestion.question}
+                      className="text-base sm:text-lg font-bold leading-relaxed text-white"
                     />
-                  </motion.div>
-                )}
+                  </div>
 
-                <div className="pt-4 flex gap-3">
-                  {currentQuestionIndex > 0 && (
-                    <button 
-                      onClick={prevQuestion}
-                      className={`flex-1 ${theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-100 border-slate-200 text-slate-700'} font-black py-4 rounded-2xl text-xs sm:text-sm border transition-all flex items-center justify-center gap-2 uppercase tracking-widest`}
+                  <div className="space-y-2">
+                    {(currentQuizQuestion.options || []).map((option: string, idx: number) => {
+                      const isCorrect = idx === currentQuizQuestion.correctAnswer;
+                      const isSelected = selectedOption === idx;
+                      const hasAnswered = userQuizAnswers[realPoolIndex] !== undefined;
+                      
+                      let variantClasses = 'bg-white/5 border-white/10 text-white/80 hover:bg-white/10';
+                      let badgeClasses = 'border-white/20 text-white/40 bg-white/5';
+                      
+                      if (hasAnswered) {
+                        if (isCorrect) {
+                          variantClasses = 'border-green-500 bg-green-500/10 text-green-400 font-bold';
+                          badgeClasses = 'border-green-500 bg-green-500 text-white';
+                        } else if (isSelected) {
+                          variantClasses = 'border-red-500 bg-red-500/10 text-red-400 font-bold';
+                          badgeClasses = 'border-red-500 bg-red-500 text-white';
+                        }
+                      } else if (isSelected) {
+                        variantClasses = 'border-blue-500 bg-blue-500/10 text-blue-300 font-bold';
+                        badgeClasses = 'border-blue-500 bg-blue-500 text-white';
+                      }
+
+                      return (
+                        <button 
+                          key={idx} 
+                          onClick={() => {
+                            if (userQuizAnswers[realPoolIndex] !== undefined) return;
+                            setSelectedOption(idx);
+                            setIsAnswered(true);
+                            if (handleOptionSelect) handleOptionSelect(idx);
+                          }} 
+                          disabled={hasAnswered}
+                          className={`w-full text-left p-3 sm:p-3.5 rounded-xl border transition-all flex items-center gap-3 ${variantClasses}`}
+                        >
+                          <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-black border shrink-0 transition-all ${badgeClasses}`}>
+                            {hasAnswered && isCorrect ? <Check size={13} /> : hasAnswered && isSelected && !isCorrect ? <X size={13} /> : String.fromCharCode(65 + idx)}
+                          </div>
+                          <div className="flex-1">
+                            <MarkdownRenderer 
+                              content={option}
+                              className="text-xs sm:text-sm font-medium"
+                            />
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {userQuizAnswers[realPoolIndex] !== undefined && currentQuizQuestion.explanation && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="p-3.5 bg-white/5 border border-white/10 rounded-xl space-y-1 shrink-0"
                     >
-                      <ArrowLeft size={16} /> Back
-                    </button>
+                      <div className="flex items-center gap-1.5 text-green-400 text-[10px] font-black uppercase tracking-[0.2em]">
+                        <Info size={13} /> Explanation
+                      </div>
+                      <MarkdownRenderer 
+                        content={currentQuizQuestion.explanation}
+                        className="text-xs text-white/80 leading-relaxed font-medium"
+                      />
+                    </motion.div>
                   )}
+                </div>
+
+                {/* CONSTANTLY VISIBLE COMPACT FIXED NEXT & PREVIOUS BUTTONS AT BOTTOM */}
+                <div className="pt-2 border-t border-white/10 flex gap-2 shrink-0 bg-inherit sticky bottom-0 z-20">
+                  <button 
+                    onClick={prevQuestion}
+                    disabled={realPoolIndex <= 0}
+                    className="px-3.5 sm:px-4 py-2 bg-white/5 hover:bg-white/10 disabled:opacity-30 border border-white/15 text-white font-black rounded-lg text-[10px] sm:text-[11px] transition-all flex items-center justify-center gap-1.5 uppercase tracking-widest shrink-0"
+                  >
+                    <ArrowLeft size={13} /> Back
+                  </button>
                   <button 
                     onClick={nextQuestion}
                     disabled={selectedOption === null}
-                    className="flex-[2] bg-[#DC2626] text-white font-black py-4 rounded-2xl text-xs sm:text-sm shadow-xl shadow-[#DC2626]/20 transition-all flex items-center justify-center gap-2 uppercase tracking-widest disabled:opacity-50"
+                    className="flex-1 py-2 bg-gradient-to-r from-red-600 to-blue-600 hover:opacity-95 text-white font-black rounded-lg text-[10px] sm:text-[11px] shadow-md transition-all flex items-center justify-center gap-1.5 uppercase tracking-widest disabled:opacity-40"
                   >
-                    {currentQuestionIndex < quizQuestions.length - 1 ? 'Next Question' : 'Finish Quiz'} <ChevronRight size={16} />
+                    <span>{realPoolIndex < quizQuestions.length - 1 ? 'Next Question' : 'Finish Quiz'}</span> <ChevronRight size={13} />
                   </button>
                 </div>
               </div>
+              )}
             </div>
-          )}
+          );
+          })()}
 
           {quizState === 'finished' && (() => {
             const percentage = Math.round((quizScore / (quizQuestions.length || 1)) * 100);
@@ -1916,7 +2238,30 @@ export const ToolsPage = (props: any) => {
             </div>
           )}
 
-          {examLobbyState === 'exam' && examQuestions && examQuestions.length > 0 && (
+          {examLobbyState === 'exam' && examQuestions && examQuestions.length > 0 && (() => {
+            const activeExamPool = (studentActiveQuestions && studentActiveQuestions.length > 0) ? studentActiveQuestions : examQuestions;
+            const configuredSubjects = (examConfig?.subjects && examConfig.subjects.length > 0)
+              ? examConfig.subjects.map((s: any) => s.name).filter(Boolean)
+              : [];
+            const poolSubjects = Array.from(new Set(activeExamPool.map((q: any) => (q.subject || configuredSubjects[0] || "General Section").trim()))).filter(Boolean) as string[];
+            const distinctExamSubjects = configuredSubjects.length > 0
+              ? configuredSubjects.filter((name: string) => poolSubjects.some((ps: string) => ps.toLowerCase() === name.trim().toLowerCase()))
+              : (poolSubjects.length > 0 ? poolSubjects : ["General Section"]);
+            const currentExamQuestion = activeExamPool[currentExamIndex || 0] || activeExamPool[0];
+            const realPoolIndex = currentExamIndex || 0;
+            const currentExamSub = (currentExamQuestion?.subject || activeStudentSubject || localStudentSubject || distinctExamSubjects[0] || "General Section").trim();
+            const filteredExamQuestions = activeExamPool.filter((q: any) => {
+              const qSub = (q.subject || distinctExamSubjects[0] || "General Section").trim();
+              return qSub.toLowerCase() === currentExamSub.toLowerCase();
+            });
+            const gridExamQuestions = distinctExamSubjects.length > 1 ? filteredExamQuestions : activeExamPool;
+
+            const totalAnsweredCount = activeExamPool.filter((q: any, idx: number) => {
+              const ans = examAnswers[q.id] !== undefined ? examAnswers[q.id] : examAnswers[idx];
+              return ans !== undefined && ans !== null;
+            }).length;
+
+            return (
             <div className="space-y-4 sm:space-y-6">
               {showSubmitConfirmLocal ? (
                 /* Dedicated Confirmation Page */
@@ -1939,18 +2284,18 @@ export const ToolsPage = (props: any) => {
                   <div className="grid grid-cols-3 gap-3">
                     <div className={`p-3.5 rounded-2xl border text-center ${theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'}`}>
                       <p className={`text-[8px] sm:text-[9px] font-black uppercase tracking-wider ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>Total</p>
-                      <p className={`text-xl sm:text-2xl font-black mt-0.5 ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{examQuestions.length}</p>
+                      <p className={`text-xl sm:text-2xl font-black mt-0.5 ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{activeExamPool.length}</p>
                     </div>
                     <div className={`p-3.5 rounded-2xl border text-center ${theme === 'dark' ? 'bg-green-500/5 border-green-500/20' : 'bg-green-50 border-green-100'}`}>
                       <p className="text-[8px] sm:text-[9px] font-black uppercase tracking-wider text-green-500">Answered</p>
                       <p className="text-xl sm:text-2xl font-black mt-0.5 text-green-500">
-                        {examQuestions.filter((_, idx) => examAnswers[idx] !== undefined && examAnswers[idx] !== null).length}
+                        {totalAnsweredCount}
                       </p>
                     </div>
                     <div className={`p-3.5 rounded-2xl border text-center ${theme === 'dark' ? 'bg-[#DC2626]/5 border-[#DC2626]/15' : 'bg-red-50 border-red-100'}`}>
                       <p className="text-[8px] sm:text-[9px] font-black uppercase tracking-wider text-[#DC2626]">Unanswered</p>
                       <p className="text-xl sm:text-2xl font-black mt-0.5 text-[#DC2626]">
-                        {examQuestions.length - examQuestions.filter((_, idx) => examAnswers[idx] !== undefined && examAnswers[idx] !== null).length}
+                        {activeExamPool.length - totalAnsweredCount}
                       </p>
                     </div>
                   </div>
@@ -1961,8 +2306,9 @@ export const ToolsPage = (props: any) => {
                       Question Navigator Map
                     </h4>
                     <div className="grid grid-cols-5 sm:grid-cols-10 gap-2 max-h-48 overflow-y-auto p-2 border border-dashed border-white/5 rounded-2xl custom-scrollbar bg-white/[0.01]">
-                      {examQuestions.map((_: any, idx: number) => {
-                        const isAnswered = examAnswers[idx] !== undefined && examAnswers[idx] !== null;
+                      {activeExamPool.map((q: any, idx: number) => {
+                        const ans = examAnswers[q.id] !== undefined ? examAnswers[q.id] : examAnswers[idx];
+                        const isAnswered = ans !== undefined && ans !== null;
                         return (
                           <button
                             key={idx}
@@ -2022,177 +2368,319 @@ export const ToolsPage = (props: any) => {
                 </div>
               ) : (
                 /* Normal Question Answering */
-                <>
-                  <div className={`flex items-center justify-between ${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-3 sm:p-4 rounded-2xl border shadow-sm sticky top-16 sm:top-20 z-30`}>
-                    <div className="flex items-center gap-2 text-[#DC2626] font-black">
-                      <Clock size={16} className="sm:size-[18px]" />
-                      <span className="font-mono text-base sm:text-lg">{Math.floor(examTimer / 60)}:{(examTimer % 60).toString().padStart(2, '0')}</span>
-                    </div>
-                    <div className="text-center"><p className="text-[8px] sm:text-[10px] font-black text-white/30 uppercase">Question</p><p className="text-xs sm:text-sm font-black text-white">{currentExamIndex + 1} / {examQuestions.length}</p></div>
-                    <button 
-                      onClick={() => setShowSubmitConfirmLocal(true)} 
-                      className="bg-[#DC2626] hover:bg-[#DC2626]/90 text-white px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-[8px] sm:text-[10px] font-black uppercase tracking-widest transition-all shadow-md shadow-[#DC2626]/15"
-                    >
-                      Submit
-                    </button>
-                  </div>
-
-                  <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
-                    {examQuestions.map((_: any, idx: number) => (
-                      <button
-                        key={idx}
-                        onClick={() => setCurrentExamIndex(idx)}
-                        className={`flex-shrink-0 w-8 h-8 rounded-lg text-[10px] font-black border transition-all ${
-                          currentExamIndex === idx 
-                            ? 'bg-[#DC2626] border-[#DC2626] text-white' 
-                            : examAnswers[idx] !== undefined 
-                              ? 'bg-green-500/20 border-green-500/30 text-green-500' 
-                              : 'bg-white/5 border-white/10 text-white/40'
-                        }`}
-                      >
-                        {idx + 1}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className={`${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-5 sm:p-8 rounded-3xl border space-y-6 sm:space-y-8 shadow-sm`}>
-                    <MarkdownRenderer 
-                      content={examQuestions[currentExamIndex].question}
-                      className="text-base sm:text-lg font-bold leading-tight text-white"
-                    />
-                    <div className="space-y-3">
-                      {examQuestions[currentExamIndex].options.map((option: string, idx: number) => (
-                        <button key={idx} onClick={() => setExamAnswers({ ...examAnswers, [currentExamIndex]: idx })} className={`w-full text-left p-4 rounded-2xl border transition-all ${examAnswers[currentExamIndex] === idx ? 'border-[#DC2626] bg-[#DC2626]/5 text-[#DC2626]' : 'bg-white/5 border-white/10 text-white/80'}`}>
-                          <div className="flex items-start gap-3">
-                            <MarkdownRenderer 
-                              content={option}
-                              className="flex-1 text-xs sm:text-sm font-medium"
-                            />
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                    <div className="flex justify-between pt-4">
-                      <button onClick={() => setCurrentExamIndex((prev: number) => Math.max(0, prev - 1))} disabled={currentExamIndex === 0} className="p-3 text-white/40 hover:text-[#DC2626] disabled:opacity-20"><ArrowLeft size={24} /></button>
-                      <button onClick={() => setCurrentExamIndex((prev: number) => Math.min(examQuestions.length - 1, prev + 1))} disabled={currentExamIndex === examQuestions.length - 1} className="p-3 text-white/40 hover:text-[#DC2626] disabled:opacity-20"><ChevronRight size={24} /></button>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
-          {examLobbyState === 'result' && (
-            <div className={`${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-10 rounded-3xl border text-center space-y-6 shadow-sm`}>
-              <div className="w-20 h-20 bg-[#DC2626]/10 rounded-full flex items-center justify-center mx-auto">
-                <CheckCircle2 size={48} className="text-[#DC2626]" />
-              </div>
-              <div>
-                <h3 className="text-2xl font-black uppercase tracking-tighter text-white">Exam Submitted</h3>
-                <p className="text-xs sm:text-sm mt-1 text-white/40">Your results have been recorded in the system.</p>
-              </div>
-              <div className="py-6 border-y border-white/5">
-                <p className="text-[10px] font-black text-white/30 uppercase tracking-widest mb-1">Final Score</p>
-                <p className="text-5xl font-black text-[#DC2626]">{examScore} / {examQuestions.length || 1}</p>
-                <p className="text-xs sm:text-sm font-bold mt-2 text-white">{Math.round((examScore / (examQuestions.length || 1)) * 100)}% Proficiency</p>
-              </div>
-              <div className="flex flex-col gap-3">
-                <button 
-                  onClick={() => setExamLobbyState('review')} 
-                  className="w-full bg-[#DC2626] text-white font-black py-4 rounded-2xl text-xs sm:text-sm shadow-xl shadow-[#DC2626]/20 hover:bg-[#DC2626]/90 transition-all flex items-center justify-center gap-2"
-                >
-                  <Search size={18} /> REVIEW EXAM & EXPLANATIONS
-                </button>
-                <button 
-                  onClick={() => setExamLobbyState('login')} 
-                  className="w-full bg-white/5 text-white/60 font-black py-4 rounded-2xl text-xs sm:text-sm transition-all"
-                >
-                  LOGOUT
-                </button>
-              </div>
-            </div>
-          )}
-
-          {examLobbyState === 'review' && examQuestions && (
-            <div className="space-y-6">
-              <div className={`flex items-center justify-between ${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-4 rounded-2xl border shadow-sm`}>
-                <button onClick={() => setExamLobbyState('result')} className="text-white/40 hover:text-[#DC2626] flex items-center gap-1 text-xs font-bold uppercase"><ArrowLeft size={14} /> Back to Results</button>
-                <h3 className="text-sm font-black text-white uppercase tracking-tighter">Exam Review</h3>
-                <div className="w-10"></div>
-              </div>
-
-              <div className="space-y-4">
-                {examQuestions.map((q: any, qIdx: number) => {
-                  const userAns = examAnswers[qIdx];
-                  const isCorrect = userAns === q.correctAnswer;
-                  
+                (() => {
+                  const gridBtnSize = gridExamQuestions.length > 40 ? 'w-4.5 h-4.5 text-[8px]' : gridExamQuestions.length > 20 ? 'w-5 h-5 text-[9px]' : 'w-6 h-6 text-[10px]';
                   return (
-                    <div key={qIdx} className={`${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-6 rounded-3xl border space-y-4 shadow-sm`}>
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1">
-                          <p className="text-[10px] font-black text-[#DC2626] uppercase mb-1">Question {qIdx + 1}</p>
-                          <MarkdownRenderer content={q.question} className="text-sm font-bold text-white leading-tight" />
+                  <div className="flex flex-col h-[calc(100vh-130px)] max-h-[850px] justify-between space-y-2 overflow-hidden">
+                    {/* CONSTANTLY VISIBLE COMPACT GRADIENT HEADING BAR */}
+                    <div className="sticky top-0 z-30 shrink-0 bg-gradient-to-r from-red-600 via-purple-700 to-blue-700 text-white p-2 sm:p-2.5 rounded-xl shadow-md border border-white/20 space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => setShowExamCalculator(true)}
+                            className="w-7.5 h-7.5 rounded-lg bg-black/30 hover:bg-black/50 border border-white/30 flex items-center justify-center text-white shadow-inner shrink-0 transition-all"
+                            title="Calculator"
+                          >
+                            <Calculator size={15} />
+                          </button>
+                          <button
+                            onClick={() => toggleSpeakQuestion(currentExamQuestion?.question || '', currentExamQuestion?.options || [])}
+                            className={`w-7.5 h-7.5 rounded-lg border flex items-center justify-center shrink-0 transition-all ${isSpeakingQuestion ? 'bg-amber-500 border-amber-400 text-white animate-pulse' : 'bg-black/30 border-white/30 text-white hover:bg-black/50'}`}
+                            title="Read Aloud"
+                          >
+                            <Volume2 size={15} />
+                          </button>
                         </div>
-                        <div className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase ${isCorrect ? 'bg-green-500/10 text-green-500' : 'bg-[#DC2626]/10 text-[#DC2626]'}`}>
-                          {isCorrect ? 'Correct' : 'Incorrect'}
+
+                        <div className="flex items-center gap-1.5 bg-black/30 px-2.5 py-1 rounded-lg border border-white/20">
+                          <Clock size={13} className="text-red-400 animate-pulse" />
+                          <span className="font-mono text-xs font-black text-white">
+                            {Math.floor(examTimer / 60)}:{(examTimer % 60).toString().padStart(2, '0')}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className="text-[9px] font-black uppercase tracking-widest bg-black/30 px-2.5 py-1 rounded-lg border border-white/20 text-white font-mono hidden sm:inline-block">
+                            PROGRESS: {totalAnsweredCount}/{activeExamPool.length}
+                          </span>
+                          <button 
+                            onClick={() => setShowSubmitConfirmLocal(true)} 
+                            className="bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest shadow-md transition-all border border-white/20 shrink-0"
+                          >
+                            Submit Exam
+                          </button>
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 gap-2">
-                        {q.options.map((opt: string, oIdx: number) => {
-                          const isUserChoice = userAns === oIdx;
-                          const isCorrectChoice = q.correctAnswer === oIdx;
-                          
-                          let borderClass = 'border-white/5 bg-white/5';
-                          let textClass = 'text-white/60';
-                          let label = '';
-                          
-                          if (isCorrectChoice) {
-                            borderClass = 'border-green-500/50 bg-green-500/10';
-                            textClass = 'text-green-500 font-bold';
-                            label = 'CORRECT ANSWER';
-                          } else if (isUserChoice && !isCorrect) {
-                            borderClass = 'border-[#DC2626]/50 bg-[#DC2626]/10';
-                            textClass = 'text-[#DC2626] font-bold';
-                            label = 'YOUR CHOICE';
-                          } else if (isUserChoice && isCorrect) {
-                            label = 'YOUR CHOICE (CORRECT)';
-                          }
+                      {/* TOP FRONT SUBJECT BUTTONS INSIDE HEADING */}
+                      {distinctExamSubjects.length > 0 && (
+                        <div className="flex items-center gap-1 overflow-x-auto pb-1 pt-0.5 no-scrollbar border-t border-white/15">
+                          <span className="text-[8px] font-black text-white/60 uppercase tracking-wider px-1 shrink-0">Subjects:</span>
+                          {distinctExamSubjects.map((sub: string) => {
+                            const isSelectedSub = sub.toLowerCase() === currentExamSub.toLowerCase();
+                            const subQs = activeExamPool.filter((q: any) => (q.subject || distinctExamSubjects[0] || "General Section").trim().toLowerCase() === sub.toLowerCase());
+                            const subAnsCount = subQs.filter((q: any) => {
+                              const idx = activeExamPool.indexOf(q);
+                              const ans = examAnswers[q.id] !== undefined ? examAnswers[q.id] : examAnswers[idx];
+                              return ans !== undefined && ans !== null;
+                            }).length;
+                            return (
+                              <button
+                                key={sub}
+                                onClick={() => {
+                                  setLocalStudentSubject(sub);
+                                  if (setActiveStudentSubject) setActiveStudentSubject(sub);
+                                  const firstMatch = activeExamPool.findIndex((q: any) => (q.subject || distinctExamSubjects[0] || "General Section").trim().toLowerCase() === sub.toLowerCase());
+                                  if (firstMatch !== -1) setCurrentExamIndex(firstMatch);
+                                }}
+                                className={`px-2.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider transition-all shrink-0 border flex items-center gap-1 ${
+                                  isSelectedSub
+                                    ? 'bg-white text-slate-900 border-white shadow-sm'
+                                    : 'bg-black/30 text-white/70 border-white/20 hover:bg-white/20'
+                                }`}
+                              >
+                                <span>{sub}</span>
+                                <span className={`text-[8px] px-1 py-0.2 rounded font-mono ${isSelectedSub ? 'bg-slate-200 text-slate-900' : 'bg-white/10 text-white/60'}`}>
+                                  {subAnsCount}/{subQs.length}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
 
+                      {/* NUMBER OF QUESTIONS ARRANGED IN GRID FOR SELECTED SUBJECT */}
+                      <div className="flex flex-wrap items-center gap-1 max-h-14 sm:max-h-16 overflow-y-auto custom-scrollbar pt-1 border-t border-white/15">
+                        {gridExamQuestions.map((q: any, idx: number) => {
+                          const realIdx = activeExamPool.indexOf(q);
+                          const ans = examAnswers[q.id] !== undefined ? examAnswers[q.id] : examAnswers[realIdx];
+                          const isAns = ans !== undefined && ans !== null;
+                          const isCur = realIdx === realPoolIndex;
                           return (
-                            <div key={oIdx} className={`p-3 rounded-xl border text-xs flex items-center gap-3 ${borderClass} ${textClass}`}>
-                              <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] border ${isCorrectChoice ? 'border-green-500 bg-green-500 text-white' : (isUserChoice ? 'border-[#DC2626] bg-[#DC2626] text-white' : 'border-white/20')}`}>
-                                {String.fromCharCode(65 + oIdx)}
-                              </div>
-                              <div className="flex-1 flex flex-col">
-                                <MarkdownRenderer content={opt} />
-                                {label && <span className="text-[8px] font-black uppercase mt-1 opacity-60">{label}</span>}
-                              </div>
-                              {isCorrectChoice && <Check size={14} />}
-                              {isUserChoice && !isCorrect && <X size={14} />}
-                            </div>
+                            <button
+                              key={idx}
+                              onClick={() => setCurrentExamIndex(realIdx)}
+                              className={`${gridBtnSize} rounded-md font-black border flex items-center justify-center transition-all shrink-0 ${
+                                isCur
+                                  ? 'bg-white text-slate-900 border-white shadow-md scale-110 z-10'
+                                  : isAns
+                                  ? 'bg-green-500 text-white border-green-400'
+                                  : 'bg-black/30 text-white/70 border-white/20 hover:bg-white/20'
+                              }`}
+                            >
+                              {realIdx + 1}
+                            </button>
                           );
                         })}
                       </div>
-
-                      {q.explanation && (
-                        <div className={`p-4 rounded-2xl ${theme === 'dark' ? 'bg-white/5' : 'bg-slate-50'} border border-dashed border-white/10`}>
-                          <p className="text-[9px] font-black text-white/30 uppercase mb-2 flex items-center gap-1.5">
-                            <Info size={12} className="text-[#DC2626]" /> Explanation
-                          </p>
-                          <MarkdownRenderer content={q.explanation} className="text-xs text-white/70 leading-relaxed" />
-                        </div>
-                      )}
                     </div>
-                  );
-                })}
-              </div>
 
-              <button onClick={() => setExamLobbyState('login')} className="w-full bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black py-4 rounded-2xl text-sm shadow-xl shadow-[#DC2626]/20 transition-all flex items-center justify-center gap-2">
-                FINISH REVIEW & LOGOUT
-              </button>
+                    {/* CONSTANTLY VISIBLE QUESTIONS AND OPTIONS CONTAINER WITH FIXED BOTTOM BAR */}
+                    {currentExamQuestion && (
+                    <div className={`flex-1 flex flex-col justify-between overflow-hidden ${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-3.5 sm:p-5 rounded-2xl border shadow-sm`}>
+                      <div className="space-y-3 sm:space-y-4 overflow-y-auto custom-scrollbar pr-1 flex-1">
+                        <div className="flex items-center justify-between border-b border-white/10 pb-2 shrink-0">
+                          <span className="text-xs font-black uppercase tracking-widest text-[#DC2626]">
+                            Question {realPoolIndex + 1} of {activeExamPool.length} ({filteredExamQuestions.indexOf(currentExamQuestion) + 1}/{filteredExamQuestions.length} in {currentExamSub})
+                          </span>
+                          <span className="text-[10px] font-black uppercase text-white/40">
+                            {currentExamQuestion.subject || currentExamSub}
+                          </span>
+                        </div>
+
+                        <div className="shrink-0">
+                          <MarkdownRenderer 
+                            content={currentExamQuestion.question}
+                            className="text-base sm:text-lg font-bold leading-relaxed text-white"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          {(currentExamQuestion.options || []).map((option: string, idx: number) => {
+                            const curAns = examAnswers[currentExamQuestion.id] !== undefined ? examAnswers[currentExamQuestion.id] : examAnswers[realPoolIndex];
+                            const isSelected = curAns === idx;
+                            return (
+                              <button 
+                                key={idx} 
+                                onClick={() => {
+                                  const newAns = { ...examAnswers, [realPoolIndex]: idx };
+                                  if (currentExamQuestion.id !== undefined) newAns[currentExamQuestion.id] = idx;
+                                  setExamAnswers(newAns);
+                                }} 
+                                className={`w-full text-left p-3 sm:p-3.5 rounded-xl border transition-all flex items-center gap-3 ${isSelected ? 'border-[#DC2626] bg-[#DC2626]/10 text-white shadow-md font-bold' : 'bg-white/5 border-white/10 text-white/80 hover:bg-white/10'}`}
+                              >
+                                <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-black border shrink-0 transition-all ${isSelected ? 'bg-[#DC2626] border-[#DC2626] text-white' : 'bg-white/5 border-white/20 text-white/40'}`}>
+                                  {String.fromCharCode(65 + idx)}
+                                </div>
+                                <div className="flex-1">
+                                  <MarkdownRenderer 
+                                    content={option}
+                                    className="text-xs sm:text-sm font-medium"
+                                  />
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* CONSTANTLY VISIBLE COMPACT FIXED NEXT & PREVIOUS BUTTONS AT BOTTOM */}
+                      <div className="pt-2 border-t border-white/10 flex gap-2 shrink-0 bg-inherit sticky bottom-0 z-20">
+                        <button 
+                          onClick={() => setCurrentExamIndex(Math.max(0, realPoolIndex - 1))}
+                          disabled={realPoolIndex <= 0}
+                          className="px-3.5 sm:px-4 py-2 bg-white/5 hover:bg-white/10 disabled:opacity-30 border border-white/15 text-white font-black rounded-lg text-[10px] sm:text-[11px] transition-all flex items-center justify-center gap-1.5 uppercase tracking-widest shrink-0"
+                        >
+                          <ArrowLeft size={13} /> Back
+                        </button>
+                        {realPoolIndex < activeExamPool.length - 1 ? (
+                          <button 
+                            onClick={() => setCurrentExamIndex(Math.min(activeExamPool.length - 1, realPoolIndex + 1))}
+                            className="flex-1 py-2 bg-gradient-to-r from-red-600 to-blue-600 hover:opacity-95 text-white font-black rounded-lg text-[10px] sm:text-[11px] shadow-md transition-all flex items-center justify-center gap-1.5 uppercase tracking-widest"
+                          >
+                            <span>Next Question</span> <ChevronRight size={13} />
+                          </button>
+                        ) : (
+                          <button 
+                            onClick={() => setShowSubmitConfirmLocal(true)}
+                            className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white font-black rounded-lg text-[10px] sm:text-[11px] shadow-md transition-all flex items-center justify-center gap-1.5 uppercase tracking-widest"
+                          >
+                            <span>Review & Submit</span> <Check size={13} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    )}
+                  </div>
+                  );
+                })()
+              )}
             </div>
-          )}
+          );
+          })()}
+
+          {examLobbyState === 'result' && (() => {
+            const activePool = (studentActiveQuestions && studentActiveQuestions.length > 0) ? studentActiveQuestions : examQuestions;
+            const totalSatFor = activePool.length || 1;
+            return (
+              <div className={`${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-10 rounded-3xl border text-center space-y-6 shadow-sm`}>
+                <div className="w-20 h-20 bg-[#DC2626]/10 rounded-full flex items-center justify-center mx-auto">
+                  <CheckCircle2 size={48} className="text-[#DC2626]" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black uppercase tracking-tighter text-white">Exam Submitted</h3>
+                  <p className="text-xs sm:text-sm mt-1 text-white/40">Your results have been recorded in the system.</p>
+                </div>
+                <div className="py-6 border-y border-white/5">
+                  <p className="text-[10px] font-black text-white/30 uppercase tracking-widest mb-1">Final Score</p>
+                  <p className="text-5xl font-black text-[#DC2626]">{examScore} / {totalSatFor}</p>
+                  <p className="text-xs sm:text-sm font-bold mt-2 text-white">{Math.round((examScore / totalSatFor) * 100)}% Proficiency</p>
+                </div>
+                <div className="flex flex-col gap-3">
+                  <button 
+                    onClick={() => setExamLobbyState('review')} 
+                    className="w-full bg-[#DC2626] text-white font-black py-4 rounded-2xl text-xs sm:text-sm shadow-xl shadow-[#DC2626]/20 hover:bg-[#DC2626]/90 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Search size={18} /> REVIEW EXAM & EXPLANATIONS ({totalSatFor} QUESTIONS)
+                  </button>
+                  <button 
+                    onClick={() => setExamLobbyState('login')} 
+                    className="w-full bg-white/5 text-white/60 font-black py-4 rounded-2xl text-xs sm:text-sm transition-all"
+                  >
+                    LOGOUT
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+
+          {examLobbyState === 'review' && (() => {
+            const activePool = (studentActiveQuestions && studentActiveQuestions.length > 0) ? studentActiveQuestions : examQuestions;
+            if (!activePool || activePool.length === 0) return null;
+            return (
+              <div className="space-y-6">
+                <div className={`flex items-center justify-between ${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-4 rounded-2xl border shadow-sm`}>
+                  <button onClick={() => setExamLobbyState('result')} className="text-white/40 hover:text-[#DC2626] flex items-center gap-1 text-xs font-bold uppercase"><ArrowLeft size={14} /> Back to Results</button>
+                  <h3 className="text-sm font-black text-white uppercase tracking-tighter">Exam Review ({activePool.length} Questions Sat For)</h3>
+                  <div className="w-10"></div>
+                </div>
+
+                <div className="space-y-4">
+                  {activePool.map((q: any, qIdx: number) => {
+                    const realPoolIndex = examQuestions ? examQuestions.indexOf(q) : qIdx;
+                    const userAns = examAnswers[q.id] !== undefined 
+                      ? examAnswers[q.id] 
+                      : (realPoolIndex !== -1 && examAnswers[realPoolIndex] !== undefined ? examAnswers[realPoolIndex] : examAnswers[qIdx]);
+                    const isCorrect = userAns !== undefined && userAns !== null && userAns === q.correctAnswer;
+                    
+                    return (
+                      <div key={qIdx} className={`${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-6 rounded-3xl border space-y-4 shadow-sm`}>
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1">
+                            <p className="text-[10px] font-black text-[#DC2626] uppercase mb-1">Question {qIdx + 1}</p>
+                            <MarkdownRenderer content={q.question} className="text-sm font-bold text-white leading-tight" />
+                          </div>
+                          <div className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase ${isCorrect ? 'bg-green-500/10 text-green-500' : (userAns !== undefined && userAns !== null ? 'bg-[#DC2626]/10 text-[#DC2626]' : 'bg-amber-500/10 text-amber-500')}`}>
+                            {isCorrect ? 'Correct' : (userAns !== undefined && userAns !== null ? 'Incorrect' : 'Unattempted')}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-2">
+                          {q.options.map((opt: string, oIdx: number) => {
+                            const isUserChoice = userAns === oIdx;
+                            const isCorrectChoice = q.correctAnswer === oIdx;
+                            
+                            let borderClass = 'border-white/5 bg-white/5';
+                            let textClass = 'text-white/60';
+                            let label = '';
+                            
+                            if (isCorrectChoice) {
+                              borderClass = 'border-green-500/50 bg-green-500/10';
+                              textClass = 'text-green-500 font-bold';
+                              label = 'CORRECT ANSWER';
+                            } else if (isUserChoice && !isCorrect) {
+                              borderClass = 'border-[#DC2626]/50 bg-[#DC2626]/10';
+                              textClass = 'text-[#DC2626] font-bold';
+                              label = 'YOUR CHOICE';
+                            } else if (isUserChoice && isCorrect) {
+                              label = 'YOUR CHOICE (CORRECT)';
+                            }
+
+                            return (
+                              <div key={oIdx} className={`p-3 rounded-xl border text-xs flex items-center gap-3 ${borderClass} ${textClass}`}>
+                                <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] border ${isCorrectChoice ? 'border-green-500 bg-green-500 text-white' : (isUserChoice ? 'border-[#DC2626] bg-[#DC2626] text-white' : 'border-white/20')}`}>
+                                  {String.fromCharCode(65 + oIdx)}
+                                </div>
+                                <div className="flex-1 flex flex-col">
+                                  <MarkdownRenderer content={opt} />
+                                  {label && <span className="text-[8px] font-black uppercase mt-1 opacity-60">{label}</span>}
+                                </div>
+                                {isCorrectChoice && <Check size={14} />}
+                                {isUserChoice && !isCorrect && <X size={14} />}
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {q.explanation && (
+                          <div className={`p-4 rounded-2xl ${theme === 'dark' ? 'bg-white/5' : 'bg-slate-50'} border border-dashed border-white/10`}>
+                            <p className="text-[9px] font-black text-white/30 uppercase mb-2 flex items-center gap-1.5">
+                              <Info size={12} className="text-[#DC2626]" /> Explanation
+                            </p>
+                            <MarkdownRenderer content={q.explanation} className="text-xs text-white/70 leading-relaxed" />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <button onClick={() => setExamLobbyState('login')} className="w-full bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black py-4 rounded-2xl text-sm shadow-xl shadow-[#DC2626]/20 transition-all flex items-center justify-center gap-2">
+                  FINISH REVIEW & LOGOUT
+                </button>
+              </div>
+            );
+          })()}
         </motion.div>
       )}
 
@@ -2281,6 +2769,112 @@ export const ToolsPage = (props: any) => {
 
 
       
+      {/* UNIVERSAL CALCULATOR & QUESTION SOLVER POPUP */}
+      <AnimatePresence>
+        {(showQuizCalculator || showExamCalculator) && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 15 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 15 }}
+              className={`w-full max-w-md ${theme === 'dark' ? 'bg-[#13111C]' : 'bg-white'} rounded-[2rem] shadow-2xl overflow-hidden border ${theme === 'dark' ? 'border-white/15' : 'border-slate-200'} p-6 space-y-5`}
+            >
+              <div className="flex items-center justify-between border-b border-white/10 pb-3.5">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-red-500 to-blue-600 flex items-center justify-center text-white shadow-md">
+                    <Calculator size={18} />
+                  </div>
+                  <div>
+                    <h3 className={`text-base font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'} tracking-tight`}>
+                      Smart Calculator & Solver
+                    </h3>
+                    <p className="text-[10px] text-white/60 uppercase font-bold tracking-wider">Supports +, -, ×, ÷, /, √, ^, (), %, and numbers only</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => { setShowQuizCalculator(false); setShowExamCalculator(false); }}
+                  className="p-2 hover:bg-white/10 rounded-xl transition-all text-white/50 hover:text-white"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <textarea
+                    value={calcQuestionInput}
+                    onChange={(e) => {
+                      setCalcQuestionInput(e.target.value);
+                      setCalcSolutionOutput('');
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        if (calcQuestionInput.trim() && !isCalcInputInvalid) {
+                          handleSolveCalcQuestion();
+                        }
+                      }
+                    }}
+                    placeholder="Enter math expression (e.g. 25 × 14 ÷ 2 or √(144) + 2^4)..."
+                    rows={3}
+                    className={`w-full ${theme === 'dark' ? 'bg-white/5 text-white placeholder-white/30' : 'bg-slate-50 text-slate-900 placeholder-slate-400'} border rounded-2xl p-3.5 text-sm font-medium outline-none transition-all resize-none ${
+                      isCalcInputInvalid
+                        ? 'border-red-500 ring-2 ring-red-500/50 shadow-[0_0_18px_rgba(239,68,68,0.5)] focus:border-red-500'
+                        : theme === 'dark'
+                        ? 'border-white/10 focus:border-blue-500'
+                        : 'border-slate-200 focus:border-blue-500'
+                    }`}
+                  />
+                  {isCalcInputInvalid && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      className="flex items-center gap-1.5 text-[11px] font-bold text-red-400 px-1"
+                    >
+                      <AlertCircle size={14} className="shrink-0" />
+                      <span>{mathValidation.error || "Invalid expression. Only numbers and +, -, ×, ÷, /, √, ^ are allowed."}</span>
+                    </motion.div>
+                  )}
+                </div>
+
+                <button
+                  onClick={handleSolveCalcQuestion}
+                  disabled={isSolvingCalc || !calcQuestionInput.trim() || isCalcInputInvalid}
+                  className="w-full py-3 bg-gradient-to-r from-red-600 via-purple-600 to-blue-600 hover:opacity-95 disabled:opacity-40 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+                >
+                  <Calculator size={16} />
+                  <span>Calculate Answer</span>
+                </button>
+
+                {calcSolutionOutput && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={`p-4 rounded-2xl border ${
+                      calcSolutionOutput.startsWith('Error')
+                        ? 'bg-red-500/10 border-red-500/30 text-red-300'
+                        : theme === 'dark'
+                        ? 'bg-green-500/10 border-green-500/30 text-white'
+                        : 'bg-green-50 border-green-200 text-slate-900'
+                    } text-sm font-mono leading-relaxed max-h-48 overflow-y-auto custom-scrollbar`}
+                  >
+                    <div className={`font-bold text-[10px] uppercase tracking-wider ${calcSolutionOutput.startsWith('Error') ? 'text-red-400' : 'text-green-400'} mb-1`}>
+                      {calcSolutionOutput.startsWith('Error') ? 'Calculation Error:' : 'Answer Result:'}
+                    </div>
+                    <div className="text-lg sm:text-xl font-black">{calcSolutionOutput.replace(/^Error:\s*/, '')}</div>
+                  </motion.div>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <HelpOverlay 
         isOpen={showHelp} 
         onClose={() => setShowHelp(false)} 
@@ -2469,21 +3063,6 @@ const helpContent = {
           "Medical: Focuses on clinical symptoms, diagnosis simulation, and anatomy.",
           "Law: Handles legal drafting, case law retrieval, and logical arguments.",
           "These tools use fine-tuned parameters specific to each professional field."
-        ]
-      }
-    ]
-  },
-  live: {
-    title: "Live AI Tutor Help",
-    items: [
-      {
-        question: "How to use spatial grounding?",
-        steps: [
-          "Omni sees through your camera. Point it at an object or book.",
-          "Omni can 'point' at things in your view using highlight boxes.",
-          "Ask: 'What is this specifically?' while pointing the camera.",
-          "Omni will respond using coordinates to tell you exactly what it sees.",
-          "Ideal for diagrams, hardware parts, or complex physical notes."
         ]
       }
     ]
