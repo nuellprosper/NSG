@@ -4190,7 +4190,7 @@ export default function App() {
 
     if (hostExamId) {
       console.log("Starting Exam Results sync for ID:", hostExamId);
-      unsubScores = onSnapshot(query(collection(db, 'exams', hostExamId, 'results'), where('hostUid', '==', user.uid), limit(200)), (snapshot) => {
+      unsubScores = onSnapshot(query(collection(db, 'exams', hostExamId, 'results'), limit(500)), (snapshot) => {
         const scores = snapshot.docs.map(doc => doc.data() as StudentResult);
         console.log(`Synced ${scores.length} results for exam ${hostExamId}`);
         setScoreSheet(scores.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
@@ -5008,65 +5008,75 @@ export default function App() {
         setActiveExamHostUid(data.hostUid || null);
         
         // Verify student registration
-        const student = students.find((s: any) => s.matric.replace(/\s+/g, '').toLowerCase() === matricNumber.replace(/\s+/g, '').toLowerCase());
+        const cleanMatric = matricNumber.replace(/\s+/g, '').toLowerCase();
+        const student = students.find((s: any) => s.matric.replace(/\s+/g, '').toLowerCase() === cleanMatric);
         
         if (student) {
           setStudentName(student.name);
           
-          // Check for existing session in localStorage
-          const session = localStorage.getItem(`nsg_exam_session_${targetExamId}_${student.matric}`);
-          if (session) {
-            const sessionData = JSON.parse(session);
-            if (sessionData.status === 'completed') {
-              setUserNotification("You have already completed this exam.");
-              return;
-            } else if (sessionData.status === 'in-progress') {
-              // Restore in-progress session state!
-              setStudentActiveQuestions(sessionData.studentActiveQuestions || []);
-              setExamAnswers(sessionData.examAnswers || {});
-              setExamTimer(sessionData.examTimer || (data.config?.duration || 60) * 60);
-              setActiveStudentSubject(sessionData.activeStudentSubject || "");
-              setCurrentExamIndex(0);
-              setExamFinished(false);
-              setExamLobbyState('exam');
-              setActiveExamId(targetExamId);
-              setActiveExamHostUid(data.hostUid || null);
-              
-              if (examTimerRef.current) clearInterval(examTimerRef.current);
-              examTimerRef.current = setInterval(() => {
-                setExamTimer(prev => {
-                  if (prev <= 1) {
-                    submitExam();
-                    return 0;
-                  }
-                  const newVal = prev - 1;
-                  try {
-                    const sKey = `nsg_exam_session_${targetExamId}_${student.matric}`;
-                    const curStr = localStorage.getItem(sKey);
-                    if (curStr) {
-                      const curObj = JSON.parse(curStr);
-                      curObj.examTimer = newVal;
-                      localStorage.setItem(sKey, circularSafeStringify(curObj));
-                    }
-                  } catch (e) {}
-                  return newVal;
-                });
-              }, 1000);
+          // Check Firestore results subcollection first to verify true completion status by matric number
+          const resultsSnap = await getDocs(collection(db, 'exams', targetExamId, 'results'));
+          const serverFinishedDoc = resultsSnap.docs.find(doc => {
+            const rData = doc.data();
+            const rMatric = (rData.matric || "").toString().replace(/\s+/g, '').toLowerCase();
+            return rMatric === cleanMatric;
+          });
 
-              setUserNotification("🔄 Restored your active exam session!");
-              setIsAuthLoading(false);
-              return;
-            }
+          if (serverFinishedDoc) {
+            setUserNotification("You have already completed this exam (Verified by Server Database).");
+            localStorage.setItem(`nsg_exam_session_${targetExamId}_${student.matric}`, circularSafeStringify({ status: 'completed' }));
+            setIsAuthLoading(false);
+            return;
           }
 
-          // Secondary check: Firestore results subcollection
-          const resultsSnap = await getDocs(query(collection(db, 'exams', targetExamId, 'results'), where('uid', '==', user.uid)));
-          const alreadyFinished = !resultsSnap.empty;
-          if (alreadyFinished) {
-            setUserNotification("You have already completed this exam (Verified by Server).");
-            // Update local storage to match server state
-            localStorage.setItem(`nsg_exam_session_${targetExamId}_${student.matric}`, circularSafeStringify({ status: 'completed' }));
-            return;
+          // Check for existing session in localStorage
+          const sessionKey = `nsg_exam_session_${targetExamId}_${student.matric}`;
+          const session = localStorage.getItem(sessionKey);
+          if (session) {
+            try {
+              const sessionData = JSON.parse(session);
+              if (sessionData.status === 'completed') {
+                // Server confirmed no completed result exists for this matric, so clear stale local completion lock!
+                localStorage.removeItem(sessionKey);
+              } else if (sessionData.status === 'in-progress') {
+                // Restore in-progress session state!
+                setStudentActiveQuestions(sessionData.studentActiveQuestions || []);
+                setExamAnswers(sessionData.examAnswers || {});
+                setExamTimer(sessionData.examTimer || (data.config?.duration || 60) * 60);
+                setActiveStudentSubject(sessionData.activeStudentSubject || "");
+                setCurrentExamIndex(0);
+                setExamFinished(false);
+                setExamLobbyState('exam');
+                setActiveExamId(targetExamId);
+                setActiveExamHostUid(data.hostUid || null);
+                
+                if (examTimerRef.current) clearInterval(examTimerRef.current);
+                examTimerRef.current = setInterval(() => {
+                  setExamTimer(prev => {
+                    if (prev <= 1) {
+                      submitExam();
+                      return 0;
+                    }
+                    const newVal = prev - 1;
+                    try {
+                      const curStr = localStorage.getItem(sessionKey);
+                      if (curStr) {
+                        const curObj = JSON.parse(curStr);
+                        curObj.examTimer = newVal;
+                        localStorage.setItem(sessionKey, circularSafeStringify(curObj));
+                      }
+                    } catch (e) {}
+                    return newVal;
+                  });
+                }, 1000);
+
+                setUserNotification("🔄 Restored your active exam session!");
+                setIsAuthLoading(false);
+                return;
+              }
+            } catch (e) {
+              localStorage.removeItem(sessionKey);
+            }
           }
 
           // Check payment status
@@ -6228,8 +6238,20 @@ export default function App() {
     }
   };
 
-  const restartStudentTimer = (matric: string) => {
+  const restartStudentTimer = async (matric: string) => {
     localStorage.removeItem(`nsg_exam_session_${matric}`);
+    if (hostExamId) {
+      localStorage.removeItem(`nsg_exam_session_${hostExamId}_${matric}`);
+      try {
+        const cleanMatric = matric.replace(/\s+/g, '').toLowerCase();
+        const resultsRef = collection(db, 'exams', hostExamId, 'results');
+        const snapshot = await getDocs(resultsRef);
+        const toDelete = snapshot.docs.filter(d => (d.data().matric || "").toString().replace(/\s+/g, '').toLowerCase() === cleanMatric);
+        await Promise.all(toDelete.map(d => deleteDoc(d.ref)));
+      } catch (e) {
+        console.error("Error clearing student result in Firestore:", e);
+      }
+    }
     setRegisteredStudents(prev => prev.map(s => 
       s.matric === matric ? { ...s, isActive: false } : s
     ));
