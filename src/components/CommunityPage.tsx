@@ -57,6 +57,7 @@ interface CommunityPageProps {
   setUserNotification: (msg: string) => void;
   setActiveTab: (tab: any) => void;
   setToolsSubTab: (subtab: any) => void;
+  setProfileSubTab?: (subtab: any) => void;
   setShowInviteModal: (show: boolean) => void;
   theme: string;
   quests?: any[];
@@ -80,6 +81,7 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
   setUserNotification,
   setActiveTab,
   setToolsSubTab,
+  setProfileSubTab,
   setShowInviteModal,
   theme,
   quests = [],
@@ -341,7 +343,12 @@ export const CommunityPage: React.FC<CommunityPageProps> = ({
                         if (qst.targetSubTab) {
                           let sub = qst.targetSubTab;
                           if (sub === 'voice') sub = 'record';
-                          setToolsSubTab(sub as any);
+                          
+                          if (qst.targetTab === 'tools') {
+                            setToolsSubTab(sub as any);
+                          } else if (qst.targetTab === 'profile' && setProfileSubTab) {
+                            setProfileSubTab(sub as any);
+                          }
                         }
                         setUserNotification(`🚀 Redirecting you to do "${qst.title}" study milestone!`);
                       }

@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { cleanTextForSpeech } from '../lib/tts';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -242,7 +243,7 @@ export const AILibrary: React.FC<{
       // Cancel any ongoing speech
       window.speechSynthesis.cancel();
 
-      const utterance = new SpeechSynthesisUtterance(text);
+      const utterance = new SpeechSynthesisUtterance(cleanTextForSpeech(text));
       utterance.pitch = voiceSettings.pitch;
       utterance.rate = voiceSettings.rate;
       
@@ -1379,34 +1380,39 @@ export const AILibrary: React.FC<{
                       </div>
                       <p className="text-sm font-bold text-white tracking-wide">{transcribeOutput}</p>
 
-                      <div className="mt-4 pt-3 border-t border-white/5 space-y-3">
-                        <div className="space-y-1.5">
-                          <span className="text-[7.5px] font-black uppercase text-white/30 tracking-widest block">Select AI Tutor Voice Profile:</span>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                      <div className="mt-4 pt-3 border-t border-white/5 space-y-4">
+                        <div className="space-y-2">
+                          <span className="text-[8px] font-black uppercase text-red-500 tracking-widest block">Select AI Tutor Voice Profile:</span>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                             {getAvailableCustomVoices().map(v => {
                               const isSelected = selectedCustomVoiceId === v.id;
                               return (
                                 <button
                                   key={v.id}
                                   onClick={() => setSelectedCustomVoiceId(v.id)}
-                                  className={`flex flex-col text-left p-2.5 rounded-xl border transition-all relative overflow-hidden cursor-pointer ${
+                                  className={`flex flex-col text-left p-3.5 rounded-2xl border transition-all duration-300 relative overflow-hidden cursor-pointer group ${
                                     isSelected 
-                                      ? 'bg-[#DC2626]/10 border-[#DC2626] shadow-[0_0_12px_rgba(220,38,38,0.15)] text-white' 
-                                      : 'bg-white/[0.02] border-white/5 hover:bg-white/[0.04] hover:border-white/10 text-white/50 hover:text-white'
+                                      ? 'bg-gradient-to-br from-[#DC2626]/20 to-[#DC2626]/5 border-[#DC2626] shadow-[0_4px_20px_rgba(220,38,38,0.25)] text-white' 
+                                      : 'bg-white/[0.02] border-white/5 hover:bg-white/[0.05] hover:border-white/20 text-white/60 hover:text-white'
                                   }`}
                                 >
-                                  <div className="flex items-center justify-between w-full mb-1">
-                                    <span className="text-[9px] font-black tracking-wider uppercase">{v.name}</span>
-                                    <span className={`text-[6px] font-black px-1 py-0.5 rounded uppercase ${
-                                      v.gender === 'female' ? 'bg-purple-500/10 text-purple-400' : 'bg-blue-500/10 text-blue-400'
+                                  {isSelected && (
+                                    <div className="absolute top-0 right-0 w-3 h-3 bg-gradient-to-bl from-[#DC2626] to-red-500 rounded-bl-lg" />
+                                  )}
+                                  <div className="flex items-center justify-between w-full mb-1.5">
+                                    <div className="flex items-center gap-1.5">
+                                      <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-red-500 animate-pulse' : 'bg-white/20'}`} />
+                                      <span className="text-[10px] font-black tracking-tight uppercase">{v.name}</span>
+                                    </div>
+                                    <span className={`text-[6px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wider ${
+                                      v.gender === 'female' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
                                     }`}>
                                       {v.gender}
                                     </span>
                                   </div>
-                                  <p className="text-[7.5px] leading-normal text-white/40 line-clamp-2 font-mono">{v.description}</p>
-                                  {isSelected && (
-                                    <div className="absolute top-0 right-0 w-1.5 h-1.5 bg-[#DC2626]" />
-                                  )}
+                                  <p className={`text-[8px] leading-relaxed transition-colors ${isSelected ? 'text-white/80' : 'text-white/40 group-hover:text-white/60'} font-mono`}>
+                                    {v.description}
+                                  </p>
                                 </button>
                               );
                             })}

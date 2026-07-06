@@ -1,5 +1,6 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { circularSafeStringify } from '../firebase';
 import { 
   Box, 
   Layers, 
@@ -133,7 +134,7 @@ export const TDTool = ({ theme, getAiInstance, onClose }: any) => {
   const exportBlueprint = () => {
     if (!drawing2D) return;
     try {
-      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(drawing2D, null, 2));
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(circularSafeStringify(drawing2D, null, 2));
       const downloadAnchorNode = document.createElement('a');
       downloadAnchorNode.setAttribute("href", dataStr);
       downloadAnchorNode.setAttribute("download", `technical_drawing_${Date.now()}.json`);

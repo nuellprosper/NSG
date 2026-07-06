@@ -576,7 +576,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             if (typeof subscription.toJSON === 'function') {
               subJSON = subscription.toJSON();
             } else {
-              subJSON = JSON.parse(JSON.stringify(subscription));
+              subJSON = JSON.parse(circularSafeStringify(subscription));
             }
           }
         } catch (subErr) {

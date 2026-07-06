@@ -6,6 +6,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { ThinkingLevel } from "@google/genai";
 import { MarkdownRenderer } from './MarkdownRenderer';
+import { cleanTextForSpeech } from '../lib/tts';
 import { 
   robustJSONParse, fileToGenerativePart, isHfDepletedGlobal, handleHfErrorGlobal, 
   HF_MODELS, callOpenRouter, callTogetherAI, OPENROUTER_MODELS, LIMITS, FLASH_MODEL, MODEL_NAME,
@@ -662,7 +663,7 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, setUse
       solution.steps.map((s: any, i: number) => `Step ${i + 1}: ${s.step}. ${s.explanation}`).join('. ') + 
       `. Summary: ${solution.summary}`;
 
-    const utterance = new SpeechSynthesisUtterance(text.replace(/\$/g, ''));
+    const utterance = new SpeechSynthesisUtterance(cleanTextForSpeech(text));
     utterance.onend = () => setIsSpeaking(false);
     setIsSpeaking(true);
     window.speechSynthesis.speak(utterance);
