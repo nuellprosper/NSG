@@ -2891,7 +2891,7 @@ export default function App() {
       }
       let finalId = noteId;
       if (noteId) {
-        await updateDoc(doc(db, 'notes', noteId), noteData);
+        await setDoc(doc(db, 'notes', noteId), noteData, { merge: true });
       } else {
         noteData.createdAt = serverTimestamp();
         const docRef = await addDoc(collection(db, 'notes'), noteData);
@@ -2938,9 +2938,9 @@ export default function App() {
 
     const timer = setTimeout(() => {
       saveNote(selectedNote.content, selectedNote.title, selectedNote.id, selectedNote.attachments, podcastDialogue);
-    }, 5000); // 5 second debounce
+    }, 1000); // 1 second auto-save
     return () => clearTimeout(timer);
-  }, [selectedNote?.content, selectedNote?.title, selectedNote?.attachments, user]);
+  }, [selectedNote?.content, selectedNote?.title, selectedNote?.attachments, user, podcastDialogue]);
 
   const handleNoteContentChange = (newVal: string) => {
     if (newVal === selectedNote.content) return;
@@ -10335,6 +10335,8 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
               setNoteHistory={setNoteHistory}
               redoStack={redoStack}
               setRedoStack={setRedoStack}
+              undoNote={undoNote}
+              redoNote={redoNote}
               initializePayment={initializePayment}
               handleTakingPaymentSuccess={handleTakingPaymentSuccess}
               handlePaystackClose={handlePaystackClose}
