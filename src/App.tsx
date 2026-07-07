@@ -3063,27 +3063,8 @@ export default function App() {
         };
         
         const updatedAttachments = [...(selectedNote.attachments || []), newAttachment];
-        
-        let markdownTag = "";
-        if (file.type.startsWith('image/')) {
-          markdownTag = `\n![${file.name}](${finalUrl})\n`;
-        } else if (file.type.startsWith('audio/')) {
-          markdownTag = `\n> \u{1F50A} **Audio Source Attached:** [${file.name}](${finalUrl})\n`;
-        } else {
-          markdownTag = `\n> \u{1F4D4} **Document Attached:** [${file.name}](${finalUrl})\n`;
-        }
 
-        const textarea = document.getElementById('note-main-textarea') as HTMLTextAreaElement;
-        const currentContent = selectedNote.content || '';
-        
-        let updatedContent: string;
-        if (textarea) {
-          const start = textarea.selectionStart;
-          const end = textarea.selectionEnd;
-          updatedContent = currentContent.substring(0, start) + markdownTag + currentContent.substring(end);
-        } else {
-          updatedContent = currentContent + markdownTag;
-        }
+        const updatedContent = selectedNote.content || '';
 
         handleNoteContentChange(updatedContent);
         setSelectedNote({ ...selectedNote, attachments: updatedAttachments, content: updatedContent });
@@ -6617,6 +6598,8 @@ ${session.fullAnalysis}
         }
 
         setIsAudioTranscribing(false);
+        setActiveAudioNoteId(null);
+        setAudioTranscribingPopup(false);
         setUserNotification("Audio conversion to note complete!");
       } catch (err) {
         console.error("Audio conversion failed:", err);
@@ -6632,6 +6615,8 @@ ${session.fullAnalysis}
           isTranscribing: false
         } : prev);
         setIsAudioTranscribing(false);
+        setActiveAudioNoteId(null);
+        setAudioTranscribingPopup(false);
       }
     })();
   };
@@ -6738,7 +6723,7 @@ ${session.fullAnalysis}
   const handleToggleRecording = async () => {
     if (isStopping) return;
     if (isRecording) {
-      // 1. Immediately visually stop the recording
+      // 1. Immediately visually and functionally stop the recording at this exact second
       setIsRecording(false);
       releaseWakeLock();
       if (timerRef.current) clearInterval(timerRef.current);
@@ -6747,10 +6732,9 @@ ${session.fullAnalysis}
       setIsStopping(true);
       setIsProcessingFinal(true);
       isStopRequested.current = true;
+
+      // Stop recorders immediately
       try {
-        console.log("🛑 Stopping audio capture...");
-        
-        // Stop the live segment-transcription loops
         if (segmentTimeoutRef.current) {
           clearTimeout(segmentTimeoutRef.current);
           segmentTimeoutRef.current = null;
@@ -6758,32 +6742,33 @@ ${session.fullAnalysis}
         if (segmentRecorderRef.current && segmentRecorderRef.current.state !== 'inactive') {
           segmentRecorderRef.current.stop();
         }
-
         if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
           mediaRecorderRef.current.stop();
           mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
         }
+      } catch (e) {
+        console.error("Error stopping recorder tracks:", e);
+      }
 
-        // Wait for all outstanding chunk transcriptions to finish
+      // Background finalization
+      try {
         await processorQueue.current;
-        console.log("✅ Live transcription of segments completed.");
-
-        // Generate AI title
         const aiTitle = await generateAITitleForNote(transcriptionNotesRef.current);
         const finalTitle = aiTitle === "Untitled" ? "Untitled" : `${aiTitle} ${formatNoteTimeDate()}`;
         finalRecordingTitleRef.current = finalTitle;
 
-        // Final save of Note to Notebook Vault/Cache - update the ID we saved initially
         if (activeRecordingNoteIdRef.current) {
           await saveNote(transcriptionNotesRef.current, finalTitle, activeRecordingNoteIdRef.current);
         }
-
         setUserNotification("Transcription and note creation completed!");
       } catch (err) {
-        console.error("Error stopping recording:", err);
+        console.error("Error finalizing recording:", err);
       } finally {
         setIsProcessingFinal(false);
         setIsStopping(false);
+        setIsAudioTranscribing(false);
+        setActiveAudioNoteId(null);
+        setAudioTranscribingPopup(false);
       }
     } else {
       const canProceed = await checkAndIncrementUsage('RECORD');
@@ -6792,7 +6777,7 @@ ${session.fullAnalysis}
       audioChunksRef.current = [];
       processedChunksCountRef.current = 0;
       setTranscriptionNotes('');
-      lastFinalizedTranscriptRef.current = ''; // Reset the finalized cumulative string
+      lastFinalizedTranscriptRef.current = '';
       setAudioUrl(null);
       setRecordedBlob(null);
       activeRecordingNoteIdRef.current = null;
@@ -6802,17 +6787,43 @@ ${session.fullAnalysis}
       setCurrentRecordingSessionId(newSessionId);
       currentRecordingSessionIdRef.current = newSessionId;
 
-      // Immediately create placeholder note in Vault so we can update in real-time during recording
+      // Instantly start recording state and timer at this exact second!
+      setIsRecording(true);
+      setRecordingTime(0);
+      isStopRequested.current = false;
+
+      timerRef.current = setInterval(() => {
+        setRecordingTime(p => {
+          const limits = isPremium ? LIMITS.RECORD.PREMIUM : LIMITS.RECORD.NORMAL;
+          if (p >= limits.DURATION) {
+            handleToggleRecording();
+            setUserNotification(`Time limit reached for your plan (${limits.DURATION / 60} mins). Saving now.`);
+            return p;
+          }
+          return p + 1;
+        });
+      }, 1000);
+
+      // Create placeholder note in vault
       const initNoteId = await saveNote("Transcribing lecture content...", "Untitled");
       activeRecordingNoteIdRef.current = initNoteId;
+      setActiveAudioNoteId(initNoteId);
+      setIsAudioTranscribing(true);
+      setAudioTranscribingPopup(true);
 
+      // Asynchronously initialize microphone stream and media recorder
       try {
         requestWakeLock();
         const originalStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        
+        if (isStopRequested.current) {
+          originalStream.getTracks().forEach(track => track.stop());
+          return;
+        }
+
         const enhanced = await getEnhancedStream(originalStream);
         audioProcessingRef.current = enhanced;
         
-        // 1. Start continuous high-quality master recorder
         const recorder = new MediaRecorder(enhanced.stream);
         recorder.ondataavailable = (e) => {
           if (e.data.size > 0) {
@@ -6832,7 +6843,6 @@ ${session.fullAnalysis}
           const localUrl = URL.createObjectURL(blob);
           setAudioUrl(localUrl);
 
-          // Force download to phone/PC storage as requested
           try {
             const downloadLink = document.createElement('a');
             downloadLink.href = localUrl;
@@ -6844,7 +6854,6 @@ ${session.fullAnalysis}
             console.error("Recording auto-download failed:", err);
           }
 
-          // AUTO SAVE RECORDING TO SERVERS/STORAGE
           const sessionTitle = finalRecordingTitleRef.current === "Untitled" ? `Recording: ${new Date().toLocaleTimeString()}` : finalRecordingTitleRef.current;
           
           if (!isOnline) {
@@ -6912,23 +6921,7 @@ ${session.fullAnalysis}
         };
 
         mediaRecorderRef.current = recorder;
-        recorder.start(1000); // Record in 1s chunks to avoid loss of state
-        
-        setIsRecording(true);
-        setRecordingTime(0);
-        
-        // Timer for length constraints
-        timerRef.current = setInterval(() => {
-          setRecordingTime(p => {
-            const limits = isPremium ? LIMITS.RECORD.PREMIUM : LIMITS.RECORD.NORMAL;
-            if (p >= limits.DURATION) {
-              handleToggleRecording();
-              setUserNotification(`Time limit reached for your plan (${limits.DURATION / 60} mins). Saving now.`);
-              return p;
-            }
-            return p + 1;
-          });
-        }, 1000);
+        recorder.start(1000);
 
         // 2. Continuous Live Segment-by-Segment Recording Loops
         isStopRequested.current = false;
@@ -6972,8 +6965,16 @@ ${session.fullAnalysis}
         // Start the first live transcription segment!
         recordNextSegment();
 
+        if (isStopRequested.current) {
+          recorder.stop();
+        }
       } catch (err) {
-        setUserNotification("Microphone access denied. Please check permissions.");
+        console.error("Error starting recording stream:", err);
+        setUserNotification("Failed to access microphone. Please check permissions.");
+        setIsRecording(false);
+        if (timerRef.current) clearInterval(timerRef.current);
+        setIsAudioTranscribing(false);
+        setAudioTranscribingPopup(false);
       }
     }
   };
@@ -8463,7 +8464,28 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
 
     try {
       const aiInstance = getAiInstance();
-      const imageParts = await Promise.all(quizImages.map(img => fileToGenerativePart(img.file)));
+      const imageParts = await Promise.all(quizImages.map(async (img) => {
+        if (img.file) {
+          return fileToGenerativePart(img.file);
+        } else if (img.url) {
+          try {
+            const res = await fetch(img.url);
+            const blob = await res.blob();
+            const base64Data = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+              reader.onerror = reject;
+              reader.readAsDataURL(blob);
+            });
+            return { inlineData: { data: base64Data, mimeType: blob.type || 'image/png' } };
+          } catch (e) {
+            console.error("Error loading image from URL:", e);
+            return null;
+          }
+        }
+        return null;
+      }));
+      const validImageParts = imageParts.filter(Boolean);
 
       let promptContext = "";
       if (importedQuizNote) {
@@ -8478,20 +8500,19 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
         promptContext += `Analyze the imported student study note titled "${importedQuizNote.title}" with the following content (including extracted transcriptions of attached materials):\n"""\n${noteContent}\n"""\n\n`;
       }
       
-      if (activeTopic.trim()) {
+      const hasTextPrompt = activeTopic.trim().length > 0;
+      const hasImages = quizImages.length > 0;
+
+      if (hasTextPrompt && hasImages) {
+        promptContext += `MANDATORY DUAL-SOURCE REQUIREMENT: You MUST generate the ${activeCount} quiz questions by synthesizing and drawing from BOTH sources simultaneously: (1) the text prompt / note content ("${activeTopic}"), AND (2) the attached document(s)/image(s) provided. No matter the total question count (${activeCount}), distribute questions across both sources (e.g. alternate questions between text info and document/image info, combine them, or blend them dynamically throughout the questions so that every source is thoroughly tested). Never rely solely on text or solely on documents.\n\n`;
+      } else if (hasTextPrompt) {
         if (importedQuizNote) {
           promptContext += `Integrate the note context above with the user's specific text instructions/topic: "${activeTopic}".\n\n`;
         } else {
           promptContext += `The questions must strictly cover and test the user's requested topic/context: "${activeTopic}".\n\n`;
         }
-      }
-      
-      if (quizImages.length > 0) {
-        if (activeTopic.trim() || importedQuizNote) {
-          promptContext += `Additionally, merge and incorporate information from the attached image(s) to generate relevant academic questions covering the diagrams, textbook excerpts, or notes shown in them.\n\n`;
-        } else {
-          promptContext += `No text topic or note was provided. You must analyze the attached image(s) to generate relevant academic questions based strictly on the subject matter, text, equations, diagrams, and educational context shown in them.\n\n`;
-        }
+      } else if (hasImages) {
+        promptContext += `You must analyze the attached document(s)/image(s) to generate relevant academic questions based strictly on the subject matter, text, equations, diagrams, and educational context shown in them.\n\n`;
       }
 
       const prompt = `
@@ -8526,8 +8547,10 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
       `;
 
       const contentsParts: any[] = [{ text: prompt }];
-      imageParts.forEach(part => {
-        contentsParts.push({ inlineData: part.inlineData });
+      validImageParts.forEach(part => {
+        if (part && part.inlineData) {
+          contentsParts.push({ inlineData: part.inlineData });
+        }
       });
 
       const askGemini = async () => {
@@ -9801,7 +9824,7 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
           )}
         </AnimatePresence>
         <AnimatePresence>
-          {(isAudioTranscribing || audioTranscribingPopup) && (
+          {audioTranscribingPopup && (
             <motion.div
               initial={{ opacity: 0, y: 50, scale: 0.9 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -9817,13 +9840,13 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                     <span className="w-1.5 h-1.5 rounded-full bg-[#DC2626] animate-ping" />
                     Transcribing Audio
                   </span>
-                  <button onClick={() => setAudioTranscribingPopup(false)} className="text-white/40 hover:text-white cursor-pointer">
+                  <button onClick={() => setAudioTranscribingPopup(false)} className="text-white/40 hover:text-white cursor-pointer p-1" title="Dismiss Popup">
                     <X size={14} />
                   </button>
                 </div>
-                <p className="text-xs font-bold text-white leading-tight">Audio is being transcribed at the note page!</p>
-                <p className="text-[10px] text-white/50 leading-relaxed">
-                  Go to Notes to see your note actively being written live.
+                <p className="text-xs font-bold text-white leading-tight">Audio is being transcribed into a study note!</p>
+                <p className="text-[10px] text-white/70 leading-relaxed font-sans">
+                  ⚠️ Please do not reload or leave the app while processing audio, regardless of length. Your note is being written live in the background.
                 </p>
                 <button
                   onClick={() => {

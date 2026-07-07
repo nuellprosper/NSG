@@ -324,9 +324,11 @@ export const PAYSTACK_PUBLIC_KEY = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || "
 
 export interface MediaFile {
   id: string;
-  file: File;
+  file?: File | null;
   preview?: string;
-  type: 'image' | 'audio';
+  url?: string;
+  name?: string;
+  type?: 'image' | 'audio' | string;
 }
 
 export interface ChatMessage {
