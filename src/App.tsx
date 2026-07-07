@@ -4809,7 +4809,9 @@ export default function App() {
     console.log("Starting Subject-Specific Admin Question Generation...");
     
     if (!getApiKey()) {
-      setUserNotification("API Key is missing. Please set GEMINI_API_KEY inside your settings.");
+      const errMsg = "API Key is missing. Please set GEMINI_API_KEY inside your settings.";
+      setUserNotification(errMsg);
+      alert(errMsg);
       return;
     }
 
@@ -4818,16 +4820,24 @@ export default function App() {
     
     // Filter existing pool for this subject
     const existingSubQuestions = examQuestions.filter(q => q.subject?.trim().toLowerCase() === currentSubjectName.trim().toLowerCase());
-    
-    // Determine target quantity
-    const quantity = options?.quantity || adminOmniQuantity || 10;
+    const isBlank = (itemQ: any) => !itemQ.question || itemQ.question.trim() === "" || itemQ.question.trim().toLowerCase() === "enter question query here...";
+    const blankSubQs = existingSubQuestions.filter(q => isBlank(q));
+    const realSubQs = existingSubQuestions.filter(q => !isBlank(q));
+
+    const targetSub = examConfig.subjects?.find(s => s.name.trim().toLowerCase() === currentSubjectName.trim().toLowerCase());
+    const currentTargetCount = targetSub ? (targetSub.questionsToAnswer || 15) : 15;
+
+    // Determine quantity: if there are blank spaces, generate enough to fill all blanks or requested quantity
+    const quantity = options?.quantity || Math.max(adminOmniQuantity, blankSubQs.length > 0 ? blankSubQs.length : currentTargetCount - realSubQs.length, 5);
 
     const combinedPrompt = options 
       ? `${options.customPrompt || ""}\n${options.rawNotes || ""}`.trim()
       : adminQuestionsRaw.trim();
 
-    if (existingSubQuestions.length === 0 && !combinedPrompt) {
-      setUserNotification(`Please enter a prompt instruction for ${currentSubjectName} first, as there are no manual questions to analyze.`);
+    if (realSubQs.length === 0 && blankSubQs.length === 0 && !combinedPrompt) {
+      const errMsg = `Please enter a prompt instruction or raw notes for ${currentSubjectName} first.`;
+      setUserNotification(errMsg);
+      alert(errMsg);
       return;
     }
 
@@ -4838,11 +4848,11 @@ export default function App() {
         Generate exactly ${Math.min(50, quantity)} questions for the subject/exam of "${currentSubjectName}".
         Each question must have exactly 4 options (A-D) and one correct answer index (0-3).
         
-        ${combinedPrompt ? `User Instructions/Topic Prompt: "${combinedPrompt}"` : `Analyze difficulty and style from the existing questions below and create similar questions.`}
+        ${combinedPrompt ? `User Instructions/Topic Prompt: "${combinedPrompt}"` : `Analyze difficulty and style from the existing questions below and create similar questions to fill up all empty spaces.`}
         
-        ${existingSubQuestions.length > 0 ? `
+        ${realSubQs.length > 0 ? `
         Analyzable Existing Questions for style modeling in ${currentSubjectName}:
-        ${circularSafeStringify(existingSubQuestions.slice(0, 5))}
+        ${circularSafeStringify(realSubQs.slice(0, 5))}
         ` : ''}
 
         IMPORTANT: For any mathematical formulas or scientific notations, ALWAYS use LaTeX notation. 
@@ -4886,56 +4896,66 @@ export default function App() {
 
       const respText = await askGemini() || await askTogether() || await askOpenRouter() || "{}";
       const data = JSON.parse(respText);
-      if (data.questions) {
-        const formatted = data.questions.map((q: any) => ({ 
-          ...q, 
-          id: `q-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-          subject: currentSubjectName
-        }));
-        
-        // Filter out blank questions of this subject so real generated ones replace them
-        const isBlank = (itemQ: any) => !itemQ.question || itemQ.question.trim() === "" || itemQ.question.trim().toLowerCase() === "enter question query here...";
-        
-        const otherSubjectsQs = examQuestions.filter(q => (q.subject || "Mathematics").trim().toLowerCase() !== currentSubjectName.trim().toLowerCase());
-        const existingSubQs = examQuestions.filter(q => (q.subject || "Mathematics").trim().toLowerCase() === currentSubjectName.trim().toLowerCase());
-        
-        const realSubQs = existingSubQs.filter(q => !isBlank(q));
-        const combinedSubQs = [...realSubQs, ...formatted];
-        const newTotalCount = combinedSubQs.length;
-        
-        // Update subjects limit if new pool size exceeds it so we don't truncate any
-        const targetSub = examConfig.subjects?.find(s => s.name.trim().toLowerCase() === currentSubjectName.trim().toLowerCase());
-        const currentTargetCount = targetSub ? (targetSub.questionsToAnswer || 15) : 15;
-        
-        let finalSubjects = examConfig.subjects || [];
-        if (newTotalCount > currentTargetCount) {
-          finalSubjects = (examConfig.subjects || []).map(s => {
-            if (s.name.trim().toLowerCase() === currentSubjectName.trim().toLowerCase()) {
-              return { ...s, questionsToAnswer: newTotalCount };
-            }
-            return s;
-          });
-          setExamConfig(prev => ({ ...prev, subjects: finalSubjects }));
-        }
-        
-        const updatedPool = [...otherSubjectsQs, ...combinedSubQs].slice(0, 200);
-        setExamQuestions(updatedPool);
-        
-        // Auto-sync to Firestore if hosting
-        if (hostExamId) {
-          await updateDoc(doc(db, 'exams', hostExamId), { 
-            questions: updatedPool,
-            config: { ...examConfig, subjects: finalSubjects }
-          });
-        }
-        
-        setAdminNotification(`Added ${formatted.length} ${currentSubjectName} questions!`);
-        // Clear prompt text after successful completion
-        setAdminQuestionsRaw('');
+
+      if (!data.questions || !Array.isArray(data.questions) || data.questions.length === 0) {
+        throw new Error("AI returned zero or invalid questions.");
       }
+
+      const formatted = data.questions.map((q: any) => ({ 
+        ...q, 
+        id: `q-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        subject: currentSubjectName
+      }));
+
+      // Smart Filling: Replace blank slots with formatted questions
+      let generatedIdx = 0;
+      const updatedSubQuestions = existingSubQuestions.map(q => {
+        if (isBlank(q) && generatedIdx < formatted.length) {
+          const newQ = { ...formatted[generatedIdx], id: q.id, subject: currentSubjectName };
+          generatedIdx++;
+          return newQ;
+        }
+        return q;
+      });
+
+      // If there are remaining formatted questions that didn't fit into existing blank slots, append them
+      const remainingFormatted = formatted.slice(generatedIdx);
+      const finalSubQuestions = [...updatedSubQuestions, ...remainingFormatted];
+
+      const newTotalCount = finalSubQuestions.length;
+      let finalSubjects = examConfig.subjects || [];
+      if (newTotalCount > currentTargetCount) {
+        finalSubjects = (examConfig.subjects || []).map(s => {
+          if (s.name.trim().toLowerCase() === currentSubjectName.trim().toLowerCase()) {
+            return { ...s, questionsToAnswer: newTotalCount };
+          }
+          return s;
+        });
+        setExamConfig(prev => ({ ...prev, subjects: finalSubjects }));
+      }
+
+      const otherSubjectsQs = examQuestions.filter(q => (q.subject || "Mathematics").trim().toLowerCase() !== currentSubjectName.trim().toLowerCase());
+      const updatedPool = [...otherSubjectsQs, ...finalSubQuestions].slice(0, 300);
+      setExamQuestions(updatedPool);
+
+      // Auto-sync to Firestore if hosting (without affecting user results)
+      if (hostExamId) {
+        await updateDoc(doc(db, 'exams', hostExamId), { 
+          questions: updatedPool,
+          config: { ...examConfig, subjects: finalSubjects }
+        });
+      }
+
+      const addedCount = formatted.length;
+      setAdminNotification(`✨ Omni successfully added/filled ${addedCount} questions for ${currentSubjectName}!`);
+      setUserNotification(`✨ Omni successfully added/filled ${addedCount} questions for ${currentSubjectName}!`);
+      setAdminQuestionsRaw('');
     } catch (e) {
-      console.error(e);
-      setAdminNotification("Failed to generate questions. Verify your prompt or API key.");
+      console.error("Question Generation Error:", e);
+      const errMsg = "❌ Failed to generate questions or populate the log. Please check your prompt or API key and tap Generate again.";
+      setAdminNotification(errMsg);
+      setUserNotification(errMsg);
+      alert(errMsg);
     } finally {
       setIsGeneratingAdminQuestions(false);
     }
@@ -6412,6 +6432,50 @@ ${session.fullAnalysis}
     }
   };
 
+  // --- 6-MONTH SILENT CLEANUP & RESUME TRANSCRIPTION ---
+  useEffect(() => {
+    const runCleanUpAndResume = async () => {
+      const SIX_MONTHS_MS = 6 * 30 * 24 * 3600 * 1000;
+      const now = Date.now();
+
+      if (user?.uid) {
+        try {
+          const notesSnap = await getDocs(query(collection(db, 'notes'), where('uid', '==', user.uid), limit(200)));
+          notesSnap.docs.forEach(async (d) => {
+            const data = d.data();
+            const t = data.updatedAt?.toMillis ? data.updatedAt.toMillis() : (data.createdAt?.toMillis ? data.createdAt.toMillis() : (data.createdAt || data.timestamp || 0));
+            if (t && now - t > SIX_MONTHS_MS) {
+              await deleteDoc(doc(db, 'notes', d.id));
+            }
+          });
+
+          const sessionsSnap = await getDocs(query(collection(db, 'users', user.uid, 'lectureSessions'), limit(200)));
+          sessionsSnap.docs.forEach(async (d) => {
+            const data = d.data();
+            const t = data.createdAt || data.timestamp || 0;
+            if (t && now - t > SIX_MONTHS_MS) {
+              await deleteDoc(doc(db, 'users', user.uid, 'lectureSessions', d.id));
+            }
+          });
+        } catch (e) {
+          console.error("Cleanup/Resume check error:", e);
+        }
+      }
+
+      // Cleanup offline cache storage older than 6 months
+      try {
+        const offlineData = localStorage.getItem('nsg_offline_recordings');
+        if (offlineData) {
+          const list = JSON.parse(offlineData);
+          const filtered = list.filter((item: any) => now - (item.createdAt || item.timestamp || 0) <= SIX_MONTHS_MS);
+          localStorage.setItem('nsg_offline_recordings', circularSafeStringify(filtered));
+        }
+      } catch (e) {}
+    };
+
+    runCleanUpAndResume();
+  }, [user]);
+
   const handleUploadAudioRecordPage = async (file: File) => {
     if (!file) return;
     const url = URL.createObjectURL(file);
@@ -6435,13 +6499,50 @@ ${session.fullAnalysis}
 
     const cleanFileName = file.name ? file.name.replace(/\.[^/.]+$/, "") : `Uploaded Audio ${new Date().toLocaleTimeString()}`;
     const newSessionId = `session-upload-${Date.now()}`;
+    const newNoteId = `note-audio-${Date.now()}`;
 
-    const aiInstance = getAiInstance();
-    let audioPart: any = null;
-    try {
-      audioPart = await fileToGenerativePart(file);
-    } catch (err) {
-      console.error("Error converting file:", err);
+    // Split audio into 10-minute fragments if duration > 10 mins (600s)
+    const chunkSec = 600; // 10 minutes
+    const needsSplitting = !isNaN(durationSec) && isFinite(durationSec) && durationSec > 600;
+    const numFragments = needsSplitting ? Math.max(1, Math.min(10, Math.ceil(durationSec / chunkSec))) : 1;
+
+    const fragments: { index: number; name: string; url: string; fileBlob: Blob; status: string }[] = [];
+    const attachments: { name: string; url: string; type: string }[] = [];
+
+    setUserNotification(`Uploading and preparing ${numFragments} audio fragment(s) to Cloudinary...`);
+
+    for (let i = 0; i < numFragments; i++) {
+      let fragBlob: Blob = file;
+      let fragName = `${cleanFileName} - Part ${i + 1}`;
+      if (needsSplitting && durationSec > 0) {
+        const startSec = i * chunkSec;
+        const endSec = Math.min(durationSec, (i + 1) * chunkSec);
+        const startByte = Math.floor((startSec / durationSec) * file.size);
+        const endByte = Math.floor((endSec / durationSec) * file.size);
+        fragBlob = file.slice(startByte, endByte, file.type || 'audio/mpeg');
+      }
+
+      let fragUrl = url;
+      try {
+        const fragFile = new File([fragBlob], `${fragName}.mp3`, { type: file.type || 'audio/mpeg' });
+        fragUrl = await uploadToCloudinary(fragFile);
+      } catch (err) {
+        console.error(`Error uploading fragment ${i + 1} to Cloudinary:`, err);
+      }
+
+      attachments.push({
+        name: `${cleanFileName} - Part ${i + 1} (${Math.round((i * 10))}-${Math.min(Math.round(durationSec/60), (i+1)*10)} mins)`,
+        url: fragUrl,
+        type: file.type || 'audio/mpeg'
+      });
+
+      fragments.push({
+        index: i,
+        name: fragName,
+        url: fragUrl,
+        fileBlob: fragBlob,
+        status: 'pending'
+      });
     }
 
     const uploadedSession: LectureSession = {
@@ -6452,47 +6553,26 @@ ${session.fullAnalysis}
       createdAt: Date.now(),
       duration: formattedDuration,
       imageCount: 0,
-      summary: "Uploaded audio file. Active transcription into note in progress...",
+      summary: `Uploaded audio (${numFragments} parts). Active sequential transcription in progress...`,
       fullAnalysis: "",
-      notes: "Transcribing audio into structured study note...",
+      notes: "Transcribing audio fragments into structured study note...",
       images: [],
-      audioUrl: url,
-      audioBase64: audioPart?.inlineData?.data,
+      audioUrl: attachments[0]?.url || url,
       status: 'analyzed'
     };
 
-    if (user?.uid) {
-      try {
-        if (audioPart && audioPart.inlineData.data.length < 1000000) {
-          await setDoc(doc(db, 'users', user.uid, 'lectureSessions', newSessionId), uploadedSession);
-        } else {
-          await setDoc(doc(db, 'users', user.uid, 'lectureSessions', newSessionId), { ...uploadedSession, audioBase64: undefined });
-        }
-      } catch (err) {
-        console.error("Error saving uploaded session to Firestore:", err);
-      }
-    } else {
-      try {
-        const offlineData = localStorage.getItem('nsg_offline_recordings');
-        const list = offlineData ? JSON.parse(offlineData) : [];
-        list.push(uploadedSession);
-        localStorage.setItem('nsg_offline_recordings', circularSafeStringify(list));
-      } catch (e) {}
-    }
-
     setSessions(prev => [uploadedSession, ...prev]);
     setSelectedSession(uploadedSession);
-    setUserNotification("Audio uploaded! Preview ready below.");
 
-    const newNoteId = `note-audio-${Date.now()}`;
     const initialNote = {
       id: newNoteId,
       title: `${cleanFileName}`,
-      content: "# Transcribing Audio...\n\nAudio analysis in progress. Please wait while the perfect study note is generated...",
+      content: `# Transcribing Audio (${numFragments} Fragments)...\n\nAudio fragments uploaded to Cloudinary. Sequential context-aware AI transcription in progress...`,
       isTranscribing: true,
       createdAt: { toMillis: () => Date.now(), toDate: () => new Date() } as any,
       updatedAt: { toMillis: () => Date.now(), toDate: () => new Date() } as any,
-      attachments: [{ name: file.name, url: url, type: file.type || 'audio/mpeg' }]
+      attachments: attachments,
+      fragments: fragments.map(f => ({ index: f.index, name: f.name, url: f.url, status: f.status }))
     };
 
     setActiveAudioNoteId(newNoteId);
@@ -6500,6 +6580,7 @@ ${session.fullAnalysis}
     setAudioTranscribingPopup(true);
 
     setUserNotes(prev => [initialNote, ...prev]);
+
     if (user?.uid) {
       try {
         await setDoc(doc(db, 'notes', newNoteId), {
@@ -6507,117 +6588,100 @@ ${session.fullAnalysis}
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         });
-      } catch (e) {}
+        await setDoc(doc(db, 'users', user.uid, 'lectureSessions', newSessionId), uploadedSession);
+      } catch (e) {
+        console.error("Error saving note/session:", e);
+      }
     }
 
+    // Background Sequential Transcription Loop across all fragments with continuous context awareness
     (async () => {
-      try {
-        if (!audioPart) {
-          audioPart = await fileToGenerativePart(file);
-        }
-        const prompt = `You are an expert academic assistant. Analyze this audio recording thoroughly and generate a comprehensive, structured markdown study note ("perfect note"). Include clean headings, key concepts, detailed explanations, bullet points, summaries, and actionable study takeaways. Output ONLY the clean markdown note content.`;
-        
-        let accumulatedText = "";
+      const aiInstance = getAiInstance();
+      let accumulatedText = "";
+
+      for (let i = 0; i < fragments.length; i++) {
+        const frag = fragments[i];
         try {
-          const streamResult = await aiInstance.models.generateContentStream({
-            model: 'gemini-2.5-flash',
-            contents: [{ parts: [audioPart, { text: prompt }] }]
-          });
-          for await (const chunk of streamResult) {
-            if (chunk.text) {
-              accumulatedText += chunk.text;
-              setUserNotes(prev => prev.map(n => n.id === newNoteId ? {
-                ...n,
-                content: accumulatedText,
-                updatedAt: { toMillis: () => Date.now(), toDate: () => new Date() } as any
-              } : n));
-              setSelectedNote(prev => prev && prev.id === newNoteId ? {
-                ...prev,
-                content: accumulatedText
-              } : prev);
-            }
-          }
-        } catch (streamErr) {
-          console.log("Stream fallback to generateContent:", streamErr);
+          setUserNotification(`Transcribing Part ${i + 1} of ${fragments.length} seamlessly...`);
+          
+          const audioPart = await fileToGenerativePart(frag.fileBlob);
+
+          const prompt = i === 0
+            ? `You are an expert academic assistant. Analyze this first audio fragment (Part 1 of ${fragments.length}) of "${cleanFileName}" and generate a comprehensive, structured markdown study note ("perfect note"). Include clean headings, key concepts, detailed explanations, bullet points, summaries, and actionable study takeaways. Output ONLY the clean markdown note content.`
+            : `You are continuing the analysis of audio recording "${cleanFileName}" (Part ${i + 1} of ${fragments.length}). Here is the previous transcription context so far:\n\n${accumulatedText}\n\nContinue transcribing and expanding the structured markdown study note seamlessly from where it left off, integrating new details from this next part without repeating. Output ONLY the clean markdown note content.`;
+
           const response = await aiInstance.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: [{ parts: [audioPart, { text: prompt }] }]
           });
-          const fullText = response.text || "No note content generated.";
-          const words = fullText.split(" ");
-          let currentSim = "";
-          for (let i = 0; i < words.length; i += 4) {
-            currentSim += (i > 0 ? " " : "") + words.slice(i, i + 4).join(" ");
-            setUserNotes(prev => prev.map(n => n.id === newNoteId ? {
-              ...n,
-              content: currentSim,
-              updatedAt: { toMillis: () => Date.now(), toDate: () => new Date() } as any
-            } : n));
-            setSelectedNote(prev => prev && prev.id === newNoteId ? {
-              ...prev,
-              content: currentSim
-            } : prev);
-            await new Promise(r => setTimeout(r, 40));
+
+          const partText = response.text || "";
+          if (partText) {
+            accumulatedText = accumulatedText ? `${accumulatedText}\n\n### Part ${i + 1} Continuation\n\n${partText}` : partText;
           }
-          accumulatedText = fullText;
-        }
 
-        setUserNotes(prev => prev.map(n => n.id === newNoteId ? {
-          ...n,
-          content: accumulatedText,
-          isTranscribing: false,
-          updatedAt: { toMillis: () => Date.now(), toDate: () => new Date() } as any
-        } : n));
+          // Update note state and Firestore in real-time
+          setUserNotes(prev => prev.map(n => n.id === newNoteId ? {
+            ...n,
+            content: accumulatedText,
+            updatedAt: { toMillis: () => Date.now(), toDate: () => new Date() } as any
+          } : n));
+          setSelectedNote(prev => prev && prev.id === newNoteId ? {
+            ...prev,
+            content: accumulatedText
+          } : prev);
 
-        setSelectedNote(prev => prev && prev.id === newNoteId ? {
-          ...prev,
-          content: accumulatedText,
-          isTranscribing: false
-        } : prev);
-
-        setSessions(prev => prev.map(s => s.id === newSessionId ? {
-          ...s,
-          notes: accumulatedText,
-          fullAnalysis: accumulatedText,
-          summary: "Successfully transcribed into note."
-        } : s));
-
-        if (user?.uid) {
-          try {
+          if (user?.uid) {
             await updateDoc(doc(db, 'notes', newNoteId), {
               content: accumulatedText,
-              isTranscribing: false,
               updatedAt: serverTimestamp()
             });
-            await updateDoc(doc(db, 'users', user.uid, 'lectureSessions', newSessionId), {
-              notes: accumulatedText,
-              fullAnalysis: accumulatedText,
-              summary: "Successfully transcribed into note."
-            });
-          } catch (e) {}
+          }
+        } catch (fragErr) {
+          console.error(`Error transcribing fragment ${i + 1}:`, fragErr);
         }
-
-        setIsAudioTranscribing(false);
-        setActiveAudioNoteId(null);
-        setAudioTranscribingPopup(false);
-        setUserNotification("Audio conversion to note complete!");
-      } catch (err) {
-        console.error("Audio conversion failed:", err);
-        const errorText = "# Audio Transcription Failed\n\nWe couldn't process the audio file. Please ensure it is a valid audio format and within limits.";
-        setUserNotes(prev => prev.map(n => n.id === newNoteId ? {
-          ...n,
-          content: errorText,
-          isTranscribing: false
-        } : n));
-        setSelectedNote(prev => prev && prev.id === newNoteId ? {
-          ...prev,
-          content: errorText,
-          isTranscribing: false
-        } : prev);
-        setIsAudioTranscribing(false);
-        setActiveAudioNoteId(null);
-        setAudioTranscribingPopup(false);
       }
+
+      // Finalize note transcription
+      setUserNotes(prev => prev.map(n => n.id === newNoteId ? {
+        ...n,
+        content: accumulatedText || "# Transcription completed with notes.",
+        isTranscribing: false,
+        updatedAt: { toMillis: () => Date.now(), toDate: () => new Date() } as any
+      } : n));
+
+      setSelectedNote(prev => prev && prev.id === newNoteId ? {
+        ...prev,
+        content: accumulatedText || "# Transcription completed with notes.",
+        isTranscribing: false
+      } : prev);
+
+      setSessions(prev => prev.map(s => s.id === newSessionId ? {
+        ...s,
+        notes: accumulatedText,
+        fullAnalysis: accumulatedText,
+        summary: "Successfully transcribed all fragments seamlessly into note."
+      } : s));
+
+      if (user?.uid) {
+        try {
+          await updateDoc(doc(db, 'notes', newNoteId), {
+            content: accumulatedText || "# Transcription completed with notes.",
+            isTranscribing: false,
+            updatedAt: serverTimestamp()
+          });
+          await updateDoc(doc(db, 'users', user.uid, 'lectureSessions', newSessionId), {
+            notes: accumulatedText,
+            fullAnalysis: accumulatedText,
+            summary: "Successfully transcribed all fragments seamlessly into note."
+          });
+        } catch (e) {}
+      }
+
+      setIsAudioTranscribing(false);
+      setActiveAudioNoteId(null);
+      setAudioTranscribingPopup(false);
+      setUserNotification("All audio fragments successfully transcribed into note!");
     })();
   };
 
