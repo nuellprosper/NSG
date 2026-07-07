@@ -75,6 +75,7 @@ service cloud.firestore {
              (!('whatsappNumber' in data) || isValString(data.whatsappNumber, 128)) &&
              (!('isWhatsAppVerified' in data) || data.isWhatsAppVerified is bool) &&
              (!('verificationCode' in data) || isValString(data.verificationCode, 128)) &&
+             (!('dailyNoteUsage' in data) || data.dailyNoteUsage is int || data.dailyNoteUsage is number) &&
              (!('updatedAt' in data) || (data.updatedAt is string || data.updatedAt is timestamp));
     }
 
@@ -118,7 +119,7 @@ service cloud.firestore {
       allow create: if (isOwner(uid) || (request.auth == null && uid != null)) && isValidUser(incoming());
       allow update: if (isOwner(uid) || isAdmin()) && isValidUser(incoming()) && (
         // Action: Profile Update
-        (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'username', 'university', 'level', 'department', 'faculty', 'dob', 'matric', 'matricNumber', 'updatedAt', 'fullName', 'status', 'premiumUntil', 'bypassHostingPayment', 'bypassTakingPayment', 'bypassAllPayments', 'isPremium', 'about', 'lastSeen', 'email', 'points', 'streak', 'lastActive', 'rank', 'claimedQuests', 'invitedUsers', 'pointResetCompleted', 'whatsappNumber', 'isWhatsAppVerified', 'verificationCode'])) ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'username', 'university', 'level', 'department', 'faculty', 'dob', 'matric', 'matricNumber', 'updatedAt', 'fullName', 'status', 'premiumUntil', 'bypassHostingPayment', 'bypassTakingPayment', 'bypassAllPayments', 'isPremium', 'about', 'lastSeen', 'email', 'points', 'streak', 'lastActive', 'rank', 'claimedQuests', 'invitedUsers', 'pointResetCompleted', 'whatsappNumber', 'isWhatsAppVerified', 'verificationCode', 'dailyNoteUsage'])) ||
         // Action: Presence Heartbeat
         (incoming().diff(existing()).affectedKeys().hasOnly(['lastSeen', 'status'])) ||
         // Action: Admin Role Update
@@ -188,8 +189,8 @@ service cloud.firestore {
     // Activities (Social Feed)
     match /activities/{activityId} {
       allow read, list: if isSignedIn();
-      allow create: if isSignedIn() && (incoming().createdBy == request.auth.uid || isAdmin());
-      allow update, delete: if isSignedIn() && (existing().createdBy == request.auth.uid || isAdmin());
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn();
     }
 
     // User Sub-collections (Private)
@@ -255,6 +256,12 @@ service cloud.firestore {
       allow create: if isSignedIn();
       allow update: if isSignedIn() && (existing().hostId == request.auth.uid || isAdmin());
       allow delete: if isAdmin();
+    }
+
+    // Courses Collection
+    match /courses/{courseId} {
+      allow read, list: if true;
+      allow create, update, delete: if isSignedIn();
     }
   }
 }
