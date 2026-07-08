@@ -481,6 +481,100 @@ export interface Course {
   level?: string;
 }
 
+export function parseBatchQuestions(rawText: string, subjectName: string) {
+  const lines = rawText.split('\n');
+  const questions: ExamQuestion[] = [];
+  const errors: { lineIndex: number; lineText: string; error: string }[] = [];
+  
+  lines.forEach((line, idx) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    
+    const colonIdx = trimmed.indexOf(':');
+    if (colonIdx === -1) {
+      errors.push({ lineIndex: idx + 1, lineText: trimmed, error: "Missing colon ':' introducing options" });
+      return;
+    }
+    
+    const questionText = trimmed.substring(0, colonIdx).trim();
+    if (!questionText) {
+      errors.push({ lineIndex: idx + 1, lineText: trimmed, error: "Missing question text before colon" });
+      return;
+    }
+    
+    const rest = trimmed.substring(colonIdx + 1).trim();
+    
+    const openBracket = rest.lastIndexOf('(');
+    const closeBracket = rest.lastIndexOf(')');
+    if (openBracket === -1 || closeBracket === -1 || closeBracket < openBracket) {
+      errors.push({ lineIndex: idx + 1, lineText: trimmed, error: "Missing review explanation in brackets '(...)' at end" });
+      return;
+    }
+    
+    const explanation = rest.substring(openBracket + 1, closeBracket).trim();
+    const optionsPart = rest.substring(0, openBracket).trim();
+    
+    const rawOpts = optionsPart.split(',').map(o => o.trim()).filter(Boolean);
+    if (rawOpts.length < 2) {
+      errors.push({ lineIndex: idx + 1, lineText: trimmed, error: `Too few options (minimum 2 required, found ${rawOpts.length})` });
+      return;
+    }
+    if (rawOpts.length > 6) {
+      errors.push({ lineIndex: idx + 1, lineText: trimmed, error: `More than 4 options noticed (${rawOpts.length} options provided)` });
+      return;
+    }
+    
+    let correctIdx = -1;
+    const cleanOpts: string[] = [];
+    
+    rawOpts.forEach((opt, oIdx) => {
+      if (opt.includes('*')) {
+        correctIdx = oIdx;
+        cleanOpts.push(opt.replace(/\*/g, '').trim());
+      } else {
+        cleanOpts.push(opt);
+      }
+    });
+    
+    if (correctIdx === -1) {
+      errors.push({ lineIndex: idx + 1, lineText: trimmed, error: "Missing correct option asterisk '*' in front of correct option" });
+      return;
+    }
+    
+    questions.push({
+      id: `q-batch-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 4)}`,
+      question: questionText,
+      options: cleanOpts,
+      correctAnswer: correctIdx,
+      explanation: explanation || 'No review explanation provided.',
+      subject: subjectName
+    });
+  });
+  
+  return { questions, errors, validCount: questions.length };
+}
+
+export function parseBatchStudents(rawText: string) {
+  const entries = rawText.split(/[;\n]/).map(s => s.trim()).filter(Boolean);
+  const students: { matric: string; name: string }[] = [];
+  const errors: string[] = [];
+  
+  entries.forEach((entry, i) => {
+    const parts = entry.split(',').map(p => p.trim());
+    if (parts.length < 2) {
+      if (entry) errors.push(`Line/Entry ${i + 1}: Expected format 'matric,name'`);
+      return;
+    }
+    students.push({
+      matric: parts[0],
+      name: parts[1]
+    });
+  });
+  
+  return { students, errors };
+}
+
+
 export interface HomeHistoryItem {
   id: string;
   title: string;

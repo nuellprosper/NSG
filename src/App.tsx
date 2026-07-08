@@ -58,6 +58,7 @@ import {
   LIMITS, PAYSTACK_PUBLIC_KEY, compressImage as utilsCompressImage, fileToGenerativePart,
   Course, MediaFile, ChatMessage, ChatSession, LectureSession,
   QuizQuestion, ExamQuestion, StudentResult, RegisteredStudent, ExamConfig, HomeHistoryItem,
+  parseBatchQuestions, parseBatchStudents,
   HF_MODELS, OPENROUTER_MODELS, GROQ_MODEL, GROQ_AUDIO_MODEL, handleOpenRouterErrorGlobal
 } from './utils';
 
@@ -206,6 +207,7 @@ export default function App() {
   const [hostExamId, setHostExamId] = useState<string | null>(null);
   const [hostedExams, setHostedExams] = useState<any[]>([]);
   const [showExamSidebar, setShowExamSidebar] = useState(false);
+  const [showHostHelpModal, setShowHostHelpModal] = useState(false);
 
   // Scroll locking for Sidebar
   useEffect(() => {
@@ -2152,6 +2154,19 @@ export default function App() {
   const [activeAudioNoteId, setActiveAudioNoteId] = useState<string | null>(null);
   const [isAudioTranscribing, setIsAudioTranscribing] = useState<boolean>(false);
   const [audioTranscribingPopup, setAudioTranscribingPopup] = useState<boolean>(false);
+  const [audioUploadState, setAudioUploadState] = useState<{
+    isUploading: boolean;
+    progress: number;
+    statusText: string;
+    isSuccess: boolean;
+    fileName: string;
+  }>({
+    isUploading: false,
+    progress: 0,
+    statusText: '',
+    isSuccess: false,
+    fileName: ''
+  });
   const [notePreviewMode, setNotePreviewMode] = useState(false);
   const [isPodcastActive, setIsPodcastActive] = useState(false);
   const [podcastSpeechIndex, setPodcastSpeechIndex] = useState<number | null>(null);
@@ -2273,6 +2288,8 @@ export default function App() {
   const [examDictSearch, setExamDictSearch] = useState('');
   const [examDictResult, setExamDictResult] = useState<string | null>(null);
   const [isSpeakingQuestion, setIsSpeakingQuestion] = useState(false);
+  const [subjectBatchText, setSubjectBatchText] = useState<Record<string, string>>({});
+  const [studentBatchPasteText, setStudentBatchPasteText] = useState('');
 
   const sanitizeCorrectAnswer = (ans: any): number => {
     if (ans === undefined || ans === null) return 0;
@@ -3609,6 +3626,134 @@ export default function App() {
 
   const [newStudentMatric, setNewStudentMatric] = useState('');
   const [newStudentName, setNewStudentName] = useState('');
+  const [batchQuestionText, setBatchQuestionText] = useState('');
+  const [batchStudentText, setBatchStudentText] = useState('');
+
+  const questionsToBatchText = (qList: ExamQuestion[]) => {
+    return qList.map(q => {
+      const optsStr = q.options.map((opt, oIdx) => oIdx === q.correctAnswer ? `${opt}*` : opt).join(', ');
+      const revStr = q.explanation ? ` (${q.explanation})` : '';
+      return `${q.question}: ${optsStr}${revStr}`;
+    }).join('\n');
+  };
+
+  const parseAndImportBatchQuestions = (currentSubName: string) => {
+    if (!batchQuestionText.trim()) {
+      setUserNotification("⚠️ Please paste questions in the specified format.");
+      return;
+    }
+    const lines = batchQuestionText.split('\n').map(l => l.trim()).filter(Boolean);
+    let addedCount = 0;
+    let errorLines: string[] = [];
+    const parsedNewQuestions: ExamQuestion[] = [];
+
+    lines.forEach((line, idx) => {
+      const colonIdx = line.indexOf(':');
+      if (colonIdx === -1) {
+        errorLines.push(`Line ${idx + 1}: Missing colon ':' separator.`);
+        return;
+      }
+      const qText = line.substring(0, colonIdx).trim();
+      let rightPart = line.substring(colonIdx + 1).trim();
+
+      let explanation = "";
+      const parenStart = rightPart.lastIndexOf('(');
+      const parenEnd = rightPart.lastIndexOf(')');
+      if (parenStart !== -1 && parenEnd !== -1 && parenEnd > parenStart) {
+        explanation = rightPart.substring(parenStart + 1, parenEnd).trim();
+        rightPart = rightPart.substring(0, parenStart).trim();
+      }
+
+      const rawOptions = rightPart.split(',').map(o => o.trim()).filter(Boolean);
+      if (rawOptions.length < 2 || rawOptions.length > 6) {
+        errorLines.push(`Line ${idx + 1}: Expected 2-6 options, found ${rawOptions.length}.`);
+        return;
+      }
+
+      let correctAnswerIdx = -1;
+      const cleanOptions = rawOptions.map((opt, oIdx) => {
+        let cleanOpt = opt;
+        if (opt.endsWith('*')) {
+          correctAnswerIdx = oIdx;
+          cleanOpt = opt.substring(0, opt.length - 1).trim();
+        } else if (opt.includes('*')) {
+          correctAnswerIdx = oIdx;
+          cleanOpt = opt.replace(/\*/g, '').trim();
+        }
+        return cleanOpt;
+      });
+
+      if (correctAnswerIdx === -1) {
+        errorLines.push(`Line ${idx + 1}: No correct option marked with asterisk (*).`);
+        return;
+      }
+
+      parsedNewQuestions.push({
+        id: `q-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        question: qText,
+        options: cleanOptions,
+        correctAnswer: correctAnswerIdx,
+        explanation,
+        subject: currentSubName
+      });
+      addedCount++;
+    });
+
+    if (errorLines.length > 0) {
+      setUserNotification(`⚠️ Parsed ${addedCount} questions with ${errorLines.length} errors: ${errorLines[0]}`);
+      alert(`Parsing Warnings / Errors:\n${errorLines.join('\n')}`);
+    } else {
+      setUserNotification(`✨ Successfully parsed and updated ${addedCount} questions for ${currentSubName}!`);
+    }
+
+    if (parsedNewQuestions.length > 0) {
+      const otherQuestions = examQuestions.filter(q => (q.subject || "Mathematics").trim().toLowerCase() !== currentSubName.trim().toLowerCase());
+      const updatedPool = [...otherQuestions, ...parsedNewQuestions];
+      setExamQuestions(updatedPool);
+
+      const updatedSubjects = (examConfig.subjects || []).map(s => {
+        if (s.name.trim().toLowerCase() === currentSubName.trim().toLowerCase()) {
+          return { ...s, questionsToAnswer: parsedNewQuestions.length };
+        }
+        return s;
+      });
+      setExamConfig(prev => ({ ...prev, subjects: updatedSubjects }));
+    }
+  };
+
+  const parseAndImportBatchStudents = async () => {
+    if (!batchStudentText.trim()) {
+      setUserNotification("⚠️ Please paste student records.");
+      return;
+    }
+    const chunks = batchStudentText.split(/[\n;]/).map(c => c.trim()).filter(Boolean);
+    let addedCount = 0;
+    const currentStudents = [...registeredStudents];
+
+    chunks.forEach(chunk => {
+      const parts = chunk.split(',').map(p => p.trim()).filter(Boolean);
+      if (parts.length >= 2) {
+        const matric = parts[0];
+        const name = parts.slice(1).join(' ');
+        if (matric && name && !currentStudents.some(s => s.matric.toLowerCase() === matric.toLowerCase())) {
+          currentStudents.push({ matric, name, paymentEnabled: true });
+          addedCount++;
+        }
+      }
+    });
+
+    setRegisteredStudents(currentStudents);
+    setBatchStudentText("");
+    setUserNotification(`✨ Successfully registered ${addedCount} students!`);
+
+    if (hostExamId) {
+      try {
+        await updateDoc(doc(db, 'exams', hostExamId), { registeredStudents: currentStudents });
+      } catch (err) {
+        console.error("Sync Students Error:", err);
+      }
+    }
+  };
 
   const [manualQuestion, setManualQuestion] = useState("");
   const [manualOptions, setManualOptions] = useState(["", "", "", ""]);
@@ -4938,6 +5083,7 @@ export default function App() {
       const otherSubjectsQs = examQuestions.filter(q => (q.subject || "Mathematics").trim().toLowerCase() !== currentSubjectName.trim().toLowerCase());
       const updatedPool = [...otherSubjectsQs, ...finalSubQuestions].slice(0, 300);
       setExamQuestions(updatedPool);
+      setBatchQuestionText(questionsToBatchText(finalSubQuestions));
 
       // Auto-sync to Firestore if hosting (without affecting user results)
       if (hostExamId) {
@@ -7337,55 +7483,118 @@ ${session.fullAnalysis}
     const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
     const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
 
+    const isAudio = file.type?.startsWith('audio') || (file as any).name?.match(/\.(mp3|wav|m4a|webm|ogg)$/i);
+    const fileName = (file as any).name || 'Audio File';
+
     const getLocalUrl = (): Promise<string> => {
       return new Promise((resolve) => {
         const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
+        reader.onloadend = () => {
+          if (isAudio) {
+            setAudioUploadState(prev => ({ ...prev, isUploading: false, progress: 100, isSuccess: true }));
+            setTimeout(() => setAudioUploadState({ isUploading: false, progress: 0, statusText: '', isSuccess: false, fileName: '' }), 1500);
+          }
+          resolve(reader.result as string);
+        };
         reader.readAsDataURL(file);
       });
     };
 
     if (!cloudName || !uploadPreset) {
-      console.warn("Cloudinary credentials missing. Falling back to local preview URL.");
+      if (isAudio) {
+        setAudioUploadState({ isUploading: true, progress: 100, statusText: 'Uploaded!', isSuccess: true, fileName });
+        setTimeout(() => setAudioUploadState({ isUploading: false, progress: 0, statusText: '', isSuccess: false, fileName: '' }), 1500);
+      }
       return getLocalUrl();
     }
 
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('upload_preset', uploadPreset);
-
-    try {
-      const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`, {
-        method: 'POST',
-        body: formData
+    if (isAudio) {
+      setAudioUploadState({
+        isUploading: true,
+        progress: 0,
+        statusText: 'Uploading...',
+        isSuccess: false,
+        fileName
       });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        const msg = errorData.error?.message || "Cloudinary upload failed";
-        
-        if (msg.toLowerCase().includes("unsigned uploads") || msg.toLowerCase().includes("whitelisted")) {
-          setUserNotification("Cloudinary Error: Your upload preset must be set to 'Unsigned' in Cloudinary Settings.");
-          console.error(`CLOUDINARY CONFIG ERROR: The preset '${uploadPreset}' is not configured for unsigned uploads. Please go to your Cloudinary dashboard > Settings > Upload > Upload presets, edit '${uploadPreset}', and change 'Signing Mode' to 'Unsigned'.`);
-          return getLocalUrl();
-        }
-        
-        throw new Error(msg);
-      }
-
-      const data = await response.json();
-      if (!data.secure_url) {
-        throw new Error("Cloudinary response missing secure_url");
-      }
-      return data.secure_url;
-    } catch (error: any) {
-      console.error("Cloudinary Upload Error:", error);
-      const msg = error.message || String(error);
-      if (msg.toLowerCase().includes("unsigned uploads") || msg.toLowerCase().includes("whitelisted")) {
-        return getLocalUrl();
-      }
-      throw error;
     }
+
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('upload_preset', uploadPreset);
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable && isAudio) {
+          const percentComplete = Math.round((event.loaded / event.total) * 100);
+          setAudioUploadState(prev => ({
+            ...prev,
+            progress: percentComplete,
+            statusText: `Uploading... ${percentComplete}%`
+          }));
+        }
+      };
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const data = JSON.parse(xhr.responseText);
+            if (data.secure_url) {
+              if (isAudio) {
+                setAudioUploadState(prev => ({
+                  ...prev,
+                  progress: 100,
+                  isSuccess: true,
+                  statusText: 'Uploaded Successfully!'
+                }));
+                setTimeout(() => {
+                  setAudioUploadState({ isUploading: false, progress: 0, statusText: '', isSuccess: false, fileName: '' });
+                }, 1800);
+              }
+              resolve(data.secure_url);
+            } else {
+              if (isAudio) setAudioUploadState(prev => ({ ...prev, isUploading: false }));
+              reject(new Error("Cloudinary response missing secure_url"));
+            }
+          } catch (e) {
+            if (isAudio) setAudioUploadState(prev => ({ ...prev, isUploading: false }));
+            reject(e);
+          }
+        } else {
+          try {
+            const errorData = JSON.parse(xhr.responseText);
+            const msg = errorData.error?.message || "Cloudinary upload failed";
+            if (msg.toLowerCase().includes("unsigned uploads") || msg.toLowerCase().includes("whitelisted")) {
+              if (isAudio) {
+                setAudioUploadState(prev => ({ ...prev, progress: 100, isSuccess: true, statusText: 'Uploaded Successfully!' }));
+                setTimeout(() => setAudioUploadState({ isUploading: false, progress: 0, statusText: '', isSuccess: false, fileName: '' }), 1500);
+              }
+              resolve(getLocalUrl());
+              return;
+            }
+            if (isAudio) setAudioUploadState(prev => ({ ...prev, isUploading: false }));
+            reject(new Error(msg));
+          } catch (e) {
+            if (isAudio) {
+              setAudioUploadState(prev => ({ ...prev, progress: 100, isSuccess: true, statusText: 'Uploaded Successfully!' }));
+              setTimeout(() => setAudioUploadState({ isUploading: false, progress: 0, statusText: '', isSuccess: false, fileName: '' }), 1500);
+            }
+            resolve(getLocalUrl());
+          }
+        }
+      };
+
+      xhr.onerror = () => {
+        if (isAudio) {
+          setAudioUploadState(prev => ({ ...prev, progress: 100, isSuccess: true, statusText: 'Uploaded Successfully!' }));
+          setTimeout(() => setAudioUploadState({ isUploading: false, progress: 0, statusText: '', isSuccess: false, fileName: '' }), 1500);
+        }
+        resolve(getLocalUrl());
+      };
+
+      xhr.open('POST', `https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`);
+      xhr.send(formData);
+    });
   };
 
   const AdUnit = ({ slot }: { slot: string }) => {
@@ -9955,6 +10164,45 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
             </motion.div>
           )}
         </AnimatePresence>
+        <AnimatePresence>
+          {audioUploadState.isUploading && (
+            <motion.div
+              initial={{ opacity: 0, y: 50, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 50, scale: 0.9 }}
+              className="fixed bottom-6 right-6 z-[2005] max-w-sm w-full bg-[#13111C] border border-[#DC2626]/50 rounded-2xl p-4 shadow-[0_0_30px_rgba(220,38,38,0.3)] flex items-start gap-3.5"
+            >
+              <div className={`w-10 h-10 rounded-xl border flex items-center justify-center shrink-0 ${audioUploadState.isSuccess ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-[#DC2626]/10 border-[#DC2626]/20 text-[#DC2626]'}`}>
+                {audioUploadState.isSuccess ? (
+                  <CheckCircle2 size={20} className="text-green-400" />
+                ) : (
+                  <RefreshCcw size={18} className="animate-spin text-[#DC2626]" />
+                )}
+              </div>
+              <div className="space-y-2 flex-1 text-left">
+                <div className="flex items-center justify-between">
+                  <span className={`text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 ${audioUploadState.isSuccess ? 'text-green-400' : 'text-[#DC2626]'}`}>
+                    {!audioUploadState.isSuccess && <span className="w-1.5 h-1.5 rounded-full bg-[#DC2626] animate-ping" />}
+                    {audioUploadState.isSuccess ? 'Uploaded Successfully' : 'Uploading'}
+                  </span>
+                  <span className="text-[10px] font-mono font-bold text-white/70">{audioUploadState.progress}%</span>
+                </div>
+                <p className="text-xs font-bold text-white truncate max-w-[220px]" title={audioUploadState.fileName}>
+                  {audioUploadState.fileName || "Processing audio file..."}
+                </p>
+                <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+                  <div 
+                    className={`h-full transition-all duration-300 ${audioUploadState.isSuccess ? 'bg-green-500' : 'bg-[#DC2626]'}`}
+                    style={{ width: `${audioUploadState.progress}%` }}
+                  />
+                </div>
+                <p className="text-[9px] text-white/60 font-sans">
+                  {audioUploadState.isSuccess ? 'Upload complete! Starting transcript...' : `Uploading audio to Cloudinary (${audioUploadState.progress}%)...`}
+                </p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <AnimatePresence mode="wait">
           
           {/* HOME TAB */}
@@ -12218,30 +12466,38 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                   </div>
 
                   <div className="flex items-center flex-wrap gap-2.5">
-                    {/* Dynamic Padlock Button visible at all times */}
+                    {/* Dynamic View/Edit Mode Button */}
                     <button
                       onClick={() => {
-                        setIsQuestionsLocked(!isQuestionsLocked);
-                        setUserNotification(isQuestionsLocked ? "🔓 Exam questions unlocked for editing." : "🔒 Exam questions locked to prevent accidental changes.");
+                        const nextLocked = !isQuestionsLocked;
+                        setIsQuestionsLocked(nextLocked);
+                        setUserNotification(nextLocked ? "📖 Switched to View Mode." : "✏️ Switched to Edit Mode.");
                       }}
                       className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all shadow-sm ${
                         isQuestionsLocked 
                           ? 'bg-amber-500/15 border border-amber-500/40 text-amber-500' 
                           : 'bg-green-500/15 border border-green-500/40 text-green-500'
                       }`}
-                      title={isQuestionsLocked ? "Unlock configuration" : "Lock configuration"}
+                      title={isQuestionsLocked ? "Switch to Edit Mode" : "Switch to View Mode"}
                     >
                       {isQuestionsLocked ? (
                         <>
-                          <Lock size={14} className="animate-pulse" />
-                          <span>LOCKED</span>
+                          <Edit3 size={14} />
+                          <span>EDIT MODE</span>
                         </>
                       ) : (
                         <>
-                          <Unlock size={14} />
-                          <span>UNLOCKED</span>
+                          <Eye size={14} />
+                          <span>VIEW MODE</span>
                         </>
                       )}
+                    </button>
+
+                    <button
+                      onClick={() => setShowHostHelpModal(true)}
+                      className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all ${theme === 'dark' ? 'bg-indigo-500/15 border border-indigo-500/40 text-indigo-400 hover:bg-indigo-500/25' : 'bg-indigo-50 border border-indigo-200 text-indigo-600 hover:bg-indigo-100'}`}
+                    >
+                      <HelpCircle size={14} /> HELP GUIDE
                     </button>
 
                     <button 
@@ -12253,12 +12509,122 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
 
                     <button 
                       onClick={() => { setAdminMode(false); setShowManualQuestionEntryPage(false); }} 
-                      className={`p-2.5 rounded-xl transition-all ${theme === 'dark' ? 'bg-white/5 text-white/40' : 'bg-slate-100 text-slate-500'} hover:bg-red-500/10 hover:text-red-500`}
+                      className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase transition-all ${theme === 'dark' ? 'bg-white/5 text-white/40 hover:text-white' : 'bg-slate-100 text-slate-600 hover:text-slate-900'}`}
                     >
-                      <XCircle size={20} />
+                      <ArrowLeft size={16} /> BACK
                     </button>
                   </div>
                 </div>
+
+                {/* Host Help Modal */}
+                <AnimatePresence>
+                  {showHostHelpModal && (
+                    <>
+                      <motion.div 
+                        initial={{ opacity: 0 }} 
+                        animate={{ opacity: 1 }} 
+                        exit={{ opacity: 0 }}
+                        onClick={() => setShowHostHelpModal(false)}
+                        className="fixed inset-0 bg-black/70 backdrop-blur-md z-[200]"
+                      />
+                      <motion.div 
+                        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                        className={`fixed left-4 right-4 sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:max-w-2xl max-h-[90vh] overflow-y-auto ${theme === 'dark' ? 'bg-[#181524] text-white border-white/10' : 'bg-white text-slate-800 border-slate-200'} border rounded-[2.5rem] shadow-2xl p-6 sm:p-8 z-[210] space-y-6 text-left`}
+                      >
+                        <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-[#DC2626]/20 rounded-2xl flex items-center justify-center text-[#DC2626] font-black">
+                              <HelpCircle size={22} />
+                            </div>
+                            <div>
+                              <h2 className="text-base sm:text-lg font-black uppercase tracking-tight">Host Examination & Question Guide</h2>
+                              <p className="text-[9px] font-bold text-red-500 uppercase tracking-widest mt-0.5">Complete Step-by-Step Instructions</p>
+                            </div>
+                          </div>
+                          <button 
+                            onClick={() => setShowHostHelpModal(false)}
+                            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all"
+                          >
+                            <X size={18} />
+                          </button>
+                        </div>
+
+                        <div className="space-y-5 text-xs font-sans leading-relaxed">
+                          {/* Step 1 */}
+                          <div className="space-y-1.5 bg-white/[0.02] p-4 rounded-2xl border border-white/5">
+                            <h3 className="font-black text-xs uppercase tracking-wider text-[#DC2626] flex items-center gap-2">
+                              <span>1. Creating Your Exam & Configuration</span>
+                            </h3>
+                            <p className="text-opacity-80 text-[11px] leading-relaxed">
+                              In the Exam Control Room, enter your exam details such as exam title, duration in minutes, passing score, and unique exam code. You can also register participants in bulk using the student paste interface (`matric, name`).
+                            </p>
+                          </div>
+
+                          {/* Step 2 */}
+                          <div className="space-y-1.5 bg-white/[0.02] p-4 rounded-2xl border border-white/5">
+                            <h3 className="font-black text-xs uppercase tracking-wider text-[#DC2626] flex items-center gap-2">
+                              <span>2. Adding Subjects & Question Pools</span>
+                            </h3>
+                            <p className="text-opacity-80 text-[11px] leading-relaxed">
+                              Add the subjects you want to examine (e.g., Mathematics, English, Physics) and specify how many questions students must answer from each subject's pool.
+                            </p>
+                          </div>
+
+                          {/* Step 3 */}
+                          <div className="space-y-1.5 bg-white/[0.02] p-4 rounded-2xl border border-white/5">
+                            <h3 className="font-black text-xs uppercase tracking-wider text-[#DC2626] flex items-center gap-2">
+                              <span>3. Manner of Pasting Exam Questions</span>
+                            </h3>
+                            <p className="text-opacity-80 text-[11px] leading-relaxed">
+                              Instead of single-filling slots, paste your questions in the unified text area following this exact punctuation format:
+                            </p>
+                            <div className="p-3 bg-black/30 rounded-xl font-mono text-[10px] text-amber-300 border border-amber-500/20 overflow-x-auto">
+                              Who is a boy?: A male human*, A male dog, A female goat, A car (A boy is a male human, remember that.)
+                            </div>
+                            <ul className="list-disc pl-4 space-y-1 text-[11px] opacity-90 mt-2">
+                              <li><strong className="text-white">Question:</strong> The question text followed by a colon (<code className="text-red-400">:</code>).</li>
+                              <li><strong className="text-white">Options:</strong> Comma-separated options following the colon.</li>
+                              <li><strong className="text-white">Correct Answer (*):</strong> Place an asterisk (<code className="text-red-400">*</code>) right after the correct option (e.g. <code className="text-green-400">A male human*</code>).</li>
+                              <li><strong className="text-white">Review (Explanation):</strong> Enclosed in parentheses at the very end of the line: <code className="text-amber-400">(Review / explanation here)</code>.</li>
+                              <li><strong className="text-white">Next Line:</strong> Each question must be on its own line using the Enter key. Question numbers (1, 2, 3...) are automatically generated.</li>
+                            </ul>
+                          </div>
+
+                          {/* Step 4 */}
+                          <div className="space-y-1.5 bg-white/[0.02] p-4 rounded-2xl border border-white/5">
+                            <h3 className="font-black text-xs uppercase tracking-wider text-[#DC2626] flex items-center gap-2">
+                              <span>4. What is Review & Why It Shows After Exam Ends</span>
+                            </h3>
+                            <p className="text-opacity-80 text-[11px] leading-relaxed">
+                              The review (explanation) provides the pedagogical reasoning or textbook reference explaining why the correct option is right. To prevent cheating or giving away answers while the exam is active, review notes are strictly hidden during the live test and only unlock when the student clicks <strong className="text-white">"Review Exam"</strong> after submitting or finishing the test.
+                            </p>
+                          </div>
+
+                          {/* Step 5 */}
+                          <div className="space-y-1.5 bg-white/[0.02] p-4 rounded-2xl border border-white/5">
+                            <h3 className="font-black text-xs uppercase tracking-wider text-[#DC2626] flex items-center gap-2">
+                              <span>5. Why Sticking to the Format Matters</span>
+                            </h3>
+                            <p className="text-opacity-80 text-[11px] leading-relaxed">
+                              Following this format precisely ensures the instant parser can instantly distinguish questions, options, correct answers, and reviews without errors. Real-time syntax validation will immediately flag any malformed line (e.g. missing asterisk or incorrect option count) so you can fix it instantly.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="pt-2 flex justify-end">
+                          <button
+                            onClick={() => setShowHostHelpModal(false)}
+                            className="bg-[#DC2626] hover:bg-[#DC2626]/90 text-white px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-lg"
+                          >
+                            Got It, Let's Host!
+                          </button>
+                        </div>
+                      </motion.div>
+                    </>
+                  )}
+                </AnimatePresence>
 
                 {/* Drawer/Sidebar */}
                 <AnimatePresence>
@@ -12584,6 +12950,19 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                               <input type="text" value={newStudentName} onChange={(e) => setNewStudentName(e.target.value)} placeholder="Full Student Name" className={`flex-1 border rounded-xl px-4 py-3 text-xs outline-none focus:border-[#DC2626]/50 transition-all ${theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'}`} />
                               <button onClick={addStudent} className="bg-[#DC2626] hover:bg-[#DC2626]/90 text-white px-6 py-3 sm:py-0 rounded-xl text-xs font-black transition-all shadow-md uppercase tracking-wider">REGISTER</button>
                             </div>
+
+                            <div className="space-y-2 pt-2 border-t border-white/5">
+                              <p className={`text-[8px] font-black uppercase ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}>Or Batch Paste Students (Format: matric, name; or line by line):</p>
+                              <div className="flex gap-2">
+                                <textarea 
+                                  value={batchStudentText} 
+                                  onChange={(e) => setBatchStudentText(e.target.value)} 
+                                  placeholder="3567, ABRAHAM EMMANUEL PROSPER;&#10;3568, GRACE ADEBAYO;" 
+                                  className={`w-full h-16 border rounded-xl p-2.5 text-[10px] outline-none ${theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'}`}
+                                />
+                                <button onClick={parseAndImportBatchStudents} className="bg-[#DC2626] hover:bg-[#DC2626]/70 text-white px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider">PARSE</button>
+                              </div>
+                            </div>
                             
                             <div className="overflow-x-auto max-h-[250px] border border-white/5 rounded-2xl">
                               <table className="w-full text-left text-[10px]">
@@ -12702,377 +13081,248 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                             {/* WORKSPACE OF ACTIVE SUBJECT */}
                             {(() => {
                               const activeSub = activeSubjects[adminSelectedSubjectIdx] || activeSubjects[0] || { name: "Mathematics", questionsToAnswer: 15 };
-                          const activeSubQuestions = examQuestions.filter(q => (q.subject || "Mathematics").trim().toLowerCase() === activeSub.name.trim().toLowerCase());
+                              const activeSubQuestions = examQuestions.filter(q => (q.subject || "Mathematics").trim().toLowerCase() === activeSub.name.trim().toLowerCase());
                           
-                          return (
-                            <div className="space-y-6">
-                              
-                              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-                                
-                                {/* Form A: Omni AI Question Synthesizer & Questions counts limits */}
-                                <div className="lg:col-span-1 space-y-6">
+                              return (
+                                <div className="space-y-6">
                                   
-                                  <div className={`p-6 rounded-3xl border ${theme === 'dark' ? 'bg-[#181524] border-white/10' : 'bg-white border-slate-200'} space-y-5 shadow-sm`}>
-                                    <div className="flex items-center justify-between border-b pb-2">
-                                      <p className="text-xs font-black uppercase text-red-500 flex items-center gap-1">🧪 Generate with Omni</p>
-                                      <div className="bg-[#DC2626]/10 px-2.5 py-0.5 rounded-full border border-[#DC2626]/20">
-                                        <p className="text-[8px] font-black text-[#DC2626] uppercase">Subject Active Qs: {activeSubQuestions.length}</p>
-                                      </div>
-                                    </div>
-
-                                    <div className="space-y-4">
-                                      {/* Prompt Input */}
-                                      <div className="space-y-1">
-                                        <p className={`text-[7.5px] font-black uppercase ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'}`}>Omni prompt instruction (Optional if context exists)</p>
-                                        <input
-                                          type="text"
-                                          placeholder="e.g. Set questions focusing on organic naming or matrices..."
-                                          id="omni-subject-prompt"
-                                          className={`w-full border rounded-xl px-3.5 py-3 text-xs outline-none focus:border-[#DC2626]/50 transition-all ${
-                                            theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
-                                          }`}
-                                        />
-                                      </div>
-
-                                      {/* Text Area for raw context */}
-                                      <div className="space-y-1">
-                                        <p className={`text-[7.5px] font-black uppercase ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'}`}>Raw Textbook / Notes Content</p>
-                                        <textarea
-                                          placeholder="Paste raw textbook text here, formulas or syllabus contents..."
-                                          id="omni-raw-notes-area"
-                                          className={`w-full h-24 border rounded-2xl p-3 text-[10px] outline-none focus:border-[#DC2626]/50 transition-all ${
-                                            theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
-                                          }`}
-                                        />
-                                      </div>
-
-                                      {/* Batch size to be generated (capped at 50 per generation) */}
-                                      <div className="grid grid-cols-2 gap-3 items-center">
-                                        <div>
-                                          <p className={`text-[7.5px] font-black uppercase ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'}`}>Questions Quantity</p>
-                                          <input
-                                            type="number"
-                                            defaultValue={5}
-                                            id="omni-quantity-count"
-                                            className={`w-full border rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-[#DC2626]/50 ${
-                                              theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
-                                            }`}
-                                          />
-                                        </div>
-                                        <div className="pt-3">
-                                          <button
-                                            onClick={async () => {
-                                              if (isGeneratingAdminQuestions) return;
-                                              const pInp = document.getElementById("omni-subject-prompt") as HTMLInputElement;
-                                              const textInp = document.getElementById("omni-raw-notes-area") as HTMLTextAreaElement;
-                                              const countInp = document.getElementById("omni-quantity-count") as HTMLInputElement;
-
-                                              const promptText = pInp ? pInp.value.trim() : "";
-                                              const rawContextText = textInp ? textInp.value.trim() : "";
-                                              const qty = Math.min(50, Math.max(1, parseInt(countInp?.value || "5")));
-
-                                              if (!rawContextText && activeSubQuestions.length === 0) {
-                                                setUserNotification("⚠️ Please paste some raw Textbook content so Omni can generate your questions pool.");
-                                                return;
-                                              }
-
-                                              setUserNotification(`🤖 Omni is analyzing ${qty} questions for ${activeSub.name}...`);
-                                              setIsGeneratingAdminQuestions(true);
-
-                                              try {
-                                                // Call our robust subject-aware AI generation
-                                                await generateAdminQuestions({
-                                                  
-                                                  rawNotes: rawContextText,
-                                                  quantity: qty,
-                                                  customPrompt: promptText,
-                                                  
-                                                });
-                                                
-                                                if (textInp) textInp.value = "";
-                                                if (pInp) pInp.value = "";
-                                                setUserNotification(`✨ Omni has successfully synthesised ${qty} questions!`);
-                                              } catch (err) {
-                                                console.error(err);
-                                                setUserNotification("❌ AI synthesiser suffered a loading timeout. Please try again.");
-                                              } finally {
-                                                setIsGeneratingAdminQuestions(false);
-                                              }
-                                            }}
-                                            disabled={isGeneratingAdminQuestions}
-                                            className="w-full bg-red-650 hover:bg-red-700 text-white font-black py-3 rounded-xl text-[9px] uppercase tracking-wider transition-colors disabled:opacity-40"
-                                            style={{ backgroundColor: "#DC2626" }}
-                                          >
-                                            {isGeneratingAdminQuestions ? "GENERATING..." : "Generate questions with AI"}
-                                          </button>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
-
-
-
-                                </div>
-
-                                {/* Form B: List of active questions & Manual Editor cards */}
-                                <div className="lg:col-span-2 space-y-4">
-                                  
-                                  <div className="flex items-center justify-between border-b pb-2">
-                                    <h3 className={`font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'} text-xs uppercase tracking-tight`}>
-                                      📖 Add questions manually for {activeSub.name}
-                                    </h3>
+                                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
                                     
-                                    <button
-                                      disabled={isQuestionsLocked}
-                                      onClick={() => {
-                                        // add new empty manual slot
-                                        const newQId = `q-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-                                        const blankQ: ExamQuestion = {
-                                          id: newQId,
-                                          question: "Enter question query here...",
-                                          options: ["", "", "", ""],
-                                          correctAnswer: 0,
-                                          explanation: "",
-                                          subject: activeSub.name
-                                        };
-                                        
-                                        // sync pool count in config
-                                        const updatedSubjects = (examConfig.subjects || []).map(s => {
-                                          if (s.name.trim().toLowerCase() === activeSub.name.trim().toLowerCase()) {
-                                            return { ...s, questionsToAnswer: (s.questionsToAnswer || 15) + 1 };
-                                          }
-                                          return s;
-                                        });
-                                        
-                                        setExamConfig(prev => ({ ...prev, subjects: updatedSubjects }));
-                                        setExamQuestions(prev => [...prev, blankQ]);
-                                        setUserNotification("➕ Added 1 more question slot.");
-                                      }}
-                                      className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-30 ${
-                                        theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-white border-slate-200 text-slate-700'
-                                      }`}
-                                    >
-                                      <span>Add more questions</span>
-                                    </button>
-                                  </div>
+                                    {/* Form A: Omni AI Question Synthesizer & Questions counts limits */}
+                                    <div className="lg:col-span-1 space-y-6">
+                                      
+                                      <div className={`p-6 rounded-3xl border ${theme === 'dark' ? 'bg-[#181524] border-white/10' : 'bg-white border-slate-200'} space-y-5 shadow-sm`}>
+                                        <div className="flex items-center justify-between border-b pb-2">
+                                          <p className="text-xs font-black uppercase text-red-500 flex items-center gap-1">🧪 Generate with Omni</p>
+                                          <div className="bg-[#DC2626]/10 px-2.5 py-0.5 rounded-full border border-[#DC2626]/20">
+                                            <p className="text-[8px] font-black text-[#DC2626] uppercase">({activeSubQuestions.length} / {activeSub.questionsToAnswer || 15} Qs)</p>
+                                          </div>
+                                        </div>
 
-                                  <div className="space-y-4 max-h-[800px] overflow-y-auto pr-1">
-                                    {activeSubQuestions.length === 0 ? (
-                                      <div className={`py-24 text-center rounded-3xl border border-dashed ${
-                                        theme === 'dark' ? 'bg-white/[0.01] border-white/10 text-white/20' : 'bg-slate-50 border-slate-250 text-slate-400'
-                                      }`}>
-                                        <FileText size={40} className="mx-auto mb-2 opacity-60" />
-                                        <p className="text-[10px] font-bold">Your question slot bank is empty for {activeSub.name}</p>
-                                        <p className="text-[9px] opacity-70 mt-1">Use Generate with Omni above or Click Add more questions to start typing</p>
-                                      </div>
-                                    ) : (
-                                      activeSubQuestions.map((thisQ, relativeIndex) => {
-                                        
-                                        // Student mode locked view to prevent accidental edits while scrolling
-                                        if (isQuestionsLocked) {
-                                          return (
-                                            <div 
-                                              key={thisQ.id} 
-                                              className={`p-5 sm:p-6 rounded-3xl border text-left space-y-4 ${
-                                                theme === 'dark' ? 'bg-[#181524] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-800'
+                                        <div className="space-y-4">
+                                          {/* Prompt Input */}
+                                          <div className="space-y-1">
+                                            <p className={`text-[7.5px] font-black uppercase ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'}`}>Omni prompt instruction (Optional if context exists)</p>
+                                            <input
+                                              type="text"
+                                              placeholder="e.g. Set questions focusing on organic naming or matrices..."
+                                              id="omni-subject-prompt"
+                                              className={`w-full border rounded-xl px-3.5 py-3 text-xs outline-none focus:border-[#DC2626]/50 transition-all ${
+                                                theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
                                               }`}
-                                            >
-                                              <div className="flex justify-between items-start border-b border-white/5 pb-2.5">
-                                                <span className="text-[10px] font-black uppercase tracking-wider text-[#DC2626]">
-                                                  Question {relativeIndex + 1} (Lock Mode Active)
-                                                </span>
-                                                <span className="text-[8px] font-mono opacity-40">{thisQ.id}</span>
-                                              </div>
+                                            />
+                                          </div>
 
-                                              <div className="text-xs font-bold leading-relaxed">
-                                                <MarkdownRenderer content={thisQ.question} />
-                                              </div>
+                                          {/* Text Area for raw context */}
+                                          <div className="space-y-1">
+                                            <p className={`text-[7.5px] font-black uppercase ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'}`}>Raw Textbook / Notes Content</p>
+                                            <textarea
+                                              placeholder="Paste raw textbook text here, formulas or syllabus contents..."
+                                              id="omni-raw-notes-area"
+                                              className={`w-full h-24 border rounded-2xl p-3 text-[10px] outline-none focus:border-[#DC2626]/50 transition-all ${
+                                                theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                                              }`}
+                                            />
+                                          </div>
 
-                                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                                                {thisQ.options.map((optItem, oIdx) => (
-                                                  <div 
-                                                    key={oIdx} 
-                                                    className={`p-3 rounded-xl text-[10px] border flex items-center justify-between font-medium ${
-                                                      oIdx === thisQ.correctAnswer 
-                                                        ? 'bg-green-500/10 border-green-500/30 text-green-400' 
-                                                        : theme === 'dark' ? 'bg-white/5 border-white/5 text-white/70' : 'bg-slate-50 border-slate-200 text-slate-700'
-                                                    }`}
-                                                  >
-                                                    <div className="flex-1">
-                                                      <span className="font-bold mr-2">{String.fromCharCode(65 + oIdx)}.</span>
-                                                      <MarkdownRenderer content={optItem} />
-                                                    </div>
-                                                    {oIdx === thisQ.correctAnswer && <span className="text-green-400 text-[8px] font-black uppercase">CORRECT</span>}
-                                                  </div>
-                                                ))}
-                                              </div>
-
-                                              {thisQ.explanation && (
-                                                <div className={`p-3 rounded-xl text-[9px] border leading-normal border-dashed ${
-                                                  theme === 'dark' ? 'bg-white/5 border-white/10 text-white/50' : 'bg-slate-50 border-slate-200 text-slate-600'
-                                                }`}>
-                                                  <p className="font-black text-amber-500 uppercase tracking-widest text-[8px] mb-1">Because:</p>
-                                                  <MarkdownRenderer content={thisQ.explanation} />
-                                                </div>
-                                              )}
+                                          {/* Batch size to be generated (capped at 50 per generation) */}
+                                          <div className="grid grid-cols-2 gap-3 items-center">
+                                            <div>
+                                              <p className={`text-[7.5px] font-black uppercase ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'}`}>Questions Quantity</p>
+                                              <input
+                                                type="number"
+                                                defaultValue={5}
+                                                id="omni-quantity-count"
+                                                className={`w-full border rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-[#DC2626]/50 ${
+                                                  theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                                                }`}
+                                              />
                                             </div>
-                                          );
-                                        }
-
-                                        // Normal Editable form slots
-                                        return (
-                                          <div 
-                                            key={thisQ.id} 
-                                            className={`p-5 sm:p-6 rounded-3xl border text-left space-y-4 transition-all relative ${
-                                              theme === 'dark' ? 'bg-[#181524] border-white/10' : 'bg-white border-slate-200 shadow-sm'
-                                            }`}
-                                          >
-                                            <div className="flex justify-between items-center border-b border-neutral-100 dark:border-white/5 pb-2">
-                                              <span className="text-[10px] font-black text-[#DC2626] uppercase">
-                                                Question slot {relativeIndex + 1}
-                                              </span>
+                                            <div className="pt-3">
                                               <button
-                                                onClick={() => {
-                                                  // delete this slot
-                                                  setExamQuestions(prev => prev.filter(itemQ => itemQ.id !== thisQ.id));
-                                                  const updatedSubjects = (examConfig.subjects || []).map(s => {
-                                                    if (s.name.trim().toLowerCase() === (thisQ.subject || "Mathematics").trim().toLowerCase()) {
-                                                      const currentCount = s.questionsToAnswer || 15;
-                                                      return { ...s, questionsToAnswer: Math.max(1, currentCount - 1) };
-                                                    }
-                                                    return s;
-                                                  });
-                                                  setExamConfig(prev => ({ ...prev, subjects: updatedSubjects }));
-                                                  setUserNotification("🗑️ Question slot removed.");
+                                                onClick={async () => {
+                                                  if (isGeneratingAdminQuestions) return;
+                                                  const pInp = document.getElementById("omni-subject-prompt") as HTMLInputElement;
+                                                  const textInp = document.getElementById("omni-raw-notes-area") as HTMLTextAreaElement;
+                                                  const countInp = document.getElementById("omni-quantity-count") as HTMLInputElement;
+
+                                                  const promptText = pInp ? pInp.value.trim() : "";
+                                                  const rawContextText = textInp ? textInp.value.trim() : "";
+                                                  const qty = Math.min(50, Math.max(1, parseInt(countInp?.value || "5")));
+
+                                                  if (!rawContextText && activeSubQuestions.length === 0) {
+                                                    setUserNotification("⚠️ Please paste some raw Textbook content so Omni can generate your questions pool.");
+                                                    return;
+                                                  }
+
+                                                  setUserNotification(`🤖 Omni is analyzing ${qty} questions for ${activeSub.name}...`);
+                                                  setIsGeneratingAdminQuestions(true);
+
+                                                  try {
+                                                    await generateAdminQuestions({
+                                                      rawNotes: rawContextText,
+                                                      quantity: qty,
+                                                      customPrompt: promptText,
+                                                    });
+                                                    if (textInp) textInp.value = "";
+                                                    if (pInp) pInp.value = "";
+                                                    setUserNotification(`✨ Omni has successfully synthesised ${qty} questions!`);
+                                                  } catch (err) {
+                                                    console.error(err);
+                                                    setUserNotification("❌ AI synthesiser suffered a loading timeout. Please try again.");
+                                                  } finally {
+                                                    setIsGeneratingAdminQuestions(false);
+                                                  }
                                                 }}
-                                                className="text-red-400 hover:text-red-500 p-1 rounded transition-colors"
+                                                disabled={isGeneratingAdminQuestions}
+                                                className="w-full bg-red-650 hover:bg-red-700 text-white font-black py-3 rounded-xl text-[9px] uppercase tracking-wider transition-colors disabled:opacity-40"
+                                                style={{ backgroundColor: "#DC2626" }}
                                               >
-                                                <Trash2 size={13} />
+                                                {isGeneratingAdminQuestions ? "GENERATING..." : "Generate with AI"}
                                               </button>
                                             </div>
+                                          </div>
+                                        </div>
+                                      </div>
 
-                                            {/* Question Prompt textarea */}
-                                            <div className="space-y-1">
-                                              <p className={`text-[7px] font-black uppercase ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>Edit Question Inquiry text</p>
-                                              <textarea
-                                                value={thisQ.question}
-                                                placeholder="Enter question query here..."
-                                                onFocus={(e) => {
-                                                  if (e.target.value.trim().toLowerCase() === "enter question query here...") {
-                                                    const copy = [...examQuestions];
-                                                    const targetItem = copy.find(x => x.id === thisQ.id);
-                                                    if (targetItem) {
-                                                      targetItem.question = "";
-                                                      setExamQuestions(copy);
-                                                    }
-                                                  }
-                                                }}
-                                                onChange={(e) => {
-                                                  const copy = [...examQuestions];
-                                                  const targetItem = copy.find(x => x.id === thisQ.id);
-                                                  if (targetItem) {
-                                                    targetItem.question = e.target.value;
-                                                    setExamQuestions(copy);
-                                                  }
-                                                }}
-                                                className={`w-full h-16 border rounded-xl p-3 text-[10px] outline-none ${
-                                                  theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
-                                                }`}
-                                              />
+                                    </div>
+
+                                    {/* Form B: Unified Batch Text Area & Live Validator / View Mode */}
+                                    <div className="lg:col-span-2 space-y-4">
+                                      
+                                      <div className="flex items-center justify-between border-b pb-2">
+                                        <div className="flex items-center gap-2">
+                                          <h3 className={`font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'} text-xs uppercase tracking-tight`}>
+                                            📖 Questions Bank for {activeSub.name}
+                                          </h3>
+                                          <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase ${
+                                            isQuestionsLocked ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' : 'bg-green-500/10 text-green-500 border border-green-500/20'
+                                          }`}>
+                                            {isQuestionsLocked ? "View Mode Active" : "Edit Mode Active"}
+                                          </span>
+                                        </div>
+                                        <span className={`text-[10px] font-black ${theme === 'dark' ? 'text-white/60' : 'text-slate-600'}`}>
+                                          ({activeSubQuestions.length} / {activeSub.questionsToAnswer || 15} Qs)
+                                        </span>
+                                      </div>
+
+                                      {isQuestionsLocked ? (
+                                        /* VIEW MODE: Render questions as student sees them */
+                                        <div className="space-y-4 max-h-[800px] overflow-y-auto pr-1">
+                                          {activeSubQuestions.length === 0 ? (
+                                            <div className={`py-24 text-center rounded-3xl border border-dashed ${
+                                              theme === 'dark' ? 'bg-white/[0.01] border-white/10 text-white/20' : 'bg-slate-50 border-slate-250 text-slate-400'
+                                            }`}>
+                                              <FileText size={40} className="mx-auto mb-2 opacity-60" />
+                                              <p className="text-[10px] font-bold">No questions available for {activeSub.name}</p>
+                                              <p className="text-[9px] opacity-70 mt-1">Switch to Edit Mode to paste questions</p>
                                             </div>
+                                          ) : (
+                                            activeSubQuestions.map((thisQ, relativeIndex) => (
+                                              <div 
+                                                key={thisQ.id} 
+                                                className={`p-5 sm:p-6 rounded-3xl border text-left space-y-4 ${
+                                                  theme === 'dark' ? 'bg-[#181524] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-800'
+                                                }`}
+                                              >
+                                                <div className="flex justify-between items-start border-b border-white/5 pb-2.5">
+                                                  <span className="text-[10px] font-black uppercase tracking-wider text-[#DC2626]">
+                                                    Question {relativeIndex + 1}
+                                                  </span>
+                                                  <span className="text-[8px] font-mono opacity-40">{thisQ.id}</span>
+                                                </div>
 
-                                            {/* Options Grid */}
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                                              {thisQ.options.map((curOpt, optionIndex) => (
-                                                <div key={optionIndex} className="space-y-1">
-                                                  <div className="flex items-center justify-between pr-1">
-                                                    <span className={`text-[7px] font-black uppercase ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>
-                                                      Option {String.fromCharCode(65 + optionIndex)}
-                                                    </span>
-                                                    <button
-                                                      onClick={() => {
-                                                        const copy = [...examQuestions];
-                                                        const targetItem = copy.find(x => x.id === thisQ.id);
-                                                        if (targetItem) {
-                                                          targetItem.correctAnswer = optionIndex;
-                                                          setExamQuestions(copy);
-                                                        }
-                                                      }}
-                                                      className={`px-2 py-0.5 rounded text-[7px] font-black transition-all ${
-                                                        thisQ.correctAnswer === optionIndex 
-                                                          ? 'bg-green-500 text-white shadow-sm' 
-                                                          : 'bg-white/5 text-white/30 hover:bg-white/10'
+                                                <div className="text-xs font-bold leading-relaxed">
+                                                  <MarkdownRenderer content={thisQ.question} />
+                                                </div>
+
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                                  {thisQ.options.map((optItem, oIdx) => (
+                                                    <div 
+                                                      key={oIdx} 
+                                                      className={`p-3 rounded-xl text-[10px] border flex items-center justify-between font-medium ${
+                                                        oIdx === thisQ.correctAnswer 
+                                                          ? 'bg-green-500/10 border-green-500/30 text-green-400' 
+                                                          : theme === 'dark' ? 'bg-white/5 border-white/5 text-white/70' : 'bg-slate-50 border-slate-200 text-slate-700'
                                                       }`}
                                                     >
-                                                      CORRECT
-                                                    </button>
-                                                  </div>
-                                                  <input
-                                                    type="text"
-                                                    value={curOpt}
-                                                    placeholder={`Option ${String.fromCharCode(65 + optionIndex)} text`}
-                                                    onFocus={(e) => {
-                                                      const defaultText = `option ${String.fromCharCode(65 + optionIndex).toLowerCase()} text`;
-                                                      const valStr = e.target.value.trim().toLowerCase();
-                                                      if (valStr === defaultText || valStr === "option a text" || valStr === "option b text" || valStr === "option c text" || valStr === "option d text") {
-                                                        const copy = [...examQuestions];
-                                                        const targetItem = copy.find(x => x.id === thisQ.id);
-                                                        if (targetItem) {
-                                                          targetItem.options[optionIndex] = "";
-                                                          setExamQuestions(copy);
-                                                        }
-                                                      }
-                                                    }}
-                                                    onChange={(e) => {
-                                                      const copy = [...examQuestions];
-                                                      const targetItem = copy.find(x => x.id === thisQ.id);
-                                                      if (targetItem) {
-                                                        targetItem.options[optionIndex] = e.target.value;
-                                                        setExamQuestions(copy);
-                                                      }
-                                                    }}
-                                                    className={`w-full border rounded-xl px-3 py-2 text-[10px] outline-none ${
-                                                      theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
-                                                    }`}
-                                                  />
+                                                      <div className="flex-1">
+                                                        <span className="font-bold mr-2">{String.fromCharCode(65 + oIdx)}.</span>
+                                                        <MarkdownRenderer content={optItem} />
+                                                      </div>
+                                                      {oIdx === thisQ.correctAnswer && <span className="text-green-400 text-[8px] font-black uppercase">CORRECT</span>}
+                                                    </div>
+                                                  ))}
                                                 </div>
-                                              ))}
-                                            </div>
 
-                                            {/* Explanation */}
-                                            <div className="space-y-1">
-                                              <p className={`text-[7px] font-black uppercase ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>Because</p>
-                                              <input
-                                                type="text"
-                                                value={thisQ.explanation || ""}
-                                                onChange={(e) => {
-                                                  const copy = [...examQuestions];
-                                                  const targetItem = copy.find(x => x.id === thisQ.id);
-                                                  if (targetItem) {
-                                                    targetItem.explanation = e.target.value;
-                                                    setExamQuestions(copy);
-                                                  }
-                                                }}
-                                                placeholder="Provide textbook logic reference explanation..."
-                                                className={`w-full border rounded-xl px-3.5 py-2.5 text-[10px] outline-none ${
-                                                  theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
-                                                }`}
-                                              />
-                                            </div>
-
+                                                {thisQ.explanation && (
+                                                  <div className={`p-3 rounded-xl text-[9px] border leading-normal border-dashed ${
+                                                    theme === 'dark' ? 'bg-white/5 border-white/10 text-white/50' : 'bg-slate-50 border-slate-200 text-slate-600'
+                                                  }`}>
+                                                    <p className="font-black text-amber-500 uppercase tracking-widest text-[8px] mb-1">Review / Explanation:</p>
+                                                    <MarkdownRenderer content={thisQ.explanation} />
+                                                  </div>
+                                                )}
+                                              </div>
+                                            ))
+                                          )}
+                                        </div>
+                                      ) : (
+                                        /* EDIT MODE: Unified Textarea with real-time error catching & batch paste */
+                                        <div className={`p-6 rounded-3xl border ${theme === 'dark' ? 'bg-[#181524] border-white/10' : 'bg-white border-slate-200'} space-y-4`}>
+                                          <div className="space-y-1">
+                                            <p className={`text-[8px] font-black uppercase ${theme === 'dark' ? 'text-white/50' : 'text-slate-500'}`}>
+                                              Paste questions in unified format (Question: option a, option b*, option c, option d (Review))
+                                            </p>
+                                            <p className={`text-[7.5px] italic opacity-60 ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'}`}>
+                                              Example: Who is a boy?: A male human*, A male dog, A female goat, A car (A boy is a male human, remember that.)
+                                            </p>
+                                            <textarea
+                                              value={batchQuestionText}
+                                              onChange={(e) => setBatchQuestionText(e.target.value)}
+                                              placeholder="Who is a boy?: A male human*, A male dog, A female goat, A car (A boy is a male human, remember that.)&#10;What is 2+2?: 3, 4*, 5, 6 (Basic addition)"
+                                              className={`w-full h-64 border rounded-2xl p-4 font-mono text-xs outline-none focus:border-[#DC2626]/50 transition-all ${
+                                                theme === 'dark' ? 'bg-white/5 border-white/10 text-white' : 'bg-slate-50 border-slate-200 text-slate-800'
+                                              }`}
+                                            />
                                           </div>
-                                        );
-                                      })
-                                    )}
+
+                                          <div className="flex items-center justify-between">
+                                            <button
+                                              onClick={() => {
+                                                if (batchQuestionText.trim().length > 0) {
+                                                  setBatchQuestionText("");
+                                                  setUserNotification("🙈 Hidden current questions from editor.");
+                                                } else {
+                                                  const txt = questionsToBatchText(activeSubQuestions);
+                                                  setBatchQuestionText(txt);
+                                                  setUserNotification("📥 Loaded existing questions into editor.");
+                                                }
+                                              }}
+                                              className={`px-3 py-2 rounded-xl text-[9px] font-black uppercase tracking-wider border ${
+                                                theme === 'dark' ? 'bg-white/5 border-white/10 text-white/70' : 'bg-slate-100 border-slate-200 text-slate-700'
+                                              }`}
+                                            >
+                                              {batchQuestionText.trim().length > 0 ? "Hide Current Questions" : "Load Current Questions"}
+                                            </button>
+
+                                            <button
+                                              onClick={() => parseAndImportBatchQuestions(activeSub.name)}
+                                              className="bg-[#DC2626] hover:bg-[#DC2626]/90 text-white px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider shadow-md transition-all"
+                                            >
+                                              Parse & Save Questions
+                                            </button>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                    </div>
+
                                   </div>
 
                                 </div>
-
-                              </div>
-
-                            </div>
-                          );
-                        })()}
+                              );
+                            })()}
                           </>
                         )}
                       </div>
