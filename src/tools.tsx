@@ -338,6 +338,7 @@ export const ToolsPage = (props: any) => {
     examAnswers,
     setExamAnswers,
     examScore,
+    subjectScores,
     quizQuestions,
     currentQuestionIndex,
     setCurrentQuestionIndex,
@@ -2759,10 +2760,26 @@ export const ToolsPage = (props: any) => {
                   <h3 className="text-2xl font-black uppercase tracking-tighter text-white">Exam Submitted</h3>
                   <p className="text-xs sm:text-sm mt-1 text-white/40">Your results have been recorded in the system.</p>
                 </div>
-                <div className="py-6 border-y border-white/5">
-                  <p className="text-[10px] font-black text-white/30 uppercase tracking-widest mb-1">Final Score</p>
-                  <p className="text-5xl font-black text-[#DC2626]">{examScore} / {totalSatFor}</p>
-                  <p className="text-xs sm:text-sm font-bold mt-2 text-white">{Math.round((examScore / totalSatFor) * 100)}% Proficiency</p>
+                <div className="py-6 border-y border-white/5 space-y-4">
+                  <div>
+                    <p className="text-[10px] font-black text-white/30 uppercase tracking-widest mb-1">Total Score</p>
+                    <p className="text-5xl font-black text-[#DC2626]">{examScore} / {totalSatFor}</p>
+                    <p className="text-xs sm:text-sm font-bold mt-2 text-white">{Math.round((examScore / totalSatFor) * 100)}% Proficiency</p>
+                  </div>
+
+                  {subjectScores && subjectScores.length > 0 && (
+                    <div className="pt-4 border-t border-white/5">
+                      <p className="text-[10px] font-black text-white/40 uppercase tracking-widest mb-3">Score Breakdown By Subject</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
+                        {subjectScores.map((sub, sIdx) => (
+                          <div key={sIdx} className="bg-white/5 border border-white/5 p-3 rounded-2xl flex items-center justify-between">
+                            <span className="text-xs font-bold text-white/80">{sub.subject}</span>
+                            <span className="text-xs font-black text-[#DC2626]">{sub.score} / {sub.total}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="flex flex-col gap-3">
                   <button 

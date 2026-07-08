@@ -2260,6 +2260,7 @@ export default function App() {
   const [examQuestions, setExamQuestions] = useState<ExamQuestion[]>([]);
   const [examTimer, setExamTimer] = useState(3600); // 1 hour default
   const [examScore, setExamScore] = useState(0);
+  const [subjectScores, setSubjectScores] = useState<{ subject: string; score: number; total: number }[]>([]);
   const [examFinished, setExamFinished] = useState(false);
   const [paymentVerified, setPaymentVerified] = useState(false);
   const [examAnswers, setExamAnswers] = useState<Record<any, any>>({});
@@ -5925,20 +5926,36 @@ export default function App() {
     const questionsToGrade = studentActiveQuestions.length > 0 ? studentActiveQuestions : examQuestions;
     const totalSatFor = questionsToGrade.length || 1;
 
+    const subjectScoresMap: Record<string, { correct: number; total: number }> = {};
+
     questionsToGrade.forEach((q, idx) => {
       const realPoolIndex = examQuestions.indexOf(q);
       const studentAns = examAnswers[q.id] !== undefined 
         ? examAnswers[q.id] 
         : (realPoolIndex !== -1 && examAnswers[realPoolIndex] !== undefined ? examAnswers[realPoolIndex] : examAnswers[idx]);
       const correctAns = sanitizeCorrectAnswer(q.correctAnswer);
+      const subjectName = q.subject || (examConfig.subjects && examConfig.subjects[0]?.name) || 'General';
+      if (!subjectScoresMap[subjectName]) {
+        subjectScoresMap[subjectName] = { correct: 0, total: 0 };
+      }
+      subjectScoresMap[subjectName].total++;
+
       if (studentAns !== undefined && studentAns !== null) {
         if (sanitizeCorrectAnswer(studentAns) === correctAns) {
           score++;
+          subjectScoresMap[subjectName].correct++;
         }
       }
     });
 
+    const subjectScores = Object.entries(subjectScoresMap).map(([subject, data]) => ({
+      subject,
+      score: data.correct,
+      total: data.total
+    }));
+
     setExamScore(score);
+    setSubjectScores(subjectScores);
     setExamFinished(true);
     setExamLobbyState('result');
 
@@ -5950,7 +5967,12 @@ export default function App() {
       date: new Date().toLocaleDateString(),
       timestamp: Date.now(),
       score: score,
-      total: totalSatFor
+      total: totalSatFor,
+      subjectScores,
+      questions: questionsToGrade,
+      answers: examAnswers,
+      matric: matricNumber,
+      studentName
     });
 
     if (user) {
@@ -5975,13 +5997,14 @@ export default function App() {
           score: score,
           total: questionsToGrade.length,
           timestamp: new Date().toLocaleString(),
-          hostUid: activeExamHostUid || undefined
+          hostUid: activeExamHostUid || undefined,
+          subjectScores
         };
         
         // Save result to the specific exam's results subcollection
         await addDoc(collection(db, 'exams', activeExamId, 'results'), result);
         
-        localStorage.setItem(`nsg_exam_session_${activeExamId}_${matricNumber}`, circularSafeStringify({ status: 'completed', score }));
+        localStorage.setItem(`nsg_exam_session_${activeExamId}_${matricNumber}`, circularSafeStringify({ status: 'completed', score, subjectScores }));
       }
     }
   };
@@ -8855,6 +8878,7 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
         if (item.score !== undefined) {
           setExamLobbyState('result');
           setExamScore(item.score);
+          if (item.subjectScores) setSubjectScores(item.subjectScores);
           if (item.questions) setExamQuestions(item.questions);
           if (item.answers) setExamAnswers(item.answers);
           if (item.matric) setMatricNumber(item.matric);
@@ -10361,6 +10385,7 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
               isAudioTranscribing={isAudioTranscribing}
               audioTranscribingPopup={audioTranscribingPopup}
               setAudioTranscribingPopup={setAudioTranscribingPopup}
+              subjectScores={subjectScores}
             />
           )}
 

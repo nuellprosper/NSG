@@ -378,6 +378,12 @@ export interface ExamQuestion extends QuizQuestion {
   subject?: string;
 }
 
+export interface SubjectScore {
+  subject: string;
+  score: number;
+  total: number;
+}
+
 export interface StudentResult {
   uid?: string;
   matric: string;
@@ -386,6 +392,7 @@ export interface StudentResult {
   total: number;
   timestamp: string;
   hostUid?: string;
+  subjectScores?: SubjectScore[];
 }
 
 export interface RegisteredStudent {
@@ -490,4 +497,5 @@ export interface HomeHistoryItem {
   difficulty?: string;
   matric?: string;
   studentName?: string;
+  subjectScores?: SubjectScore[];
 }
