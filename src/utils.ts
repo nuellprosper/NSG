@@ -303,8 +303,8 @@ export const callTogetherAI = async (prompt: string, history: any[] = []) => {
 
 export const LIMITS = {
   ASSIGNMENT: {
-    NORMAL: { IMAGES: 1, DAILY: 3 },
-    PREMIUM: { IMAGES: 3, DAILY: 7 }
+    NORMAL: { IMAGES: 2, DAILY: 3 },
+    PREMIUM: { IMAGES: 10, DAILY: 30 }
   },
   QUIZ: {
     NORMAL: { WORDS: 300, DAILY: 4, IMAGES: 2 },
