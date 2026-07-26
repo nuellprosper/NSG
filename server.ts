@@ -14,8 +14,7 @@ import fs from "fs";
 import webPush from "web-push";
 import crypto from "crypto";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const currentDir = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
 
 // Robust JSON loading with fail-safe fallback for serverless Vercel environments
 let firebaseConfig: any = {};
@@ -23,7 +22,7 @@ try {
   firebaseConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), "firebase-applet-config.json"), "utf8"));
 } catch (e) {
   try {
-    firebaseConfig = JSON.parse(fs.readFileSync(path.join(__dirname, "firebase-applet-config.json"), "utf8"));
+    firebaseConfig = JSON.parse(fs.readFileSync(path.join(currentDir, "firebase-applet-config.json"), "utf8"));
   } catch (err) {
     console.warn("Could not load firebase-applet-config.json. Defaulting to environment variable bindings for Vercel.");
     firebaseConfig = {
@@ -126,20 +125,29 @@ app.use((req, res, next) => {
 });
 
 // --- Email Setup ---
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS?.replace(/\s/g, ''),
-  },
-});
-
 async function sendMailSafely(options: any) {
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+  const emailUser = process.env.EMAIL_USER;
+  const rawPass = process.env.EMAIL_PASS || process.env.SMTP_PASS;
+  const emailPass = rawPass?.replace(/\s/g, '');
+  if (!emailUser || !emailPass) {
     throw new Error("SMTP configuration missing: EMAIL_USER or EMAIL_PASS not set in environment.");
   }
+  
+  const activeTransporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: emailUser,
+      pass: emailPass,
+    },
+  });
+
+  const mailOptions = {
+    ...options,
+    from: `"Omni" <${emailUser}>`
+  };
+
   try {
-    return await transporter.sendMail(options);
+    return await activeTransporter.sendMail(mailOptions);
   } catch (error: any) {
     console.error("Email send failed:", error);
     if (error.message?.includes('535') || error.message?.includes('Invalid login')) {
@@ -1323,10 +1331,19 @@ app.post("/api/send-welcome-email", async (req, res) => {
   const { email, name } = req.body;
   try {
     await sendMailSafely({
-      from: process.env.EMAIL_USER,
       to: email,
-      subject: `Welcome to NSG, ${name}!`,
-      html: `<h1>Welcome to NSG!</h1><p>Hi ${name}, thank you for joining NSG. Start your academic journey with OMNI today!</p>`
+      subject: `Welcome to Omni, ${name}!`,
+      html: `
+        <div style="font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #1e293b; border-radius: 16px; border: 1px solid #e2e8f0;">
+          <div style="background-color: #DC2626; padding: 20px; border-radius: 12px 12px 0 0; text-align: center; color: #ffffff;">
+            <h1 style="margin: 0; font-size: 22px; font-weight: 800; letter-spacing: 1px;">OMNI ACADEMIC</h1>
+          </div>
+          <div style="padding: 24px;">
+            <h2 style="color: #0f172a;">Welcome to Omni!</h2>
+            <p>Hi <strong>${name}</strong>, thank you for joining Omni Academic Platform. Start your academic journey with smart AI study tools, CBT practice, and assignment solvers today!</p>
+          </div>
+        </div>
+      `
     });
     res.json({ success: true });
   } catch (error: any) {
@@ -1339,10 +1356,19 @@ app.post("/api/send-premium-thank-you", async (req, res) => {
   const { email, name, plan } = req.body;
   try {
     await sendMailSafely({
-      from: process.env.EMAIL_USER,
       to: email,
-      subject: `Thank You for Going Premium!`,
-      html: `<h1>Premium Activated!</h1><p>Hi ${name}, thank you for subscribing to the ${plan} plan.</p>`
+      subject: `Thank You for Going Premium on Omni!`,
+      html: `
+        <div style="font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #1e293b; border-radius: 16px; border: 1px solid #e2e8f0;">
+          <div style="background-color: #DC2626; padding: 20px; border-radius: 12px 12px 0 0; text-align: center; color: #ffffff;">
+            <h1 style="margin: 0; font-size: 22px; font-weight: 800; letter-spacing: 1px;">OMNI ACADEMIC</h1>
+          </div>
+          <div style="padding: 24px;">
+            <h2 style="color: #0f172a;">Premium Activated!</h2>
+            <p>Hi <strong>${name}</strong>, thank you for subscribing to the <strong>${plan}</strong> plan on Omni!</p>
+          </div>
+        </div>
+      `
     });
     res.json({ success: true });
   } catch (error: any) {
@@ -1356,32 +1382,67 @@ app.post("/api/admin/broadcast-list", async (req, res) => {
   if (secret !== 'GOD_MODE') return res.status(403).json({ error: "Unauthorized" });
   
   if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
-    return res.json({ success: true, count: 0 });
+    return res.json({ success: true, count: 0, message: "No recipients provided." });
   }
 
   try {
-    // Send emails in parallel to adhere to Vercel/serverless execution limits and avoid timeouts
     const emailPromises = recipients.map(async (user: any) => {
       if (!user.email) return;
-      const body = bodyTemplate.replace(/{{name}}/g, user.name);
+      const cleanName = user.name || "Student";
+      let bodyText = (bodyTemplate || "")
+        .replace(/{{name}}/g, cleanName)
+        .replace(/{{email}}/g, user.email);
+      
+      let htmlBody = bodyText;
+      if (!bodyText.includes("<html") && !bodyText.includes("<div")) {
+        htmlBody = `
+          <div style="font-family: system-ui, -apple-system, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #1e293b; background-color: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0;">
+            <div style="background-color: #DC2626; padding: 20px; border-radius: 12px 12px 0 0; text-align: center; color: #ffffff;">
+              <h1 style="margin: 0; font-size: 22px; font-weight: 800; letter-spacing: 1px;">OMNI ACADEMIC</h1>
+              <p style="margin: 5px 0 0 0; font-size: 12px; opacity: 0.8; font-weight: 600;">NextGen Educational Platform</p>
+            </div>
+            <div style="padding: 24px; font-size: 14px; line-height: 1.7; color: #334155;">
+              ${bodyText.replace(/\n/g, '<br/>')}
+            </div>
+            <div style="padding: 16px; border-top: 1px solid #f1f5f9; text-align: center; font-size: 11px; color: #94a3b8;">
+              <p style="margin: 0;">Sent with ❤️ by <strong>Omni Academic Platform</strong></p>
+              <p style="margin: 4px 0 0 0;">You received this message as a registered Omni student.</p>
+            </div>
+          </div>
+        `;
+      }
+
       return sendMailSafely({
-        from: process.env.EMAIL_USER,
         to: user.email,
-        subject: subjectTemplate,
-        html: body
+        subject: (subjectTemplate || "Important Announcement from Omni").replace(/{{name}}/g, cleanName),
+        html: htmlBody
       });
     });
 
     const results = await Promise.allSettled(emailPromises);
     const sentCount = results.filter(r => r.status === "fulfilled").length;
-    res.json({ success: true, count: sentCount, total: recipients.length });
+    const errors = results
+      .filter(r => r.status === "rejected")
+      .map((r: any) => r.reason?.message || "Send failed");
+
+    if (sentCount === 0 && recipients.length > 0) {
+      return res.status(500).json({ 
+        success: false, 
+        error: errors[0] || "Failed to deliver emails. Please check server SMTP credentials.", 
+        count: 0,
+        errors 
+      });
+    }
+
+    res.json({ success: true, count: sentCount, total: recipients.length, errors });
   } catch (error: any) {
+    console.error("Broadcast error:", error);
     res.status(500).json({ success: false, error: error.message || "Failed to broadcast emails", count: 0 });
   }
 });
 
 async function startServer() {
-  const PORT = Number(process.env.PORT) || 3000;
+  const PORT = 3000;
 
   // Vite middleware or static serving
   if (process.env.NODE_ENV !== "production") {

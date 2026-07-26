@@ -8,12 +8,14 @@ export default defineConfig(({mode}) => {
   return {
     plugins: [tailwindcss(), react()],
     define: {
-      // Only define if we have a value, otherwise let Vite handle it naturally
-      ...(env.GEMINI_API_KEY || process.env.GEMINI_API_KEY ? {
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || process.env.GEMINI_API_KEY),
-        'import.meta.env.VITE_GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || process.env.GEMINI_API_KEY),
-        'import.meta.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || process.env.GEMINI_API_KEY),
-      } : {}),
+      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || process.env.GEMINI_API_KEY || ''),
+      'import.meta.env.VITE_GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || process.env.GEMINI_API_KEY || ''),
+      'import.meta.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || process.env.GEMINI_API_KEY || ''),
+      'process.env.EMAIL_PASS': JSON.stringify(env.EMAIL_PASS || process.env.EMAIL_PASS || process.env.SMTP_PASS || ''),
+      'process.env': JSON.stringify({
+        GEMINI_API_KEY: env.GEMINI_API_KEY || process.env.GEMINI_API_KEY || '',
+        EMAIL_PASS: env.EMAIL_PASS || process.env.EMAIL_PASS || process.env.SMTP_PASS || '',
+      }),
     },
     resolve: {
       alias: {
