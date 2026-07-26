@@ -2,6 +2,36 @@ import { GoogleGenAI } from "@google/genai";
 import { HfInference } from "@huggingface/inference";
 import axios from 'axios';
 
+export const safeStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      if (typeof window === 'undefined' || !window.localStorage) return null;
+      return localStorage.getItem(key);
+    } catch (e) {
+      console.warn(`[safeStorage] Failed to getItem '${key}':`, e);
+      return null;
+    }
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.setItem(key, value);
+      }
+    } catch (e) {
+      console.warn(`[safeStorage] Failed to setItem '${key}':`, e);
+    }
+  },
+  removeItem: (key: string): void => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        localStorage.removeItem(key);
+      }
+    } catch (e) {
+      console.warn(`[safeStorage] Failed to removeItem '${key}':`, e);
+    }
+  }
+};
+
 export const getUserRank = (points: number) => {
   if (points >= 341000) return "Pearl League";
   if (points >= 85000) return "Ruby League";
@@ -32,7 +62,8 @@ export const getScholarLeagueInfo = (points: number) => {
 };
 
 export const getApiKey = () => {
-  const key = process.env.GEMINI_API_KEY;
+  const key = (typeof process !== 'undefined' && process.env ? process.env.GEMINI_API_KEY : '') ||
+              (import.meta.env ? (import.meta.env.VITE_GEMINI_API_KEY || (import.meta.env as any).GEMINI_API_KEY) : '');
   const finalKey = (key || "").trim();
   if (!finalKey) {
     console.warn("Gemini API Key is missing. Ensure GEMINI_API_KEY is set in your environment.");

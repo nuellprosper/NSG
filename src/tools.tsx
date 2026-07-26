@@ -1892,6 +1892,14 @@ export const ToolsPage = (props: any) => {
                     >
                       <Volume2 size={15} />
                     </button>
+                    <button
+                      onClick={shareQuiz}
+                      className="h-7.5 px-2.5 rounded-lg bg-black/30 hover:bg-black/50 border border-white/30 flex items-center justify-center gap-1.5 text-white shadow-inner shrink-0 transition-all text-[9px] font-black uppercase tracking-wider"
+                      title="Share Quiz"
+                    >
+                      <Share2 size={14} />
+                      <span className="hidden sm:inline">Share</span>
+                    </button>
                   </div>
 
                   <div className="flex items-center gap-2">

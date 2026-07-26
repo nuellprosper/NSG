@@ -46,11 +46,12 @@ import {
 
 import { 
   UNIVERSITIES, FACULTIES, DEPARTMENTS 
-} from './constants/academic.ts';
+} from './constants/academic';
 
 import { DID_YOU_KNOW_WORDS } from './constants/didYouKnow';
 
 import { 
+  safeStorage,
   getUserRank, getScholarTierInfo, getScholarLeagueInfo,
   getApiKey, getHfKey, getAiInstance, getHfInstance, MODEL_NAME, FLASH_MODEL,
   formatAiError, robustJSONParse, isHfDepletedGlobal, handleHfErrorGlobal,
@@ -111,6 +112,31 @@ export default function App() {
   const handleHfError = (error: any, label: string) => {
     handleHfErrorGlobal(error, label);
     if (isHfDepletedGlobal) setIsHfDepleted(true);
+  };
+
+  const updatePageMeta = (title: string, description: string) => {
+    document.title = `${title} | Omni`;
+    const setMeta = (selector: string, content: string) => {
+      let el = document.querySelector(selector);
+      if (el) {
+        el.setAttribute('content', content);
+      } else {
+        const meta = document.createElement('meta');
+        if (selector.startsWith('meta[name=')) {
+          meta.setAttribute('name', selector.match(/name="([^"]+)"/)?.[1] || '');
+        } else if (selector.startsWith('meta[property=')) {
+          meta.setAttribute('property', selector.match(/property="([^"]+)"/)?.[1] || '');
+        }
+        meta.setAttribute('content', content);
+        document.head.appendChild(meta);
+      }
+    };
+    setMeta('meta[name="description"]', description);
+    setMeta('meta[property="og:title"]', `${title} | Omni`);
+    setMeta('meta[property="og:description"]', description);
+    setMeta('meta[property="og:site_name"]', 'Omni');
+    setMeta('meta[name="twitter:title"]', `${title} | Omni`);
+    setMeta('meta[name="twitter:description"]', description);
   };
   // --- \u{1F510} AUTH STATE ---
   const [user, setUser] = useState<any>(null);
@@ -222,7 +248,7 @@ export default function App() {
   // --- \u{1F4F1} APP STATE ---
   const [isChatRoomActive, setIsChatRoomActive] = useState(false);
   const [activeTab, setActiveTab] = useState<'home' | 'ai' | 'tools' | 'profile' | 'notifications' | 'exam' | 'chat' | 'class' | 'community'>(() => {
-    return (localStorage.getItem('nsg_active_tab') as any) || 'home';
+    return (safeStorage.getItem('nsg_active_tab') as any) || 'home';
   });
 
   const [communitySubTab, setCommunitySubTab] = useState<'quests' | 'rankings'>('quests');
@@ -311,11 +337,11 @@ export default function App() {
   const [isHost, setIsHost] = useState(false);
   
   useEffect(() => {
-    localStorage.setItem('nsg_active_tab', activeTab);
+    safeStorage.setItem('nsg_active_tab', activeTab);
   }, [activeTab]);
 
   const [toolsSubTab, setToolsSubTab] = useState<'menu' | 'record' | 'quiz' | 'exam' | 'faculty' | 'assignment' | 'courses' | 'notebook'>(() => {
-    const stored = localStorage.getItem('nsg_tools_subtab');
+    const stored = safeStorage.getItem('nsg_tools_subtab');
     const validTabs = ['menu', 'record', 'quiz', 'exam', 'faculty', 'assignment', 'courses', 'notebook'];
     if (stored && validTabs.includes(stored)) {
       return stored as any;
@@ -324,7 +350,7 @@ export default function App() {
   });
 
   useEffect(() => {
-    localStorage.setItem('nsg_tools_subtab', toolsSubTab);
+    safeStorage.setItem('nsg_tools_subtab', toolsSubTab);
   }, [toolsSubTab]);
 
   // --- NATIVE PERMISSIONS DIAGNOSTICS & STATE ---
@@ -448,8 +474,12 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedArticle, setSelectedArticle] = useState<any | null>(null);
   const [blogPosts, setBlogPosts] = useState<any[]>(() => {
-    const cached = localStorage.getItem('nsg_cache_blog_posts');
-    return cached ? JSON.parse(cached) : [];
+    try {
+      const cached = localStorage.getItem('nsg_cache_blog_posts');
+      return cached ? JSON.parse(cached) : [];
+    } catch (e) {
+      return [];
+    }
   });
   const [isAddingPost, setIsAddingPost] = useState(false);
   const [editingPost, setEditingPost] = useState<any | null>(null);
@@ -597,7 +627,7 @@ export default function App() {
   const hasShownPeerActivityWelcomeNotification = useRef(false);
   const [showWelcome, setShowWelcome] = useState(false);
   const [showGodMode, setShowGodMode] = useState(false);
-  const [godTab, setGodTab] = useState<'dashboard' | 'users' | 'groups' | 'marketing' | 'blog' | 'reports' | 'courses'>('dashboard');
+  const [godTab, setGodTab] = useState<'dashboard' | 'users' | 'marketing' | 'blog' | 'reports' | 'courses'>('dashboard');
   const [reports, setReports] = useState<any[]>([]);
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [godModeNotification, setGodModeNotification] = useState<string | null>(null);
@@ -610,7 +640,7 @@ export default function App() {
   const [editingCourseId, setEditingCourseId] = useState<string | null>(null);
   const [godUserFilter, setGodUserFilter] = useState<'all' | 'premium' | 'free' | 'online' | 'banned'>('all');
   const [legalPage, setLegalPage] = useState<'about' | 'terms' | 'contact' | 'privacy' | null>(null);
-  const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 1024);
+  const [isDesktop, setIsDesktop] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 1024 : true);
   const [activePhoneNotifs, setActivePhoneNotifs] = useState<any[]>([]);
   const [customCourses, setCustomCourses] = useState<any[]>([]);
 
@@ -1022,7 +1052,7 @@ export default function App() {
   }, [currentUserData]);
 
   useEffect(() => {
-    if (showGodMode && user?.email === "nuellkelechi@gmail.com") {
+    if (showGodMode && (user?.email === "nuellkelechi@gmail.com" || isAdminUser || currentUserData?.role === 'admin')) {
       const unsubscribe = onSnapshot(query(collection(db, 'users'), limit(250)), (snapshot) => {
         const usersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         usersList.sort((a: any, b: any) => {
@@ -1710,7 +1740,7 @@ export default function App() {
 
   // --- \u{1F4DA} PERSISTENCE ---
   const [sessions, setSessions] = useState<LectureSession[]>([]);
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [isOnline, setIsOnline] = useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
 
   // --- DAILY STUDY QUESTS DETAILS (Dynamic 10 League progressive tasks!) ---
   const dailyQuests = useMemo(() => {
@@ -2128,8 +2158,12 @@ export default function App() {
 
   // Notebook state
   const [userNotes, setUserNotes] = useState<any[]>(() => {
-    const cached = localStorage.getItem('nsg_cache_user_notes');
-    return cached ? JSON.parse(cached) : [];
+    try {
+      const cached = localStorage.getItem('nsg_cache_user_notes');
+      return cached ? JSON.parse(cached) : [];
+    } catch (e) {
+      return [];
+    }
   });
   const [selectedNote, setSelectedNote] = useState<any>(null);
   const handleOpenSharedNote = (noteId: string, noteTitle?: string, noteContent?: string) => {
@@ -2259,10 +2293,10 @@ export default function App() {
   });
   
   const homeHistoryFull = [
-    ...unfinishedQuizzes.map(i => ({ ...i, title: truncateTitle(i.title, 12), timestamp: Date.now() + 1000 })), // Current items at very top
-    ...recordingsHistory.map(i => ({ ...i, title: truncateTitle(i.title, 12) })), 
-    ...notesHistory.map(i => ({ ...i, title: truncateTitle(i.title, 12) })), 
-    ...finishedHistory.map(h => ({ ...h, title: truncateTitle(h.title, 12), timestamp: h.timestamp || new Date(h.date || 0).getTime() }))
+    ...unfinishedQuizzes.map(i => ({ ...i, title: truncateTitle(i.title, 40), timestamp: Date.now() + 1000 })), // Current items at very top
+    ...recordingsHistory.map(i => ({ ...i, title: truncateTitle(i.title, 40) })), 
+    ...notesHistory.map(i => ({ ...i, title: truncateTitle(i.title, 40) })), 
+    ...finishedHistory.map(h => ({ ...h, title: truncateTitle(h.title, 40), timestamp: h.timestamp || (h.date ? new Date(h.date).getTime() : 0) }))
   ];
 
   const homeHistory = homeHistoryFull.filter((item, index, self) => 
@@ -3461,22 +3495,26 @@ export default function App() {
   }, [user?.uid, globalActivities.length, userNotes.length, sessions.length, finishedHistory.length, quizQuestions.length, quizState]);
 
   const triggerMarketingBlast = async () => {
-    if (!templateEditForm?.id) {
-      setUserNotification("Please select a saved template first!");
+    const subject = templateEditForm?.subject?.trim();
+    const body = templateEditForm?.body?.trim();
+
+    if (!subject || !body) {
+      setUserNotification("Please enter both a Subject and Body for the email blast.");
       return;
     }
 
     if (allUsers.length === 0) {
-      setUserNotification("No users found to broadcast to.");
+      setUserNotification("No registered users found to broadcast to.");
       return;
     }
 
     try {
-      setUserNotification(`Preparing manual list blast for "${templateEditForm.name}" to ${broadcastTarget.toUpperCase()} users...`);
+      const templateName = templateEditForm.name || "Custom Broadcast";
+      setUserNotification(`Preparing email blast for "${templateName}" to ${broadcastTarget.toUpperCase()} users...`);
       
       const filteredUsers = allUsers.filter(u => {
-        if (broadcastTarget === 'premium') return u.isPremium;
-        if (broadcastTarget === 'free') return !u.isPremium;
+        if (broadcastTarget === 'premium') return u.isPremium || u.tier === 'premium';
+        if (broadcastTarget === 'free') return !u.isPremium && u.tier !== 'premium';
         return true;
       });
 
@@ -3489,14 +3527,19 @@ export default function App() {
         .filter(u => u.email)
         .map(u => ({
           email: u.email,
-          name: u.fullName || u.displayName || 'there'
+          name: u.fullName || u.displayName || u.username || 'there'
         }));
+
+      if (recipients.length === 0) {
+        setUserNotification("No valid user email addresses found.");
+        return;
+      }
 
       const res = await axios.post('/api/admin/broadcast-list', { 
         secret: 'GOD_MODE',
         recipients,
-        subjectTemplate: templateEditForm.subject,
-        bodyTemplate: templateEditForm.body
+        subjectTemplate: subject,
+        bodyTemplate: body
       }); 
 
       if (res.data.success) {
@@ -3504,9 +3547,9 @@ export default function App() {
       } else {
         setUserNotification(`Blast failed: ${res.data.error || 'Unknown error'}`);
       }
-    } catch (err) {
-      console.error(err);
-      setUserNotification("Server error triggering blast.");
+    } catch (err: any) {
+      console.error("Marketing Blast Error:", err);
+      setUserNotification(err.response?.data?.error || "Server error triggering blast.");
     }
   };
 
@@ -4191,11 +4234,11 @@ export default function App() {
     // Theme persists to dark
     setTheme('dark');
 
-    const savedAdminMode = localStorage.getItem('nsg_admin_mode');
+    const savedAdminMode = safeStorage.getItem('nsg_admin_mode');
     if (savedAdminMode === 'true') setAdminMode(true);
 
     // Load hosted exam state if exists
-    const savedHostExamId = localStorage.getItem('nsg_host_exam_id');
+    const savedHostExamId = safeStorage.getItem('nsg_host_exam_id');
     if (savedHostExamId && user) {
       // Fetch latest data from Firestore for persistence and ownership check
       const fetchExamData = async () => {
@@ -4213,7 +4256,7 @@ export default function App() {
               setExamStatus(data.status || 'active');
             } else {
               console.warn("Stale host exam session belonging to another user. Clearing local state.");
-              localStorage.removeItem('nsg_host_exam_id');
+              safeStorage.removeItem('nsg_host_exam_id');
               setHostExamId('');
               setIsHostPaid(false);
             }
@@ -4225,7 +4268,7 @@ export default function App() {
       fetchExamData();
     }
 
-    const hasSeenWelcome = localStorage.getItem('nsg_welcome_seen');
+    const hasSeenWelcome = safeStorage.getItem('nsg_welcome_seen');
     if (!hasSeenWelcome) setShowWelcome(true);
 
     return () => {
@@ -4421,14 +4464,18 @@ export default function App() {
       }));
     }, (err) => handleFirestoreError(err, FirestoreOperation.LIST, `users/${user.uid}/lectureSessions`));
 
-    const unsubHistory = onSnapshot(query(collection(db, 'users', user.uid, 'studyHistory'), orderBy('date', 'desc'), limit(50)), (snapshot) => {
+    const unsubHistory = onSnapshot(query(collection(db, 'users', user.uid, 'studyHistory'), limit(50)), (snapshot) => {
       const historyData = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as HomeHistoryItem));
       setFinishedHistory(prev => {
         // Merge with local if any (local might be more recent)
         const combined = [...prev, ...historyData].filter((item, index, self) => 
           self.findIndex(i => i.id === item.id) === index
         );
-        return combined.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()).slice(0, 50);
+        return combined.sort((a, b) => {
+          const timeA = a.timestamp || (a.date ? new Date(a.date).getTime() : 0);
+          const timeB = b.timestamp || (b.date ? new Date(b.date).getTime() : 0);
+          return timeB - timeA;
+        }).slice(0, 50);
       });
     }, (err) => handleFirestoreError(err, FirestoreOperation.LIST, `users/${user.uid}/studyHistory`));
 
@@ -8402,6 +8449,12 @@ ${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\nopt
       if (quizDoc.exists()) {
         const data = quizDoc.data();
         
+        // Update browser title & OpenGraph meta for social sharing previews
+        updatePageMeta(
+          `Quiz: ${data.topic || 'Academic Quiz'}`,
+          `Take this ${data.questions?.length || 10}-question interactive academic quiz on Omni!`
+        );
+
         // Check if they already finished it
         const alreadyFinished = finishedHistory.some(h => 
           h.type === 'quiz' && 
@@ -8435,6 +8488,7 @@ ${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\nopt
           id: historyId,
           title: data.topic || 'Shared Quiz',
           type: 'quiz',
+          date: new Date().toLocaleDateString(),
           timestamp: Date.now(),
           progress: 0,
           questions: data.questions,
@@ -8889,15 +8943,19 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
         setIsAnswered(false);
         setCurrentQuizId(genId);
 
+        const finalQuizTopic = activeTopic || data.quizTitle || 'Visual Materials Quiz';
+        updatePageMeta(`Quiz: ${finalQuizTopic}`, `Take this ${data.questions.length}-question interactive quiz on Omni!`);
+
         // Auto Capture: Add to history immediately when generated
         const historyItem: HomeHistoryItem = {
           id: genId,
-          title: activeTopic || data.quizTitle || 'Visual Materials Quiz',
+          title: finalQuizTopic,
           type: 'quiz',
+          date: new Date().toLocaleDateString(),
           timestamp: Date.now(),
           progress: 0,
           questions: data.questions,
-          topic: activeTopic || data.quizTitle || 'Visual Materials Quiz',
+          topic: finalQuizTopic,
           difficulty: activeDifficulty
         };
         addToFinishedHistory(historyItem);
@@ -9020,64 +9078,84 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
     try {
       await new Promise(r => setTimeout(r, 650));
       if (item.type === 'quiz') {
+        const itemQuestions = item.questions || (item.data && item.data.questions);
+        if (itemQuestions && Array.isArray(itemQuestions) && itemQuestions.length > 0) {
+          setQuizQuestions(itemQuestions);
+          setQuizTopic(item.topic || item.title || "Study Quiz");
+          setQuizDifficulty((item.difficulty as any) || 'Medium');
+          setQuizQuestionCount(itemQuestions.length);
+          setCurrentQuizId(item.id);
+
+          if (item.score !== undefined) {
+            setQuizScore(item.score);
+            setQuizState('finished');
+            setUserQuizAnswers(item.answers || []);
+          } else {
+            setQuizScore(0);
+            setUserQuizAnswers(item.answers || []);
+            setCurrentQuestionIndex(0);
+            setSelectedOption(item.answers?.[0] !== undefined ? item.answers[0] : null);
+            setIsAnswered(item.answers?.[0] !== undefined);
+            setQuizState('active');
+          }
+          setActiveTab('tools');
+          setToolsSubTab('quiz');
+          setUserNotification("✅ Restored quiz session!");
+          return;
+        }
+
+        // Check local progress storage
+        const cleanId = item.id.replace(/^quiz-/, '');
+        const progressKey = (cleanId === 'current-quiz' || item.id === 'current-quiz') ? 'nsg_current_quiz_progress' : `nsg_quiz_progress_${cleanId}`;
+        const localProgress = safeStorage.getItem(progressKey) || safeStorage.getItem('nsg_current_quiz_progress');
+        if (localProgress) {
+          try {
+            const p = JSON.parse(localProgress);
+            if (p.quizQuestions && Array.isArray(p.quizQuestions) && p.quizQuestions.length > 0) {
+              setQuizQuestions(p.quizQuestions);
+              setQuizTopic(p.quizTopic || item.title || "Study Quiz");
+              setCurrentQuestionIndex(p.currentQuestionIndex || 0);
+              setQuizScore(p.quizScore || 0);
+              setUserQuizAnswers(p.userQuizAnswers || []);
+              setQuizDifficulty(p.quizDifficulty || 'Medium');
+              setQuizQuestionCount(p.quizQuestionCount || p.quizQuestions.length);
+              setCurrentQuizId(p.currentQuizId || item.id);
+              setQuizState(p.quizState || 'active');
+              setSelectedOption(p.userQuizAnswers?.[p.currentQuestionIndex || 0] !== undefined ? p.userQuizAnswers[p.currentQuestionIndex || 0] : null);
+              setIsAnswered(p.userQuizAnswers?.[p.currentQuestionIndex || 0] !== undefined);
+              setActiveTab('tools');
+              setToolsSubTab('quiz');
+              setUserNotification("🔄 Restored saved quiz progress!");
+              return;
+            }
+          } catch (e) {
+            console.error("Failed to restore history quiz progress:", e);
+          }
+        }
+
+        // Check if there is a shared quiz ID in Firestore
         let targetQuizId = '';
         if (item.id.startsWith('quiz-')) {
           targetQuizId = item.id.replace('quiz-', '');
           if (targetQuizId.startsWith('fin-')) targetQuizId = '';
         }
         if (targetQuizId && targetQuizId !== 'current-quiz') {
-          await loadSharedQuiz(targetQuizId);
-          if (item.score !== undefined) {
-            setQuizState('finished');
-            setQuizScore(item.score);
-            if (item.answers) setUserQuizAnswers(item.answers);
-          }
-          return;
-        }
-        if (item.score !== undefined && item.questions && item.questions.length > 0) {
-          setQuizQuestions(item.questions);
-          setQuizScore(item.score);
-          setQuizState('finished');
-          if (item.answers) setUserQuizAnswers(item.answers);
-          if (item.topic) setQuizTopic(item.topic);
-          if (item.difficulty) setQuizDifficulty(item.difficulty as any);
-          setActiveTab('tools');
-          setToolsSubTab('quiz');
-          return;
-        }
-        const cleanId = item.id.replace(/^quiz-/, '');
-        const progressKey = (cleanId === 'current-quiz' || item.id === 'current-quiz') ? 'nsg_current_quiz_progress' : `nsg_quiz_progress_${cleanId}`;
-        const localProgress = localStorage.getItem(progressKey);
-        if (localProgress) {
           try {
-            const p = JSON.parse(localProgress);
-            setQuizQuestions(p.quizQuestions || []);
-            setQuizTopic(p.quizTopic || item.title || "Study Quiz");
-            setCurrentQuestionIndex(p.currentQuestionIndex || 0);
-            setQuizScore(p.quizScore || 0);
-            setUserQuizAnswers(p.userQuizAnswers || []);
-            setQuizDifficulty(p.quizDifficulty || 'Medium');
-            setQuizQuestionCount(p.quizQuestionCount || p.quizQuestions?.length || 10);
-            setCurrentQuizId(p.currentQuizId || item.id);
-            setQuizState('active');
-            setSelectedOption(p.userQuizAnswers?.[p.currentQuestionIndex] !== undefined ? p.userQuizAnswers[p.currentQuestionIndex] : null);
-            setIsAnswered(p.userQuizAnswers?.[p.currentQuestionIndex] !== undefined);
+            await loadSharedQuiz(targetQuizId);
+            if (item.score !== undefined) {
+              setQuizState('finished');
+              setQuizScore(item.score);
+              if (item.answers) setUserQuizAnswers(item.answers);
+            }
             setActiveTab('tools');
             setToolsSubTab('quiz');
             return;
-          } catch (e) {
-            console.error("Failed to restore history quiz progress:", e);
+          } catch (err) {
+            console.warn("Shared quiz load failed, generating fallback...", err);
           }
         }
-        if (item.questions && item.questions.length > 0) {
-          setQuizQuestions(item.questions);
-          setQuizTopic(item.title || item.topic || "Study Quiz");
-          setQuizState('active');
-          setCurrentQuestionIndex(0);
-          setActiveTab('tools');
-          setToolsSubTab('quiz');
-          return;
-        }
+
+        // Fallback: Generate fresh quiz if no questions found anywhere
         await generateQuiz(item.title || item.topic || "General Assessment", 10, (item.difficulty as any) || "Medium");
         setActiveTab('tools');
         setToolsSubTab('quiz');
@@ -9272,6 +9350,15 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
     setShowWelcome(false);
     localStorage.setItem('nsg_welcome_seen', 'true');
   };
+
+  const isSecondaryPage = Boolean(
+    showGodMode ||
+    legalPage ||
+    (activeTab === 'tools' && toolsSubTab !== 'menu') ||
+    (quizState && quizState !== 'idle') ||
+    (activeTab === 'chat' && (isChatRoomActive || activeChatSessionId)) ||
+    activeTab === 'notifications'
+  );
 
   return (
     <div 
@@ -10066,7 +10153,7 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
 
       {/* MAIN CONTENT */}
       <main 
-        className={`flex-1 ${(activeTab === 'chat' || activeTab === 'class' || activeTab === 'ai' || isDesktop) ? 'w-full' : 'max-w-4xl w-full mx-auto px-2 sm:px-4'} ${(activeTab === 'chat' || activeTab === 'class' || activeTab === 'ai') ? 'pb-0 overflow-hidden pt-0' : 'pb-24 overflow-y-auto pt-4'} flex flex-col custom-scrollbar ${isDesktop ? 'px-8' : ''}`}
+        className={`flex-1 ${(activeTab === 'chat' || activeTab === 'class' || activeTab === 'ai' || isDesktop) ? 'w-full' : 'max-w-4xl w-full mx-auto px-2 sm:px-4'} ${(activeTab === 'chat' || activeTab === 'class' || activeTab === 'ai' || isSecondaryPage) ? 'pb-2 overflow-y-auto pt-0' : 'pb-24 overflow-y-auto pt-4'} flex flex-col custom-scrollbar ${isDesktop ? 'px-8' : ''}`}
         style={{
           backgroundColor: 'var(--bg-base)',
         }}
@@ -13692,258 +13779,253 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
       {/* GOD MODE PANEL */}
       <AnimatePresence>
         {showGodMode && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={`fixed inset-0 z-[200] ${theme === 'dark' ? 'bg-[#13111C]' : 'bg-white'} flex flex-col md:flex-row overflow-hidden`}>
-            {/* Navigation (Sidebar on Desktop, Top-scroll on Mobile) */}
-            <div className={`w-full md:w-72 border-b md:border-b-0 md:border-r ${theme === 'dark' ? 'border-white/10 bg-[#0F172A]' : 'border-zinc-200 bg-zinc-50'} flex flex-col shadow-2xl z-10`}>
-              <div className="p-4 md:p-8 border-b border-[#DC2626]/20 bg-gradient-to-br from-[#DC2626]/5 to-transparent flex items-center justify-between md:block">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[200] bg-[#090D16] text-white flex flex-col md:flex-row overflow-hidden font-sans">
+            {/* Command Sidebar */}
+            <div className="w-full md:w-72 border-b md:border-b-0 md:border-r border-white/10 bg-[#0F1623]/95 backdrop-blur-2xl flex flex-col shadow-2xl z-20 shrink-0">
+              <div className="p-4 md:p-6 border-b border-red-500/20 bg-gradient-to-br from-red-600/10 via-transparent to-transparent flex items-center justify-between md:block">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 md:w-12 md:h-12 bg-[#DC2626] rounded-xl flex items-center justify-center shadow-lg shadow-red-900/40 shrink-0">
-                    <ShieldCheck size={24} className="text-white" />
+                  <div className="w-10 h-10 md:w-11 md:h-11 bg-gradient-to-tr from-red-600 to-rose-500 rounded-xl flex items-center justify-center shadow-lg shadow-red-950/60 shrink-0 ring-1 ring-red-400/30">
+                    <ShieldCheck size={22} className="text-white" />
                   </div>
                   <div>
-                    <h1 className="text-lg md:text-xl font-black text-[#DC2626] uppercase tracking-tighter italic leading-tight">God Mode</h1>
-                    <p className="text-[8px] font-bold uppercase tracking-[0.3em] opacity-40">Administrative Control</p>
+                    <h1 className="text-base md:text-lg font-black text-white uppercase tracking-tight italic leading-tight flex items-center gap-1.5">
+                      God Mode <span className="text-[9px] font-mono not-italic px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30">v3.0</span>
+                    </h1>
+                    <p className="text-[8px] font-bold text-white/40 uppercase tracking-[0.25em]">Admin Command Center</p>
                   </div>
                 </div>
-                <button onClick={() => setShowGodMode(false)} className="md:hidden p-2 text-white/40 hover:text-[#DC2626]">
-                  <XCircle size={24} />
+                <button onClick={() => setShowGodMode(false)} className="md:hidden p-2 text-white/40 hover:text-red-500 transition-colors">
+                  <XCircle size={22} />
                 </button>
               </div>
 
-              <nav className="flex-1 p-2 md:p-4 md:space-y-2 flex flex-row md:flex-col overflow-x-auto md:overflow-y-auto no-scrollbar">
+              {/* Sidebar Tabs */}
+              <nav className="flex-1 p-2 md:p-3 md:space-y-1.5 flex flex-row md:flex-col overflow-x-auto md:overflow-y-auto custom-scrollbar">
                 {[
-                  { id: 'dashboard', label: 'Summary', icon: LayoutDashboard },
-                  { id: 'users', label: 'Users Monitor', icon: User },
-                  { id: 'groups', label: 'Groups', icon: Users },
-                  { id: 'reports', label: 'Safety', icon: AlertTriangle },
-                  { id: 'marketing', label: 'Broadcasting', icon: Mail },
-                  { id: 'blog', label: 'Feed', icon: BookOpen },
-                  { id: 'courses', label: 'Courses', icon: GraduationCap },
-                ].map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => setGodTab(item.id as any)}
-                    className={`flex items-center gap-3 px-4 md:px-6 py-3 md:py-4 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shrink-0 md:shrink ${
-                      godTab === item.id 
-                       ? 'bg-[#DC2626] text-white shadow-lg shadow-red-900/30' 
-                       : theme === 'dark' ? 'text-white/40 hover:bg-white/5 hover:text-white' : 'text-zinc-500 hover:bg-zinc-100'
-                    }`}
-                  >
-                    <item.icon size={16} />
-                    <span>{item.label}</span>
-                  </button>
-                ))}
+                  { id: 'dashboard', label: 'Overview', desc: 'Metrics & Health', icon: LayoutDashboard },
+                  { id: 'users', label: 'Users Control', desc: `${allUsers.length} Users`, icon: User },
+                  { id: 'marketing', label: 'Email Outreach', desc: 'Mass Broadcast', icon: Mail },
+                  { id: 'blog', label: 'Neural Feed', desc: 'Articles & Posts', icon: BookOpen },
+                  { id: 'reports', label: 'Safety Protocols', desc: `${allReports.length} Alerts`, icon: AlertTriangle },
+                  { id: 'courses', label: 'Curriculums', desc: `${customCourses.length} Courses`, icon: GraduationCap },
+                ].map((item) => {
+                  const isActive = godTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setGodTab(item.id as any)}
+                      className={`flex items-center gap-3 px-3.5 md:px-4 py-2.5 md:py-3.5 rounded-xl text-left transition-all shrink-0 md:shrink group relative ${
+                        isActive 
+                         ? 'bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-xl shadow-red-950/50 ring-1 ring-red-400/30' 
+                         : 'text-white/50 hover:bg-white/[0.06] hover:text-white'
+                      }`}
+                    >
+                      <item.icon size={18} className={isActive ? 'text-white' : 'text-white/40 group-hover:text-white/80'} />
+                      <div className="hidden md:block min-w-0">
+                        <p className="text-[11px] font-black uppercase tracking-wider leading-none mb-0.5">{item.label}</p>
+                        <p className={`text-[8px] font-medium tracking-wide ${isActive ? 'text-white/80' : 'text-white/30'}`}>{item.desc}</p>
+                      </div>
+                      <span className="md:hidden text-[9px] font-black uppercase tracking-wider">{item.label}</span>
+                    </button>
+                  );
+                })}
               </nav>
 
-              <div className="hidden md:block p-8 border-t border-white/5">
+              {/* Exit Button */}
+              <div className="hidden md:block p-4 border-t border-white/5 bg-[#090D16]/50">
                 <button 
                   onClick={() => setShowGodMode(false)}
-                  className="w-full flex items-center justify-center gap-3 py-4 bg-white/5 hover:bg-[#DC2626] text-white/40 hover:text-white rounded-2xl text-[9px] font-black uppercase tracking-[0.2em] transition-all border border-white/5 shadow-inner"
+                  className="w-full flex items-center justify-center gap-2.5 py-3 bg-white/5 hover:bg-red-600 text-white/50 hover:text-white rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all border border-white/5 hover:border-red-500 shadow-inner group"
                 >
-                  <LogOut size={18} /> Safety Exit
+                  <LogOut size={16} className="group-hover:-translate-x-0.5 transition-transform" /> Exit Command
                 </button>
               </div>
             </div>
 
             {/* Main Content Area */}
-            <div className="flex-1 flex flex-col overflow-hidden relative">
-              <div className={`px-6 md:px-12 py-6 flex items-center justify-between border-b ${theme === 'dark' ? 'border-white/5' : 'border-zinc-100'}`}>
+            <div className="flex-1 flex flex-col overflow-hidden relative bg-gradient-to-b from-[#0F1623]/50 to-[#090D16]">
+              {/* Header */}
+              <div className="px-5 md:px-8 py-4 border-b border-white/10 bg-[#0F1623]/80 backdrop-blur-xl flex items-center justify-between shrink-0">
                 <div>
-                  <h2 className={`text-xl md:text-2xl font-black ${theme === 'dark' ? 'text-white' : 'text-zinc-900'} uppercase tracking-tighter italic`}>
-                    {godTab === 'dashboard' && 'Summary Monitor'}
-                    {godTab === 'users' && 'Users Monitor'}
-                    {godTab === 'marketing' && 'Broadcast Hub'}
-                    {godTab === 'blog' && 'Neural Feed'}
-                    {godTab === 'reports' && 'Security Protocol'}
-                    {godTab === 'courses' && 'Curriculum Architect'}
+                  <h2 className="text-base md:text-xl font-black text-white uppercase tracking-tight italic flex items-center gap-2">
+                    {godTab === 'dashboard' && 'Command Overview'}
+                    {godTab === 'users' && 'Population & User Management'}
+                    {godTab === 'marketing' && 'Email Outreach & Broadcast Center'}
+                    {godTab === 'blog' && 'Neural Feed & Publications'}
+                    {godTab === 'reports' && 'Security Breaches & Safety Protocol'}
+                    {godTab === 'courses' && 'Curriculum Builder & Course Architect'}
                   </h2>
                 </div>
                 
-                <div className="hidden sm:flex items-center gap-4">
+                <div className="flex items-center gap-3">
                   <AnimatePresence>
                     {godModeNotification && (
-                      <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="bg-[#DC2626] text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-[#DC2626]/20">
+                      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider shadow-lg shadow-red-950/50 border border-red-400/30">
                         {godModeNotification}
                       </motion.div>
                     )}
                   </AnimatePresence>
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-green-500/10 border border-green-500/20 rounded-full">
-                     <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
-                     <span className="text-[8px] font-black text-green-500 uppercase tracking-widest">Live</span>
+                  <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
+                     <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_#10b981]" />
+                     <span className="text-[9px] font-mono font-bold text-emerald-400 uppercase tracking-widest">System Online</span>
                   </div>
                 </div>
               </div>
 
+              {/* Scrollable View Container */}
               <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
-                <div className="max-w-6xl mx-auto space-y-6 md:space-y-8 pb-32">
+                <div className="max-w-6xl mx-auto space-y-6 md:space-y-8 pb-16">
                   
+                  {/* DASHBOARD TAB */}
                   {godTab === 'dashboard' && (
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4">
-                      {[
-                        { label: 'Total Users', value: allUsers.length, icon: User, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
-                        { label: 'Groups', value: allGroups.length, icon: Users, color: 'text-purple-500', bg: 'bg-purple-500/10' },
-                        { label: 'Safety Reports', value: allReports.length, icon: AlertTriangle, color: 'text-red-500', bg: 'bg-red-500/10' },
-                        { label: 'Feed Content', value: blogPosts.length, icon: BookOpen, color: 'text-blue-500', bg: 'bg-blue-500/10' },
-                        { label: 'Global Status', value: 'ONLINE', icon: Zap, color: 'text-yellow-500', bg: 'bg-yellow-500/10' }
-                      ].map((stat, i) => (
-                        <div key={i} className="bg-white/5 border border-white/10 p-4 md:p-6 rounded-2xl md:rounded-[2rem] shadow-xl">
-                           <div className={`w-8 h-8 md:w-10 md:h-10 rounded-xl ${stat.bg} flex items-center justify-center mb-3 md:mb-6`}>
-                              <stat.icon size={16} className={stat.color} />
-                           </div>
-                           <p className="text-[7px] md:text-[9px] font-black text-white/30 uppercase tracking-[0.2em] mb-1">{stat.label}</p>
-                           <p className="text-xl md:text-3xl font-black text-white tracking-tighter italic">{stat.value}</p>
+                    <div className="space-y-6">
+                      {/* Metric Grid */}
+                      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
+                        {[
+                          { label: 'Total Accounts', value: allUsers.length, icon: User, color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20' },
+                          { label: 'Premium Users', value: allUsers.filter(u => u.isPremium).length, icon: Zap, color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20' },
+                          { label: 'Safety Incident Reports', value: allReports.length, icon: AlertTriangle, color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/20' },
+                          { label: 'Feed Articles', value: blogPosts.length, icon: BookOpen, color: 'text-sky-400', bg: 'bg-sky-500/10 border-sky-500/20' },
+                          { label: 'Curriculums Created', value: customCourses.length, icon: GraduationCap, color: 'text-purple-400', bg: 'bg-purple-500/10 border-purple-500/20' }
+                        ].map((stat, i) => (
+                          <div key={i} className="bg-[#0F1623]/80 border border-white/10 p-4 md:p-5 rounded-2xl shadow-xl hover:border-white/20 transition-all">
+                             <div className={`w-9 h-9 rounded-xl ${stat.bg} border flex items-center justify-center mb-3`}>
+                                <stat.icon size={18} className={stat.color} />
+                             </div>
+                             <p className="text-[8px] md:text-[9px] font-black text-white/40 uppercase tracking-wider mb-1">{stat.label}</p>
+                             <p className="text-xl md:text-2xl font-black text-white tracking-tight italic">{stat.value}</p>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Quick Shortcuts */}
+                      <div className="bg-[#0F1623]/80 border border-white/10 p-6 rounded-2xl space-y-4">
+                        <h3 className="text-xs font-black uppercase tracking-wider text-white/60">Command Direct Actions</h3>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                          <button onClick={() => setGodTab('marketing')} className="p-4 bg-white/[0.03] border border-white/10 hover:border-red-500/50 hover:bg-red-500/10 rounded-xl text-left transition-all group">
+                            <Mail size={20} className="text-red-400 mb-2 group-hover:scale-110 transition-transform" />
+                            <p className="text-xs font-black text-white uppercase">Send Broadcast Email</p>
+                            <p className="text-[9px] text-white/40 mt-1">Mass outreach to student base</p>
+                          </button>
+                          <button onClick={() => setGodTab('users')} className="p-4 bg-white/[0.03] border border-white/10 hover:border-emerald-500/50 hover:bg-emerald-500/10 rounded-xl text-left transition-all group">
+                            <User size={20} className="text-emerald-400 mb-2 group-hover:scale-110 transition-transform" />
+                            <p className="text-xs font-black text-white uppercase">Manage Users</p>
+                            <p className="text-[9px] text-white/40 mt-1">Grant bypass, search & ban</p>
+                          </button>
+                          <button onClick={() => setGodTab('courses')} className="p-4 bg-white/[0.03] border border-white/10 hover:border-purple-500/50 hover:bg-purple-500/10 rounded-xl text-left transition-all group">
+                            <GraduationCap size={20} className="text-purple-400 mb-2 group-hover:scale-110 transition-transform" />
+                            <p className="text-xs font-black text-white uppercase">Add Curriculum</p>
+                            <p className="text-[9px] text-white/40 mt-1">Publish new academic course</p>
+                          </button>
+                          <button onClick={() => setGodTab('reports')} className="p-4 bg-white/[0.03] border border-white/10 hover:border-amber-500/50 hover:bg-amber-500/10 rounded-xl text-left transition-all group">
+                            <AlertTriangle size={20} className="text-amber-400 mb-2 group-hover:scale-110 transition-transform" />
+                            <p className="text-xs font-black text-white uppercase">Review Security</p>
+                            <p className="text-[9px] text-white/40 mt-1">Check toxic reports & alerts</p>
+                          </button>
                         </div>
-                      ))}
+                      </div>
                     </div>
                   )}
 
+                  {/* NEURAL FEED TAB */}
                   {godTab === 'blog' && (
-                    <div className="bg-white/5 border border-white/10 p-8 rounded-[2.5rem] space-y-8">
-                      <div className="flex items-center justify-between border-b border-white/5 pb-8">
+                    <div className="bg-[#0F1623]/80 border border-white/10 p-5 md:p-8 rounded-2xl space-y-6">
+                      <div className="flex items-center justify-between border-b border-white/10 pb-6">
                         <div>
-                          <h3 className="text-2xl font-black text-white uppercase tracking-tighter flex items-center gap-3 italic">
-                            <BookOpen size={28} className="text-[#DC2626]" /> Matrix Archives
+                          <h3 className="text-lg md:text-xl font-black text-white uppercase tracking-tight flex items-center gap-2.5 italic">
+                            <BookOpen size={22} className="text-red-500" /> Neural Feed Publications
                           </h3>
-                          <p className="text-[10px] font-bold text-white/20 uppercase tracking-widest mt-1">Manage global publications</p>
+                          <p className="text-[10px] font-bold text-white/40 uppercase tracking-wider mt-0.5">Manage platform announcements & community updates</p>
                         </div>
                         <button 
                           onClick={() => setIsAddingPost(true)}
-                          className="bg-[#DC2626] text-white px-10 py-5 rounded-[1.5rem] text-[11px] font-black uppercase tracking-[0.1em] hover:bg-red-700 transition-all flex items-center gap-2 shadow-2xl shadow-red-900/40"
+                          className="bg-red-600 hover:bg-red-500 text-white px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-2 shadow-lg shadow-red-950/50"
                         >
-                          <Plus size={18} /> Add Entry
+                          <Plus size={16} /> New Article
                         </button>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {blogPosts.map(post => (
-                          <div key={post.id} className="bg-white/[0.02] border border-white/5 p-6 rounded-[2rem] flex items-center justify-between group hover:bg-white/[0.05] transition-all">
-                            <div className="truncate pr-4 flex-1">
-                              <p className="font-black text-white text-sm truncate uppercase tracking-tight mb-2 italic">{post.title}</p>
-                              <div className="flex items-center gap-4">
-                                <p className="text-[8px] text-white/20 font-black uppercase tracking-[0.2em]">{post.timestamp?.toDate ? post.timestamp.toDate().toLocaleDateString() : 'Draft'}</p>
-                                <div className="flex gap-2">
-                                  {Object.entries(post.reactions || {}).map(([emoji, count]) => (
-                                    <span key={emoji} className="text-[9px] bg-[#DC2626]/10 text-[#DC2626] px-2 py-0.5 rounded-lg border border-[#DC2626]/10 font-bold">{emoji} {count as any}</span>
-                                  ))}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {blogPosts.length === 0 ? (
+                          <div className="col-span-2 text-center py-12 text-white/30 font-bold text-xs uppercase tracking-wider">No feed publications found</div>
+                        ) : (
+                          blogPosts.map(post => (
+                            <div key={post.id} className="bg-white/[0.02] border border-white/10 p-5 rounded-2xl flex items-center justify-between group hover:bg-white/[0.04] transition-all">
+                              <div className="truncate pr-4 flex-1">
+                                <p className="font-black text-white text-xs truncate uppercase tracking-tight mb-1.5 italic">{post.title}</p>
+                                <div className="flex items-center gap-3">
+                                  <p className="text-[8px] text-white/30 font-mono font-bold uppercase">{post.timestamp?.toDate ? post.timestamp.toDate().toLocaleDateString() : 'Draft'}</p>
+                                  <div className="flex gap-1.5">
+                                    {Object.entries(post.reactions || {}).map(([emoji, count]) => (
+                                      <span key={emoji} className="text-[9px] bg-red-500/10 text-red-400 px-2 py-0.5 rounded border border-red-500/20 font-bold">{emoji} {count as any}</span>
+                                    ))}
+                                  </div>
                                 </div>
                               </div>
+                              <div className="flex items-center gap-2">
+                                <button onClick={() => { setEditingPost(post); setIsEditingPost(true); }} className="p-2 bg-white/5 rounded-lg text-white/40 hover:text-white transition-all"><Edit3 size={15} /></button>
+                                <button onClick={() => deletePost(post.id)} className="p-2 bg-white/5 rounded-lg text-white/40 hover:text-red-400 transition-all"><Trash2 size={15} /></button>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-2">
-                              <button onClick={() => { setEditingPost(post); setIsEditingPost(true); }} className="p-3 bg-white/5 rounded-xl text-white/30 hover:text-white transition-all"><Edit3 size={18} /></button>
-                              <button onClick={() => deletePost(post.id)} className="p-3 bg-white/5 rounded-xl text-white/30 hover:text-red-500 transition-all"><Trash2 size={18} /></button>
-                            </div>
-                          </div>
-                        ))}
+                          ))
+                        )}
                       </div>
                     </div>
                   )}
 
-                  {godTab === 'groups' && (
-                    <div className="bg-white/5 border border-white/10 p-8 rounded-[2.5rem] space-y-8">
-                      <div>
-                        <h3 className="text-2xl font-black text-white uppercase tracking-tighter flex items-center gap-3 italic">
-                          <Users size={28} className="text-[#DC2626]" /> Collective Clusters
-                        </h3>
-                        <p className="text-[10px] font-bold text-white/20 uppercase tracking-widest mt-1">Manage all distributed groups</p>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {allGroups.map(group => (
-                          <div key={group.id} className="bg-white/[0.02] border border-white/5 p-6 rounded-[2rem] flex items-center justify-between">
-                            <div className="flex items-center gap-4 truncate">
-                              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#DC2626] to-red-900 flex items-center justify-center text-white font-black text-lg">
-                                {group.photoURL ? <img src={group.photoURL} className="w-full h-full object-cover rounded-2xl" /> : (group.name || '?').charAt(0)}
-                              </div>
-                              <div className="truncate">
-                                <p className="font-black text-white text-sm uppercase tracking-tight italic truncate">{group.name}</p>
-                                <p className="text-[8px] text-white/30 uppercase tracking-widest">{group.members?.length || 0} Summaries Connected</p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <button 
-                                onClick={() => setEditingGroup(group)}
-                                className="p-3 bg-white/5 rounded-xl text-white/20 hover:text-white hover:bg-white/10 transition-all"
-                                title="RECONFIGURE"
-                              >
-                                <Edit3 size={18} />
-                              </button>
-                              <button 
-                                onClick={async () => {
-                                  if (confirm('Erase this cluster?')) {
-                                    await deleteDoc(doc(db, 'chats', group.id));
-                                    setGodModeNotification("Group cluster vaporized.");
-                                    setTimeout(() => setGodModeNotification(null), 3000);
-                                  }
-                                }}
-                                className="p-3 bg-white/5 rounded-xl text-white/20 hover:text-red-500 transition-all"
-                                title="DELETE"
-                              >
-                                <Trash2 size={18} />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
+                  {/* SAFETY PROTOCOLS TAB */}
                   {godTab === 'reports' && (
-                    <div className="bg-white/5 border border-white/10 p-4 md:p-8 rounded-[2.5rem] space-y-6 md:space-y-8">
+                    <div className="bg-[#0F1623]/80 border border-white/10 p-5 md:p-8 rounded-2xl space-y-6">
                        <div>
-                          <h3 className="text-xl md:text-2xl font-black text-white uppercase tracking-tighter flex items-center gap-3 italic">
-                            <AlertTriangle size={24} className="text-[#DC2626]" /> Breach Protocol
+                          <h3 className="text-lg md:text-xl font-black text-white uppercase tracking-tight flex items-center gap-2.5 italic">
+                            <AlertTriangle size={22} className="text-red-500" /> Security Violation Reports
                           </h3>
-                          <p className="text-[10px] font-bold text-white/20 uppercase tracking-widest mt-1">Review critical security violations</p>
-                          <p className="text-[9px] text-white/40 mt-2 leading-relaxed">
-                            These reports help you identify and manage security violations, suspect behavior, and toxic interactions within the community. Action these immediately to maintain platform integrity.
-                          </p>
+                          <p className="text-[10px] font-bold text-white/40 uppercase tracking-wider mt-0.5">Review toxic interaction reports and enforce platform safety rules</p>
                        </div>
 
-                       <div className="space-y-8">
+                       <div className="space-y-6">
                         {allReports.length === 0 && (
-                          <div className="text-center py-32 bg-white/[0.02] rounded-[3rem] border border-white/5">
-                             <div className="w-20 h-20 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
-                                <ShieldCheck size={40} className="text-green-500" />
+                          <div className="text-center py-20 bg-white/[0.02] rounded-2xl border border-white/5">
+                             <div className="w-14 h-14 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-emerald-500/20">
+                                <ShieldCheck size={28} className="text-emerald-400" />
                              </div>
-                             <p className="text-xl font-black text-white/20 uppercase tracking-tighter">Safe Passage Confirmed</p>
-                             <p className="text-[10px] font-bold text-white/10 uppercase tracking-widest mt-2">No active breaches in sector</p>
+                             <p className="text-base font-black text-white/40 uppercase tracking-tight">Platform Secure</p>
+                             <p className="text-[10px] font-bold text-white/20 uppercase tracking-wider mt-1">No active reports or security violations</p>
                           </div>
                         )}
                         {allReports.map(report => (
-                          <div key={report.id} className="bg-white/[0.02] border border-white/5 rounded-[3rem] overflow-hidden shadow-2xl">
-                             <div className="p-8 bg-red-600/5 border-b border-white/5 flex items-center justify-between">
-                                <div className="flex items-center gap-4">
-                                   <div className="w-12 h-12 bg-red-500/20 rounded-[1.25rem] flex items-center justify-center text-red-500"><AlertTriangle size={24} /></div>
+                          <div key={report.id} className="bg-white/[0.02] border border-white/10 rounded-2xl overflow-hidden">
+                             <div className="p-5 bg-red-600/10 border-b border-white/10 flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                   <div className="w-10 h-10 bg-red-500/20 rounded-xl flex items-center justify-center text-red-400 border border-red-500/30"><AlertTriangle size={20} /></div>
                                    <div>
-                                      <p className="text-sm font-black text-white uppercase tracking-tight">Summary Suspect: <span className="text-red-500">@{report.suspectHandle}</span></p>
-                                      <p className="text-[9px] font-bold text-white/20 uppercase tracking-[0.2em] mt-0.5">Reporter Auth: {report.reporterEmail}</p>
+                                      <p className="text-xs font-black text-white uppercase tracking-tight">Suspect Handle: <span className="text-red-400">@{report.suspectHandle}</span></p>
+                                      <p className="text-[9px] font-bold text-white/40 uppercase tracking-wider mt-0.5">Reporter Email: {report.reporterEmail}</p>
                                    </div>
                                 </div>
                                 <div className="text-right">
-                                   <p className="text-[10px] font-black text-white uppercase tracking-tighter italic">Status: Priority Zero</p>
-                                   <p className="text-[8px] font-mono text-white/10 mt-1 uppercase">{report.timestamp?.toDate ? report.timestamp.toDate().toLocaleString() : 'Recent'}</p>
+                                   <span className="text-[9px] font-black px-2.5 py-1 rounded-full bg-red-500/20 text-red-400 border border-red-500/30 uppercase tracking-wider">Priority Alert</span>
+                                   <p className="text-[8px] font-mono text-white/30 mt-1 uppercase">{report.timestamp?.toDate ? report.timestamp.toDate().toLocaleString() : 'Recent'}</p>
                                 </div>
                              </div>
-                             <div className="p-8 space-y-6">
-                                <div className="bg-[#13111C] rounded-[2rem] p-8 border border-white/5 relative overflow-hidden shadow-inner">
-                                   <div className="absolute top-0 right-0 p-6 opacity-[0.03]">
-                                      <Database size={100} />
-                                   </div>
-                                   <p className="text-[9px] font-black text-white/20 uppercase tracking-widest border-b border-white/5 pb-4 mb-6 italic">Evidence Matrix Extraction</p>
-                                   <div className="space-y-4">
-                                     {report.messages.map((msg: any, idx: number) => (
-                                       <div key={idx} className="flex gap-6 items-start">
-                                          <div className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest shrink-0 mt-1 ${msg.senderId === report.suspectId ? 'bg-red-500/20 text-red-500 border border-red-500/20' : 'bg-white/5 text-white/40 border border-white/5'}`}>
+                             <div className="p-5 space-y-4">
+                                <div className="bg-[#090D16] rounded-xl p-4 border border-white/10 space-y-3">
+                                   <p className="text-[9px] font-black text-white/40 uppercase tracking-wider border-b border-white/5 pb-2">Chat Log Evidence Extraction</p>
+                                   <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar">
+                                     {report.messages?.map((msg: any, idx: number) => (
+                                       <div key={idx} className="flex gap-3 items-start text-xs">
+                                          <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider shrink-0 mt-0.5 ${msg.senderId === report.suspectId ? 'bg-red-500/20 text-red-400' : 'bg-white/10 text-white/50'}`}>
                                             {msg.senderId === report.suspectId ? 'SUSPECT' : 'REPORTER'}
-                                          </div>
-                                          <p className="text-sm text-white/90 font-medium leading-relaxed">{msg.text}</p>
+                                          </span>
+                                          <p className="text-white/80 font-medium">{msg.text}</p>
                                        </div>
                                      ))}
                                    </div>
                                 </div>
-                                <div className="flex items-center justify-end gap-4 pt-4">
-                                   <button onClick={() => handleReportAction(report.id, 'dismiss')} className="px-10 py-5 bg-white/5 hover:bg-white/10 text-white/40 hover:text-white rounded-3xl text-[10px] font-black uppercase tracking-widest transition-all">Dismiss</button>
-                                   <button onClick={() => handleReportAction(report.id, 'warn')} className="px-10 py-5 bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500 hover:text-black rounded-3xl text-[10px] font-black uppercase tracking-widest transition-all">Warn Protocol</button>
-                                   <button onClick={() => handleReportAction(report.id, 'ban')} className="px-12 py-5 bg-[#DC2626] text-white rounded-3xl text-[11px] font-black uppercase tracking-[0.2em] shadow-2xl shadow-red-900/40 hover:scale-105 active:scale-95 transition-all">Deactivate Summary</button>
+                                <div className="flex items-center justify-end gap-3 pt-2">
+                                   <button onClick={() => handleReportAction(report.id, 'dismiss')} className="px-5 py-2 bg-white/5 hover:bg-white/10 text-white/50 hover:text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all">Dismiss</button>
+                                   <button onClick={() => handleReportAction(report.id, 'warn')} className="px-5 py-2 bg-amber-500/10 text-amber-400 hover:bg-amber-500 hover:text-black rounded-xl text-[10px] font-black uppercase tracking-wider transition-all">Send Warning</button>
+                                   <button onClick={() => handleReportAction(report.id, 'ban')} className="px-6 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-[10px] font-black uppercase tracking-wider shadow-lg transition-all">Ban Suspect User</button>
                                 </div>
                              </div>
                           </div>
@@ -13952,37 +14034,35 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                     </div>
                   )}
 
+                  {/* USERS MONITOR TAB */}
                   {godTab === 'users' && (
-                    <div className="bg-white/5 border border-white/10 p-4 md:p-8 rounded-[2rem] md:rounded-[3rem] space-y-6 md:space-y-10 shadow-sm relative overflow-hidden">
-                      <div className="absolute top-0 right-0 p-6 md:p-10 opacity-[0.02] pointer-events-none">
-                        <Users className="w-[150px] h-[150px] md:w-[200px] md:h-[200px]" />
-                      </div>
-                      <div className="flex items-center justify-between border-b border-white/5 pb-6 md:pb-8">
+                    <div className="bg-[#0F1623]/80 border border-white/10 p-5 md:p-8 rounded-2xl space-y-6">
+                      <div className="flex items-center justify-between border-b border-white/10 pb-5">
                         <div>
-                          <h3 className="text-xl md:text-2xl font-black text-white uppercase tracking-tighter flex items-center gap-3 italic">
-                             <Database className="w-6 h-6 md:w-8 md:h-8 text-[#DC2626]" /> Population Terminal
+                          <h3 className="text-lg md:text-xl font-black text-white uppercase tracking-tight flex items-center gap-2.5 italic">
+                             <Database className="w-5 h-5 text-red-500" /> Users Population Terminal
                           </h3>
                         </div>
                       </div>
 
                       {/* Search & Filter Controls */}
-                      <div className="flex flex-col md:flex-row gap-4 justify-between items-center bg-white/[0.02] p-4 rounded-2xl border border-white/5">
+                      <div className="flex flex-col md:flex-row gap-3 justify-between items-center bg-white/[0.02] p-3 rounded-xl border border-white/10">
                         <div className="relative w-full md:max-w-md">
-                          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40 w-4 h-4" />
+                          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/40 w-4 h-4" />
                           <input
                             type="text"
-                            placeholder="Search by name, email, matric, department, school..."
+                            placeholder="Search name, email, matric, department, school..."
                             value={godUserSearch}
                             onChange={(e) => setGodUserSearch(e.target.value)}
-                            className="w-full bg-white/5 border border-white/10 rounded-xl pl-11 pr-4 py-2.5 text-xs text-white focus:outline-none focus:border-[#DC2626]/50 transition-all font-medium"
+                            className="w-full bg-white/5 border border-white/10 rounded-xl pl-10 pr-8 py-2 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-red-500/50 transition-all font-medium"
                           />
                           {godUserSearch && (
-                            <button onClick={() => setGodUserSearch('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/40 hover:text-white text-xs">Clear</button>
+                            <button onClick={() => setGodUserSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white text-xs">Clear</button>
                           )}
                         </div>
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-1.5 w-full md:w-auto">
                           {[
-                            { id: 'all', label: 'All Users' },
+                            { id: 'all', label: 'All' },
                             { id: 'premium', label: 'Premium' },
                             { id: 'free', label: 'Free Tier' },
                             { id: 'online', label: 'Online' },
@@ -13991,10 +14071,10 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                             <button
                               key={tab.id}
                               onClick={() => setGodUserFilter(tab.id as any)}
-                              className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all border ${
+                              className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all border ${
                                 godUserFilter === tab.id
-                                  ? 'bg-[#DC2626] border-[#DC2626] text-white shadow-md shadow-red-950/50'
-                                  : 'bg-white/5 border-white/5 text-white/40 hover:text-white hover:border-white/10'
+                                  ? 'bg-red-600 border-red-500 text-white shadow-md'
+                                  : 'bg-white/5 border-white/5 text-white/40 hover:text-white'
                               }`}
                             >
                               {tab.label}
@@ -14006,14 +14086,14 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                       <div className="overflow-x-auto custom-scrollbar">
                         <table className="w-full text-left font-sans">
                           <thead>
-                            <tr className="uppercase tracking-[0.2em] border-b border-white/5 text-white/20 font-black italic">
-                              <th className="py-4 px-4">User Identity</th>
-                              <th className="py-4 px-4">Academic Data</th>
-                              <th className="py-4 px-4">Privileges</th>
-                              <th className="py-4 px-4 text-right">Direct Control</th>
+                            <tr className="uppercase tracking-wider border-b border-white/10 text-white/30 font-black text-[10px] italic">
+                              <th className="py-3 px-3">User Identity</th>
+                              <th className="py-3 px-3">Academic Info</th>
+                              <th className="py-3 px-3">Privileges & Master Bypass</th>
+                              <th className="py-3 px-3 text-right">Actions</th>
                             </tr>
                           </thead>
-                          <tbody className="text-white/70">
+                          <tbody className="text-white/80 text-xs">
                             {allUsers
                               .filter(u => {
                                 if (godUserSearch) {
@@ -14037,240 +14117,229 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                                 return true;
                               })
                               .map(u => {
-                               const lastSeenTime = u.lastSeen?.toDate ? u.lastSeen.toDate() : (u.lastSeen ? new Date(u.lastSeen) : null);
-                               const isOnline = lastSeenTime && (Date.now() - lastSeenTime.getTime() < 180000); // 3 minutes
+                                const lastSeenTime = u.lastSeen?.toDate ? u.lastSeen.toDate() : (u.lastSeen ? new Date(u.lastSeen) : null);
+                                const isOnline = lastSeenTime && (Date.now() - lastSeenTime.getTime() < 180000);
 
-                               return (
-                               <tr key={u.id} className={`border-b transition-all border-white/5 hover:bg-white/[0.02] ${u.status === 'deleted' ? 'opacity-30' : ''}`}>
-                                 <td className="py-4 px-4">
-                                   <div className="flex items-center gap-3">
-                                     <div className="w-10 h-10 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center font-black text-[#DC2626] shadow-inner text-sm relative">
-                                       {u.photoURL ? <img src={u.photoURL} className="w-full h-full rounded-xl object-cover" /> : (u.displayName?.charAt(0) || u.email?.charAt(0) || '?')}
-                                       {isOnline && <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-[#13111C] shadow-[0_0_8px_#22c55e]" title="Online" />}
+                                return (
+                                <tr key={u.id} className={`border-b transition-all border-white/5 hover:bg-white/[0.02] ${u.status === 'deleted' ? 'opacity-30' : ''}`}>
+                                  <td className="py-3 px-3">
+                                    <div className="flex items-center gap-3">
+                                      <div className="w-9 h-9 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center font-black text-red-500 text-xs shrink-0 relative">
+                                        {u.photoURL ? <img src={u.photoURL} className="w-full h-full rounded-xl object-cover" /> : (u.displayName?.charAt(0) || u.email?.charAt(0) || '?')}
+                                        {isOnline && <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-[#090D16]" title="Online" />}
+                                      </div>
+                                      <div className="min-w-0">
+                                        <p className="font-black text-white uppercase tracking-tight leading-none mb-1 text-[11px] italic truncate">{u.fullName || u.displayName || 'Anonymous'}</p>
+                                        <p className="text-[9px] font-mono opacity-40 truncate">{u.email}</p>
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="py-3 px-3 space-y-0.5 text-[10px]">
+                                      <p className="font-mono text-white/90">MATRIC: {u.matric || 'N/A'}</p>
+                                      <p className="text-white/40 truncate max-w-[130px]">{u.university || 'N/A'} ({u.level || '?'})</p>
+                                      <p className="text-white/40 truncate max-w-[130px]">{u.department || 'N/A'}</p>
+                                  </td>
+                                  <td className="py-3 px-3">
+                                     <div className="flex flex-col gap-1">
+                                        <button 
+                                          onClick={() => updateUserPermissions(u.id, 'bypassAllPayments', !u.bypassAllPayments)}
+                                          className="flex items-center gap-2 group cursor-pointer"
+                                        >
+                                           <div className={`w-3 h-3 rounded-full transition-all flex items-center justify-center ${u.bypassAllPayments ? 'bg-red-500 text-white' : 'bg-white/10'}`}>
+                                              {u.bypassAllPayments && <Check size={8} />}
+                                           </div>
+                                           <span className={`text-[9px] font-black uppercase tracking-wider ${u.bypassAllPayments ? 'text-red-400' : 'text-white/30'}`}>
+                                             Master Bypass: {u.bypassAllPayments ? 'ACTIVE' : 'OFF'}
+                                           </span>
+                                        </button>
+                                        <div className="flex items-center gap-2">
+                                           <div className={`w-2 h-2 rounded-full ${u.isPremium ? 'bg-amber-400' : 'bg-white/10'}`} />
+                                           <span className={`text-[9px] font-bold uppercase ${u.isPremium ? 'text-amber-400' : 'text-white/30'}`}>
+                                             {u.isPremium ? 'PREMIUM ACCESS' : 'FREE TIER'}
+                                           </span>
+                                        </div>
                                      </div>
-                                     <div className="min-w-0">
-                                       <p className="font-black text-white uppercase tracking-tight leading-none mb-1 text-[11px] italic truncate">{u.fullName || u.displayName || 'Anonymous'}</p>
-                                       <p className="text-[7px] font-mono opacity-30 uppercase tracking-[0.1em] truncate">{u.email}</p>
-                                       {isOnline && <p className="text-[6px] font-black text-green-500 uppercase tracking-widest mt-0.5">ONLINE</p>}
+                                  </td>
+                                  <td className="py-3 px-3 text-right">
+                                     <div className="flex items-center gap-2 justify-end">
+                                        <button 
+                                          onClick={() => setEditingUser(u)} 
+                                          className="p-1.5 bg-white/5 border border-white/10 rounded-lg text-white/40 hover:text-white transition-all"
+                                          title="Edit User"
+                                        >
+                                          <Edit3 size={14} />
+                                        </button>
+                                        <button 
+                                          onClick={() => toggleUserStatus(u.id, u.status)} 
+                                          className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase transition-all ${u.status === 'deleted' ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-black' : 'bg-red-500/20 text-red-400 hover:bg-red-600 hover:text-white'}`}
+                                        >
+                                          {u.status === 'deleted' ? 'RESTORE' : 'BAN'}
+                                        </button>
                                      </div>
-                                   </div>
-                                 </td>
-                                 <td className="py-4 px-4 space-y-1">
-                                    <div className="space-y-0.5">
-                                      <p className="text-[8px] font-black text-white uppercase tracking-tight">MATRIC: {u.matric || 'N/A'}</p>
-                                      <p className="text-[8px] font-bold text-white/40 uppercase truncate max-w-[120px]">SCHOOL: {u.university || 'N/A'}</p>
-                                      <p className="text-[8px] font-bold text-white/40 uppercase">LEVEL: {u.level || '?'}</p>
-                                      <p className="text-[8px] font-bold text-white/40 uppercase truncate max-w-[120px]">DEPT: {u.department || '?'}</p>
-                                    </div>
-                                 </td>
-                                 <td className="py-4 px-4">
-                                    <div className="flex flex-col gap-1.5">
-                                       <button 
-                                         onClick={() => updateUserPermissions(u.id, 'bypassAllPayments', !u.bypassAllPayments)}
-                                         className="flex items-center gap-1.5 group cursor-pointer"
-                                       >
-                                          <div className={`w-2 h-2 rounded-full transition-all ${u.bypassAllPayments ? 'bg-[#DC2626] shadow-[0_0_8px_rgba(220,38,38,0.5)]' : 'bg-white/10'}`} />
-                                          <p className={`text-[7px] font-black uppercase tracking-widest transition-all ${u.bypassAllPayments ? 'text-white' : 'text-white/20 group-hover:text-white/40'}`}>Master Bypass: {u.bypassAllPayments ? 'ON' : 'OFF'}</p>
-                                       </button>
-                                       <div className="flex items-center gap-1.5">
-                                          <div className={`w-2 h-2 rounded-full ${u.isPremium ? 'bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.5)]' : 'bg-white/10'}`} />
-                                          <p className={`text-[7px] font-black uppercase tracking-widest ${u.isPremium ? 'text-yellow-500' : 'text-white/20'}`}>Premium Status: {u.isPremium ? 'ACTIVE' : 'LOCKED'}</p>
-                                       </div>
-                                    </div>
-                                 </td>
-                                 <td className="py-4 px-4">
-                                    <div className="flex items-center gap-2 justify-end">
-                                       <button 
-                                         onClick={() => setEditingUser(u)} 
-                                         className="w-[21px] h-[20px] bg-white/5 border border-white/5 rounded-md text-white/30 hover:text-white hover:border-white/10 transition-all flex items-center justify-center"
-                                         title="EDIT"
-                                       >
-                                         <Edit3 size={10} />
-                                       </button>
-                                       <button 
-                                         onClick={() => toggleUserStatus(u.id, u.status)} 
-                                         className={`px-3 py-1.5 rounded-lg text-[7px] font-black uppercase transition-all shadow-lg ${u.status === 'deleted' ? 'bg-green-500/20 text-green-500 hover:bg-green-500 hover:text-black shadow-green-900/10' : 'bg-[#DC2626]/20 text-[#DC2626] hover:bg-[#DC2626] hover:text-white shadow-red-900/10'}`}
-                                       >
-                                         {u.status === 'deleted' ? 'RESTORE' : 'TERMINATE'}
-                                       </button>
-                                    </div>
-                                 </td>
-                               </tr>
-                               );
-                            })}
+                                  </td>
+                                </tr>
+                                );
+                             })}
                           </tbody>
                         </table>
                       </div>
                     </div>
                   )}
 
+                  {/* EMAIL OUTREACH & BROADCAST TAB */}
                   {godTab === 'marketing' && (
-                    <div className="bg-white/5 border border-white/10 p-4 md:p-10 rounded-[2rem] md:rounded-[3rem] space-y-6 md:space-y-10 relative overflow-hidden shadow-2xl">
-                      <div className="absolute top-0 right-0 p-6 md:p-10 opacity-[0.02] pointer-events-none">
-                         <Mail className="w-[150px] h-[150px] md:w-[250px] md:h-[250px]" />
-                      </div>
-                      <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-white/5 pb-6 md:pb-10 gap-4">
+                    <div className="bg-[#0F1623]/80 border border-white/10 p-5 md:p-8 rounded-2xl space-y-6">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-white/10 pb-5 gap-3">
                         <div>
-                          <h3 className="text-xl md:text-3xl font-black text-white uppercase tracking-tighter flex items-center gap-3 md:gap-4 italic leading-none">
-                             <Mail className="w-6 h-6 md:w-8 md:h-8 text-[#DC2626]" /> Neural Outreach
+                          <h3 className="text-lg md:text-xl font-black text-white uppercase tracking-tight flex items-center gap-2.5 italic leading-none">
+                             <Mail className="w-5 h-5 text-red-500" /> Email Outreach & Mass Blast Hub
                           </h3>
+                          <p className="text-[10px] font-bold text-white/40 uppercase tracking-wider mt-1">Design templates and trigger instant email blasts to registered users</p>
                         </div>
-                        <div className="flex items-center gap-4">
-                          <button onClick={initMarketingTemplates} className="px-10 py-5 bg-white/5 border border-white/10 rounded-3xl text-[10px] font-black uppercase tracking-[0.2em] text-white/40 hover:text-white transition-all">Clean History</button>
-                          <button onClick={() => setTemplateEditForm({ name: '', subject: '', body: '', active: true })} className="bg-[#DC2626] text-white px-12 py-5 rounded-[1.5rem] text-[11px] font-black uppercase tracking-[0.1em] shadow-[0_15px_30px_rgba(220,38,38,0.3)] hover:scale-105 active:scale-95 transition-all flex items-center gap-3">
-                            <Plus size={20} /> Add Template
+                        <div className="flex items-center gap-3">
+                          <button onClick={initMarketingTemplates} className="px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-wider text-white/40 hover:text-white transition-all">Reset Default Templates</button>
+                          <button onClick={() => setTemplateEditForm({ name: '', subject: '', body: '', active: true })} className="bg-red-600 hover:bg-red-500 text-white px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-2 shadow-lg shadow-red-950/50">
+                            <Plus size={16} /> New Template
                           </button>
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 lg:grid-cols-4 gap-10">
-                        <div className="lg:col-span-1 space-y-4 max-h-[600px] overflow-y-auto pr-4 custom-scrollbar">
-                          <p className="text-[9px] font-black text-white/20 uppercase tracking-[0.4em] mb-4 pl-2">Stored Procedures</p>
+                      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                        {/* Stored Templates Selector */}
+                        <div className="lg:col-span-1 space-y-3 max-h-[450px] overflow-y-auto pr-2 custom-scrollbar">
+                          <p className="text-[9px] font-black text-white/30 uppercase tracking-widest pl-1">Email Templates ({emailTemplates.length})</p>
                           {emailTemplates.map(t => (
-                            <div key={t.id} className={`p-6 rounded-[2rem] border transition-all cursor-pointer group relative overflow-hidden ${templateEditForm?.id === t.id ? 'bg-[#DC2626] border-[#DC2626] shadow-2xl' : 'bg-white/2 border-white/5 hover:border-white/20 hover:bg-white/[0.05]'}`} onClick={() => setTemplateEditForm(t)}>
-                                {templateEditForm?.id === t.id && (
-                                  <div className="absolute top-2 right-4 text-white/20 font-black text-[30px] italic pointer-events-none">#ED</div>
-                                )}
-                                <div className="flex items-center justify-between mb-2">
-                                  <p className={`text-xs font-black uppercase truncate tracking-tight ${templateEditForm?.id === t.id ? 'text-white' : 'text-white/80'}`}>{t.name}</p>
-                                </div>
-                                <p className={`text-[8px] font-bold uppercase truncate tracking-widest ${templateEditForm?.id === t.id ? 'text-white/60' : 'text-white/20'}`}>{t.subject}</p>
+                            <div key={t.id} className={`p-4 rounded-xl border transition-all cursor-pointer ${templateEditForm?.id === t.id ? 'bg-red-600/20 border-red-500 text-white shadow-md' : 'bg-white/[0.02] border-white/10 hover:border-white/20 hover:bg-white/[0.04]'}`} onClick={() => setTemplateEditForm(t)}>
+                                <p className="text-xs font-black uppercase truncate tracking-tight text-white mb-0.5">{t.name}</p>
+                                <p className="text-[9px] font-bold uppercase truncate text-white/40">{t.subject || 'No Subject Line'}</p>
                             </div>
                           ))}
                         </div>
 
-                        <div className="lg:col-span-3 rounded-[3rem] p-10 bg-[#070B14] border border-white/5 shadow-[0_30px_60px_rgba(0,0,0,0.5)]">
+                        {/* Template Editor */}
+                        <div className="lg:col-span-3 rounded-2xl p-5 md:p-6 bg-[#090D16] border border-white/10 space-y-4">
                           {templateEditForm ? (
-                            <div className="space-y-6">
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                                <div className="space-y-2">
-                                  <p className="text-[9px] font-black text-white/20 uppercase tracking-[0.3em] ml-4">Template Label</p>
-                                  <input value={templateEditForm.name} onChange={e => setTemplateEditForm({...templateEditForm, name: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-5 text-sm font-black text-white outline-none focus:border-[#DC2626] transition-all bg-opacity-50" placeholder="Template identifier..." />
+                            <div className="space-y-4">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div className="space-y-1">
+                                  <label className="text-[9px] font-black text-white/40 uppercase tracking-wider ml-1">Template Label</label>
+                                  <input value={templateEditForm.name} onChange={e => setTemplateEditForm({...templateEditForm, name: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-xs font-bold text-white outline-none focus:border-red-500 transition-all" placeholder="e.g. Welcome Broadcast" />
                                 </div>
-                                <div className="space-y-2">
-                                  <p className="text-[9px] font-black text-white/20 uppercase tracking-[0.3em] ml-4">Encrypted Subject</p>
-                                  <input value={templateEditForm.subject} onChange={e => setTemplateEditForm({...templateEditForm, subject: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-5 text-sm font-black text-white outline-none focus:border-[#DC2626] transition-all bg-opacity-50" placeholder="Direct mind-link subject..." />
+                                <div className="space-y-1">
+                                  <label className="text-[9px] font-black text-white/40 uppercase tracking-wider ml-1">Email Subject Line</label>
+                                  <input value={templateEditForm.subject} onChange={e => setTemplateEditForm({...templateEditForm, subject: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-xs font-bold text-white outline-none focus:border-red-500 transition-all" placeholder="e.g. Welcome to Omni Academic Hub!" />
                                 </div>
                               </div>
-                              <div className="space-y-2">
-                                <p className="text-[9px] font-black text-white/20 uppercase tracking-[0.3em] ml-4">Directive Body (Markdown + Macros Enabled)</p>
-                                <textarea value={templateEditForm.body} onChange={e => setTemplateEditForm({...templateEditForm, body: e.target.value})} className="w-full bg-white/[0.01] border border-white/10 rounded-[2.5rem] px-8 py-8 text-xs font-mono text-white/80 outline-none focus:border-[#DC2626] transition-all h-[350px] resize-none leading-relaxed shadow-inner" placeholder="Initiate handshake protocol..." />
+                              <div className="space-y-1">
+                                <label className="text-[9px] font-black text-white/40 uppercase tracking-wider ml-1">Email Message Body (Markdown & HTML Supported)</label>
+                                <textarea value={templateEditForm.body} onChange={e => setTemplateEditForm({...templateEditForm, body: e.target.value})} className="w-full bg-white/[0.02] border border-white/10 rounded-xl p-4 text-xs font-mono text-white/90 outline-none focus:border-red-500 transition-all h-52 resize-none leading-relaxed" placeholder="Type your email broadcast message here..." />
                               </div>
-                              <div className="flex items-center justify-between pt-8 border-t border-white/5">
-                                <div className="flex gap-6">
-                                   <label className="flex items-center gap-4 cursor-pointer group">
-                                      <input type="checkbox" checked={templateEditForm.active} onChange={e => setTemplateEditForm({...templateEditForm, active: e.target.checked})} className="sr-only peer" />
-                                      <div className="w-12 h-6 bg-white/5 border border-white/10 rounded-full peer-checked:bg-[#DC2626] transition-all relative after:absolute after:top-[3px] after:left-[3px] after:bg-white/20 after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-6 peer-checked:after:bg-white" />
-                                      <span className="text-[10px] font-black text-white/20 group-hover:text-white transition-all uppercase tracking-[0.2em]">Live Status</span>
-                                   </label>
-                                </div>
-                                <div className="flex gap-4">
-                                   <button onClick={() => deleteEmailTemplate(templateEditForm.id)} className="px-10 py-5 bg-white/5 text-white/30 hover:text-red-500 rounded-3xl text-[10px] font-black uppercase tracking-widest transition-all">Vaporize</button>
-                                   <button onClick={() => handleSaveEmailTemplate(templateEditForm)} className="bg-[#DC2626] text-white px-14 py-5 rounded-[1.5rem] text-[11px] font-black uppercase tracking-[0.2em] shadow-2xl shadow-red-900/40 hover:scale-105 active:scale-95 transition-all">Save Template</button>
+                              <div className="flex items-center justify-between pt-2">
+                                <label className="flex items-center gap-3 cursor-pointer">
+                                  <input type="checkbox" checked={templateEditForm.active} onChange={e => setTemplateEditForm({...templateEditForm, active: e.target.checked})} className="sr-only peer" />
+                                  <div className="w-10 h-5 bg-white/10 rounded-full peer-checked:bg-red-600 transition-all relative after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5" />
+                                  <span className="text-[10px] font-black text-white/40 uppercase tracking-wider">Active Status</span>
+                                </label>
+                                <div className="flex gap-3">
+                                   <button onClick={() => deleteEmailTemplate(templateEditForm.id)} className="px-4 py-2 bg-white/5 hover:bg-red-500/20 text-white/40 hover:text-red-400 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all">Delete</button>
+                                   <button onClick={() => handleSaveEmailTemplate(templateEditForm)} className="bg-red-600 hover:bg-red-500 text-white px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-lg transition-all">Save Template</button>
                                 </div>
                               </div>
                             </div>
                           ) : (
-                            <div className="h-full flex flex-col items-center justify-center text-center opacity-10 py-32 bg-white/[0.01] rounded-[3rem] border border-dashed border-white/10">
-                              <Zap size={64} className="mb-6" />
-                              <p className="text-xl font-black uppercase tracking-[0.4em]">Awaiting Uplink</p>
-                              <p className="text-[10px] font-bold uppercase tracking-[0.2em] mt-2">Select a neural template to initiate modification</p>
+                            <div className="h-full flex flex-col items-center justify-center text-center opacity-30 py-16">
+                              <Mail size={48} className="mb-3 text-white/40" />
+                              <p className="text-sm font-black uppercase tracking-wider">Select or Create a Template</p>
                             </div>
                           )}
                         </div>
                       </div>
 
-                      <div className="pt-10 border-t border-white/5 flex flex-col xl:flex-row items-center justify-between gap-10">
-                         <div className="flex items-center gap-6 p-8 bg-white/2 border border-white/10 rounded-[2.5rem] w-full xl:w-auto">
-                            <div className={`w-16 h-16 rounded-[1.5rem] ${templateEditForm?.id ? 'bg-[#DC2626]/20 text-[#DC2626]' : 'bg-white/5 text-white/5'} flex items-center justify-center transition-all shadow-lg`}>
-                               <ShieldCheck size={32} />
-                            </div>
-                            <div>
-                               <p className="text-sm font-black text-white uppercase italic tracking-tight">Mass Broadcast Trigger</p>
-                               <div className="flex items-center gap-3 mt-2">
-                                  {(['all', 'premium', 'free'] as const).map(t => (
-                                    <button
-                                      key={t}
-                                      onClick={() => setBroadcastTarget(t)}
-                                      className={`px-4 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-[0.3em] transition-all border ${broadcastTarget === t ? 'bg-[#DC2626] border-[#DC2626] text-white' : 'bg-white/5 border-white/10 text-white/20'}`}
-                                    >
-                                      {t}
-                                    </button>
-                                  ))}
-                                  <div className="w-[1px] h-4 bg-white/10 mx-2" />
-                                  <p className="text-[9px] font-bold text-white/40 uppercase tracking-widest italic">{allUsers.filter(u => broadcastTarget === 'all' || u.tier === broadcastTarget).length} SYNTHS TARGETED</p>
-                               </div>
+                      {/* Mass Blast Control Box */}
+                      <div className="pt-6 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-6 bg-white/[0.02] p-5 rounded-2xl border">
+                         <div className="space-y-2 w-full sm:w-auto">
+                            <p className="text-xs font-black text-white uppercase italic">Target Audience Selection</p>
+                            <div className="flex items-center gap-2">
+                               {(['all', 'premium', 'free'] as const).map(t => (
+                                 <button
+                                   key={t}
+                                   onClick={() => setBroadcastTarget(t)}
+                                   className={`px-3.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all border ${broadcastTarget === t ? 'bg-red-600 border-red-500 text-white' : 'bg-white/5 border-white/10 text-white/30'}`}
+                                 >
+                                   {t} Target
+                                 </button>
+                               ))}
+                               <span className="text-[10px] font-bold text-white/50 uppercase tracking-wider ml-2">
+                                 {allUsers.filter(u => broadcastTarget === 'all' || (broadcastTarget === 'premium' ? (u.isPremium || u.tier === 'premium') : (!u.isPremium && u.tier !== 'premium'))).length} RECIPIENTS TARGETED
+                               </span>
                             </div>
                          </div>
                          <button 
                            onClick={triggerMarketingBlast}
-                           disabled={!templateEditForm?.id}
-                           className={`w-full xl:w-auto px-16 py-7 font-black rounded-[2rem] text-[12px] uppercase tracking-[0.4em] transition-all hover:scale-[1.02] active:scale-95 shadow-[0_20px_50px_rgba(220,38,38,0.4)] ${templateEditForm?.id ? 'bg-gradient-to-r from-red-600 to-[#DC2626] text-white' : 'bg-white/5 text-white/5 cursor-not-allowed grayscale'}`}
+                           disabled={!templateEditForm?.subject?.trim() || !templateEditForm?.body?.trim()}
+                           className={`w-full sm:w-auto px-8 py-4 font-black rounded-xl text-[11px] uppercase tracking-widest transition-all shadow-xl hover:scale-105 active:scale-95 ${(templateEditForm?.subject?.trim() && templateEditForm?.body?.trim()) ? 'bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-red-950/60' : 'bg-white/5 text-white/20 cursor-not-allowed'}`}
                          >
-                           {templateEditForm?.id ? 'EXECUTE MASSIVE UPLINK' : 'LINK OFFLINE'}
+                           {(templateEditForm?.subject?.trim() && templateEditForm?.body?.trim()) ? 'EXECUTE MASS EMAIL BLAST' : 'ENTER SUBJECT & BODY TO BLAST'}
                          </button>
                       </div>
                     </div>
                   )}
 
+                  {/* CURRICULUMS ARCHITECT TAB */}
                   {godTab === 'courses' && (
-                    <div className="bg-[#13111C]/90 border border-white/10 p-4 md:p-10 rounded-[2rem] md:rounded-[3rem] space-y-6 md:space-y-10 relative overflow-hidden shadow-2xl">
-                      <div className="absolute top-0 right-0 p-6 md:p-10 opacity-[0.02] pointer-events-none">
-                         <GraduationCap className="w-[150px] h-[150px] md:w-[250px] md:h-[250px]" />
-                      </div>
-                      
-                      <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-white/5 pb-6 md:pb-10 gap-4">
+                    <div className="bg-[#0F1623]/80 border border-white/10 p-5 md:p-8 rounded-2xl space-y-6">
+                      <div className="flex items-center justify-between border-b border-white/10 pb-5">
                         <div>
-                          <h3 className="text-xl md:text-3xl font-black text-white uppercase tracking-tighter flex items-center gap-3 md:gap-4 italic leading-none">
-                             <GraduationCap className="w-6 h-6 md:w-8 md:h-8 text-[#DC2626]" /> Curriculum Builder
+                          <h3 className="text-lg md:text-xl font-black text-white uppercase tracking-tight flex items-center gap-2.5 italic">
+                             <GraduationCap className="w-5 h-5 text-red-500" /> Academic Curriculum Architect
                           </h3>
-                          <p className="text-[10px] font-bold uppercase tracking-widest text-white/40 mt-2">Create, edit, and orchestrate standard academic courses</p>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-white/40 mt-0.5">Define academic courses, course codes, and curriculum notes</p>
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-                        {/* Form Column */}
-                        <form onSubmit={handleSaveCourse} className="lg:col-span-5 space-y-6 bg-white/[0.01] border border-white/5 rounded-[2.5rem] p-6 md:p-8 shadow-inner">
-                          <h4 className="text-sm font-black text-white uppercase tracking-[0.2em] mb-4">
-                            {editingCourseId ? 'Modify Course Definition' : 'Define New Course'}
+                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                        {/* Course Creator Form */}
+                        <form onSubmit={handleSaveCourse} className="lg:col-span-5 space-y-4 bg-white/[0.02] border border-white/10 rounded-2xl p-5">
+                          <h4 className="text-xs font-black text-white uppercase tracking-wider mb-2">
+                            {editingCourseId ? 'Edit Course Definition' : 'Create New Course'}
                           </h4>
                           
-                          <div className="space-y-2">
-                            <label className="text-[9px] font-black text-white/20 uppercase tracking-[0.3em] ml-2">Course Code</label>
+                          <div className="space-y-1">
+                            <label className="text-[9px] font-black text-white/40 uppercase tracking-wider ml-1">Course Code</label>
                             <input 
                               type="text" 
                               required 
-                              placeholder="e.g. MTH 101" 
+                              placeholder="e.g. GST 111" 
                               value={newCourseCode} 
                               onChange={e => setNewCourseCode(e.target.value)}
-                              className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-xs font-bold text-white outline-none focus:border-[#DC2626] transition-all" 
+                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-xs font-bold text-white outline-none focus:border-red-500 transition-all" 
                             />
                           </div>
 
-                          <div className="space-y-2">
-                            <label className="text-[9px] font-black text-white/20 uppercase tracking-[0.3em] ml-2">Course Title / Name</label>
+                          <div className="space-y-1">
+                            <label className="text-[9px] font-black text-white/40 uppercase tracking-wider ml-1">Course Title</label>
                             <input 
                               type="text" 
                               required 
-                              placeholder="e.g. Elementary Mathematics I" 
+                              placeholder="e.g. Use of Library and Study Skills" 
                               value={newCourseName} 
                               onChange={e => setNewCourseName(e.target.value)}
-                              className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-xs font-bold text-white outline-none focus:border-[#DC2626] transition-all" 
+                              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-xs font-bold text-white outline-none focus:border-red-500 transition-all" 
                             />
                           </div>
 
-                          <div className="space-y-2">
-                            <label className="text-[9px] font-black text-white/20 uppercase tracking-[0.3em] ml-2">Curriculum Content / Description</label>
+                          <div className="space-y-1">
+                            <label className="text-[9px] font-black text-white/40 uppercase tracking-wider ml-1">Syllabus Details / Description</label>
                             <textarea 
                               required 
-                              placeholder="Enter comprehensive details, syllabus topics, and notes for students to learn..." 
+                              placeholder="Enter syllabus details and summary notes..." 
                               value={newCourseDesc} 
                               onChange={e => setNewCourseDesc(e.target.value)}
-                              className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-xs font-medium text-white/80 outline-none focus:border-[#DC2626] transition-all h-40 resize-none leading-relaxed" 
+                              className="w-full bg-white/5 border border-white/10 rounded-xl p-4 text-xs font-medium text-white/80 outline-none focus:border-red-500 transition-all h-32 resize-none leading-relaxed" 
                             />
                           </div>
 
-                          <div className="flex gap-3 pt-2">
+                          <div className="flex gap-2 pt-2">
                             {editingCourseId && (
                               <button 
                                 type="button" 
@@ -14280,35 +14349,35 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                                   setNewCourseName('');
                                   setNewCourseDesc('');
                                 }}
-                                className="flex-1 px-4 py-3 bg-white/5 hover:bg-white/10 text-white/50 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
+                                className="flex-1 px-4 py-2.5 bg-white/5 hover:bg-white/10 text-white/50 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all"
                               >
                                 Cancel
                               </button>
                             )}
                             <button 
                               type="submit" 
-                              className="flex-[2] bg-[#DC2626] hover:bg-[#DC2626]/90 text-white py-3 px-6 text-[10px] font-black uppercase tracking-widest rounded-xl shadow-lg shadow-red-900/30 hover:scale-[1.02] active:scale-95 transition-all"
+                              className="flex-[2] bg-red-600 hover:bg-red-500 text-white py-2.5 px-5 text-[10px] font-black uppercase tracking-wider rounded-xl shadow-lg transition-all"
                             >
                               {editingCourseId ? 'Update Course' : 'Save & Publish Course'}
                             </button>
                           </div>
                         </form>
 
-                        {/* List Column */}
-                        <div className="lg:col-span-7 space-y-4">
-                          <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em] pl-2">Existing Custom Curriculums ({customCourses.length})</p>
-                          <div className="max-h-[500px] overflow-y-auto pr-2 space-y-3 custom-scrollbar">
+                        {/* Course List */}
+                        <div className="lg:col-span-7 space-y-3">
+                          <p className="text-[10px] font-black text-white/40 uppercase tracking-wider pl-1">Published Courses ({customCourses.length})</p>
+                          <div className="max-h-[420px] overflow-y-auto pr-1 space-y-3 custom-scrollbar">
                             {customCourses.length === 0 ? (
-                              <div className="p-12 text-center border border-dashed border-white/5 rounded-3xl opacity-20">
-                                <BookOpen className="w-10 h-10 mx-auto mb-3" />
+                              <div className="p-8 text-center border border-dashed border-white/10 rounded-2xl opacity-40">
+                                <BookOpen className="w-8 h-8 mx-auto mb-2 text-white/40" />
                                 <p className="text-xs font-black uppercase tracking-wider">No Custom Courses Yet</p>
                               </div>
                             ) : (
                               customCourses.map(c => (
-                                <div key={c.id} className="p-5 rounded-2xl border border-white/5 bg-white/[0.02] flex items-start justify-between gap-4 hover:border-white/10 transition-all">
+                                <div key={c.id} className="p-4 rounded-xl border border-white/10 bg-white/[0.02] flex items-start justify-between gap-3 hover:border-white/20 transition-all">
                                   <div className="min-w-0 flex-1">
-                                    <div className="flex items-center gap-3 mb-1">
-                                      <span className="text-[#DC2626] font-mono text-[10px] font-black uppercase tracking-widest bg-[#DC2626]/10 px-2.5 py-1 rounded-lg">{c.code}</span>
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <span className="text-red-400 font-mono text-[9px] font-black uppercase bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">{c.code}</span>
                                       <h5 className="font-black text-xs text-white uppercase truncate">{c.name}</h5>
                                     </div>
                                     <p className="text-[10px] text-white/50 line-clamp-2 leading-relaxed">{c.description}</p>
@@ -14322,17 +14391,17 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                                         setNewCourseName(c.name || '');
                                         setNewCourseDesc(c.description || '');
                                       }}
-                                      className="p-2 rounded-lg bg-white/5 text-white/40 hover:text-white hover:bg-white/10 transition-all"
+                                      className="p-1.5 rounded-lg bg-white/5 text-white/40 hover:text-white transition-all"
                                       title="Edit"
                                     >
-                                      <Edit3 size={12} />
+                                      <Edit3 size={13} />
                                     </button>
                                     <button 
                                       onClick={() => handleDeleteCourse(c.id)}
-                                      className="p-2 rounded-lg bg-[#DC2626]/10 text-[#DC2626] hover:bg-[#DC2626] hover:text-white transition-all"
+                                      className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-600 hover:text-white transition-all"
                                       title="Delete"
                                     >
-                                      <Trash2 size={12} />
+                                      <Trash2 size={13} />
                                     </button>
                                   </div>
                                 </div>
@@ -14841,8 +14910,8 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
         )}
       </AnimatePresence>
 
-      {/* BOTTOM NAVIGATION - Only on Mobile */}
-      {(!isChatRoomActive || activeTab !== 'chat') && !isDesktop && (
+      {/* BOTTOM NAVIGATION - Only on Mobile and Primary Main Pages */}
+      {!isSecondaryPage && !isDesktop && (
         <div 
           className="fixed bottom-0 left-0 right-0 z-[100] border-t px-3 py-2 flex items-center justify-around shadow-[0_-10px_40px_rgba(0,0,0,0.5)]"
           style={{
