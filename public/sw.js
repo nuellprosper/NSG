@@ -7,11 +7,6 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(clients.claim());
 });
 
-self.addEventListener('fetch', (event) => {
-  // Pass through all requests
-  event.respondWith(fetch(event.request));
-});
-
 // Message listener for scheduling background reminders when app is closed or minimized
 self.addEventListener('message', (event) => {
   if (event.data && event.data.action === 'schedule_reminder') {
