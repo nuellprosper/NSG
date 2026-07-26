@@ -1,6 +1,78 @@
 import { GoogleGenAI } from "@google/genai";
 import { HfInference } from "@huggingface/inference";
 import axios from 'axios';
+import * as pdfjsLib from 'pdfjs-dist';
+
+export const extractPdfDetails = async (file: File): Promise<{ text: string; pageImages: string[]; pageCount: number; truncated: boolean }> => {
+  const pageImages: string[] = [];
+  let fullText = '';
+  let pageCount = 0;
+  let truncated = false;
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version || '4.10.38'}/pdf.worker.min.mjs`;
+    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+    const pdf = await loadingTask.promise;
+    pageCount = pdf.numPages;
+    if (pageCount > 20) {
+      truncated = true;
+    }
+    const pagesToRender = Math.min(pageCount, 20);
+
+    for (let i = 1; i <= pageCount; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items.map((item: any) => item.str).join(' ');
+      fullText += pageText + '\n';
+
+      if (i <= pagesToRender) {
+        try {
+          const viewport = page.getViewport({ scale: 1.2 });
+          const canvas = document.createElement('canvas');
+          const context = canvas.getContext('2d');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          if (context) {
+            await page.render({ canvasContext: context, viewport, canvas } as any).promise;
+            const imgDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            pageImages.push(imgDataUrl);
+          }
+        } catch (canvasErr) {
+          console.warn(`Canvas render error on PDF page ${i}:`, canvasErr);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("PDF details extraction failed:", err);
+  }
+
+  return { text: fullText.trim(), pageImages, pageCount, truncated };
+};
+
+export const extractTextFromDocument = async (file: File): Promise<string> => {
+  const nameLower = file.name.toLowerCase();
+  if (nameLower.endsWith('.txt')) {
+    return (await file.text()).trim();
+  }
+  if (nameLower.endsWith('.pdf')) {
+    try {
+      const details = await extractPdfDetails(file);
+      if (details.text.trim().length > 0) return details.text.trim();
+    } catch (err) {
+      console.warn("PDF parsing fallback:", err);
+    }
+  }
+  // Fallback text reader for docx/doc/other files
+  try {
+    const rawText = await file.text();
+    const cleaned = rawText.replace(/[^\x20-\x7E\n\r\t]/g, ' ').replace(/\s+/g, ' ');
+    return cleaned.trim();
+  } catch (err) {
+    console.error("Document text extraction error:", err);
+    return '';
+  }
+};
 
 export const safeStorage = {
   getItem: (key: string): string | null => {
@@ -339,7 +411,7 @@ export const LIMITS = {
   },
   QUIZ: {
     NORMAL: { WORDS: 300, DAILY: 4, IMAGES: 2 },
-    PREMIUM: { WORDS: 20000, DAILY: 15, IMAGES: 7 }
+    PREMIUM: { WORDS: 20000, DAILY: 15, IMAGES: 20 }
   },
   RECORD: {
     NORMAL: { DURATION: 90 * 60, DAILY: 3 },

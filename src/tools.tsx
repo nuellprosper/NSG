@@ -10,7 +10,7 @@ import {
   Brain, History, Download, Play, 
   ChevronRight, Sparkles, Trash2, Settings, UserPlus, CreditCard, Edit2, FilePlus,
   ChevronUp, ChevronDown, Bold, ThumbsUp, Volume2, VolumeX, Square, Send, Pin, CreditCard as Clock,
-  ArrowLeft, RefreshCcw, Camera, Award, ShieldCheck, BookOpen, FileText, Zap, Info, AlertTriangle,
+  ArrowLeft, RefreshCcw, Camera, Award, ShieldCheck, BookOpen, FileText, Zap, Info, AlertTriangle, Loader2,
   Share2, Trophy, Search, Check, X, ArrowLeft as ChevronLeft, GraduationCap, Users, User, Clock as ClockIcon,
   Activity, Video, Copy, PlusCircle, Plus, Italic, List, XCircle, CheckCircle2,
   Undo2, Redo2, Save, CornerDownRight, Menu, ExternalLink, Percent, Bookmark, AlertCircle, Book, HelpCircle, Calculator
@@ -306,8 +306,13 @@ export const ToolsPage = (props: any) => {
     setQuizDifficulty,
     quizImages,
     setQuizImages,
+    isUploadingQuizImages = false,
+    isUploadingQuizDocs = false,
     handleQuizImageUpload,
     removeQuizImage,
+    quizDocuments = [],
+    handleQuizDocumentUpload,
+    removeQuizDocument,
     isGeneratingQuiz,
     generateQuiz,
     examLobbyState,
@@ -1746,17 +1751,42 @@ export const ToolsPage = (props: any) => {
                     <div>
                       <div className="flex items-center justify-between mb-2 ml-1">
                         <p className="text-[10px] font-black text-white/30 uppercase">Topic or Analysis Context</p>
-                        <label className="cursor-pointer group flex items-center gap-1.5 px-2 py-1 bg-[#DC2626]/10 border border-[#DC2626]/20 rounded-lg hover:bg-[#DC2626]/20 transition-all">
-                          <Camera size={10} className="text-[#DC2626]" />
-                          <span className="text-[8px] font-black text-[#DC2626] uppercase">Snap/Upload</span>
-                          <input type="file" className="hidden" accept="image/*" multiple onChange={handleQuizImageUpload} />
-                        </label>
+                        <div className="flex items-center gap-1.5">
+                          {/* Image Upload Button */}
+                          <label className={`cursor-pointer group flex items-center gap-1.5 px-2.5 py-1 bg-[#DC2626]/10 border border-[#DC2626]/20 rounded-lg hover:bg-[#DC2626]/20 transition-all ${isUploadingQuizImages ? 'opacity-80 pointer-events-none' : ''}`}>
+                            {isUploadingQuizImages ? (
+                              <Loader2 size={11} className="text-[#DC2626] animate-spin" />
+                            ) : (
+                              <Camera size={11} className="text-[#DC2626]" />
+                            )}
+                            <span className="text-[8px] font-black text-[#DC2626] uppercase">
+                              {isUploadingQuizImages ? 'Uploading Photo...' : `Snap/Photos (${quizImages.length}/${isPremium ? 20 : 7})`}
+                            </span>
+                            <input type="file" className="hidden" accept="image/*" multiple onChange={handleQuizImageUpload} disabled={isUploadingQuizImages} />
+                          </label>
+
+                          {/* Plus PDF/Document Upload Button */}
+                          <label className={`cursor-pointer group flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/10 border border-amber-500/20 rounded-lg hover:bg-amber-500/20 transition-all ${isUploadingQuizDocs ? 'opacity-80 pointer-events-none' : ''}`}>
+                            {isUploadingQuizDocs ? (
+                              <Loader2 size={11} className="text-amber-400 animate-spin" />
+                            ) : (
+                              <>
+                                <Plus size={11} className="text-amber-400" />
+                                <FileText size={11} className="text-amber-400" />
+                              </>
+                            )}
+                            <span className="text-[8px] font-black text-amber-400 uppercase">
+                              {isUploadingQuizDocs ? 'Uploading Doc...' : 'PDF / Doc'}
+                            </span>
+                            <input type="file" className="hidden" accept=".pdf,.doc,.docx,.txt,.md" multiple onChange={handleQuizDocumentUpload} disabled={isUploadingQuizDocs} />
+                          </label>
+                        </div>
                       </div>
                       <div className="relative">
                         <textarea 
                           value={quizTopic} 
                           onChange={(e) => setQuizTopic(e.target.value)} 
-                          placeholder="Describe the topic or ask AI to analyze the images below..." 
+                          placeholder="Describe the topic or ask AI to analyze the images/documents below..." 
                           className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm outline-none focus:border-[#DC2626]/50 transition-all text-white min-h-[100px] resize-none"
                         />
                         <div className="absolute bottom-3 right-3 flex items-center gap-2">
@@ -1766,13 +1796,28 @@ export const ToolsPage = (props: any) => {
                         </div>
                       </div>
 
-                      {quizImages.length > 0 && (
+                      {(quizImages.length > 0 || (quizDocuments && quizDocuments.length > 0)) && (
                         <div className="flex flex-wrap gap-2 mt-3">
                           {quizImages.map((img: any) => (
-                            <div key={img.id} className="relative group w-16 h-16 rounded-xl overflow-hidden border border-white/10">
+                            <div key={img.id} className="relative group w-16 h-16 rounded-xl overflow-hidden border border-white/10 shrink-0">
                               <img src={img.preview} className="w-full h-full object-cover" />
                               <button onClick={() => removeQuizImage(img.id)} className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center">
                                 <Trash2 size={12} className="text-white" />
+                              </button>
+                            </div>
+                          ))}
+
+                          {quizDocuments?.map((docItem: any) => (
+                            <div key={docItem.id} className="relative group bg-white/5 border border-amber-500/30 rounded-xl p-2 flex items-center gap-2.5 max-w-[210px] shrink-0">
+                              <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center shrink-0 text-amber-400">
+                                <FileText size={16} />
+                              </div>
+                              <div className="overflow-hidden flex-1">
+                                <p className="text-[10px] font-bold text-white truncate">{docItem.name}</p>
+                                <p className="text-[8px] text-amber-400/80 font-semibold uppercase">PDF/Doc Loaded</p>
+                              </div>
+                              <button onClick={() => removeQuizDocument && removeQuizDocument(docItem.id)} className="p-1 hover:bg-white/10 rounded-lg text-white/40 hover:text-red-400 transition-all">
+                                <Trash2 size={12} />
                               </button>
                             </div>
                           ))}

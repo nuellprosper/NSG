@@ -8,7 +8,7 @@ import {
   Database, Zap, Cpu, CheckCircle2, XCircle, RefreshCcw, ArrowLeft, FileText, AlertCircle, RotateCcw,
   Sun, Moon, ArrowDown, PlusCircle, Copy, User, Users, Clock, Lock, Unlock, Shield, ShieldCheck, AlertTriangle, FileDown, LayoutDashboard, ListChecks, Bell, GraduationCap, LayoutGrid, Home,
   Pin, Edit3, Share2, Trophy, LogOut, Plus, Menu, Camera, Monitor, X, Activity, MessageSquare, BookOpen, Calendar, Send, Save, MicOff, Video, AtSign, Paperclip, Bookmark, Book, Percent,
-  Search, Check, CheckCheck, Info, Volume2, VolumeX, Square, Mail, ArrowRight, BoxSelect, Globe, MapPin, Terminal, RefreshCw, Eye, EyeOff, HelpCircle
+  Search, Check, CheckCheck, Info, Volume2, VolumeX, Square, Mail, ArrowRight, BoxSelect, Globe, MapPin, Terminal, RefreshCw, Eye, EyeOff, HelpCircle, Calculator
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cleanTextForSpeech } from './lib/tts';
@@ -59,7 +59,7 @@ import {
   LIMITS, PAYSTACK_PUBLIC_KEY, compressImage as utilsCompressImage, fileToGenerativePart,
   Course, MediaFile, ChatMessage, ChatSession, LectureSession,
   QuizQuestion, ExamQuestion, StudentResult, RegisteredStudent, ExamConfig, HomeHistoryItem,
-  parseBatchQuestions, parseBatchStudents,
+  parseBatchQuestions, parseBatchStudents, extractTextFromDocument, extractPdfDetails,
   HF_MODELS, OPENROUTER_MODELS, GROQ_MODEL, GROQ_AUDIO_MODEL, handleOpenRouterErrorGlobal
 } from './utils';
 
@@ -621,6 +621,9 @@ export default function App() {
   const [uniSearchQuery, setUniSearchQuery] = useState('');
   const [passwordStrength, setPasswordStrength] = useState({ score: 0, feedback: '', color: 'bg-white/10' });
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showQuizShareModal, setShowQuizShareModal] = useState(false);
+  const [isGeneratingShareImage, setIsGeneratingShareImage] = useState(false);
+  const quizShareCardRef = useRef<HTMLDivElement>(null);
   const [shareName, setShareName] = useState('');
   const shareCardRef = useRef<HTMLDivElement>(null);
   const hasShownWelcomeNotification = useRef(false);
@@ -2064,15 +2067,20 @@ export default function App() {
   const [importedQuizNote, setImportedQuizNote] = useState<any | null>(null);
   const [showNoteSelectorForQuiz, setShowNoteSelectorForQuiz] = useState(false);
 
+  const [isUploadingQuizImages, setIsUploadingQuizImages] = useState(false);
+  const [isUploadingQuizDocs, setIsUploadingQuizDocs] = useState(false);
+
   const handleQuizImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
+    if (!files.length) return;
     const maxImages = isPremium ? LIMITS.QUIZ.PREMIUM.IMAGES : LIMITS.QUIZ.NORMAL.IMAGES;
     if (quizImages.length + files.length > maxImages) {
       setUserNotification(`Limit reached: ${isPremium ? 'Premium' : 'Free'} users can only upload up to ${maxImages} images for quiz generation.`);
       return;
     }
     
-    setUserNotification("Optimizing study attachments for quiz compilation...");
+    setIsUploadingQuizImages(true);
+    setUserNotification(`Uploading photo context for ${files.length} image(s)...`);
     try {
       const mapped = await Promise.all(files.map(async f => {
         let finalFile: File = f;
@@ -2091,15 +2099,64 @@ export default function App() {
         };
       }));
       setQuizImages(prev => [...prev, ...mapped]);
-      setUserNotification("Attachments optimized and embedded successfully!");
+      setUserNotification(`Uploaded ${files.length} photo(s) successfully!`);
     } catch (err) {
       console.error("Error embedding quiz images:", err);
       setUserNotification("Failed to process some attachments.");
+    } finally {
+      setIsUploadingQuizImages(false);
     }
   };
 
   const removeQuizImage = (id: string) => {
     setQuizImages(prev => prev.filter(img => img.id !== id));
+  };
+
+  const [quizDocuments, setQuizDocuments] = useState<Array<{ id: string; name: string; size: number; extractedText: string; pageImages?: string[]; file: File }>>([]);
+
+  const handleQuizDocumentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setIsUploadingQuizDocs(true);
+    setUserNotification(`Uploading document context for ${files.length} file(s)...`);
+    try {
+      const mapped = await Promise.all(files.map(async f => {
+        let extractedText = '';
+        let pageImages: string[] = [];
+        const isPdf = f.name.toLowerCase().endsWith('.pdf');
+
+        if (isPdf) {
+          const details = await extractPdfDetails(f);
+          extractedText = details.text;
+          pageImages = details.pageImages || [];
+          if (details.truncated) {
+            setUserNotification(`PDF "${f.name}" has ${details.pageCount} pages. First 20 pages were selected for vision & quiz processing.`);
+          }
+        } else {
+          extractedText = await extractTextFromDocument(f);
+        }
+
+        return {
+          id: Math.random().toString(36).substr(2, 11),
+          name: f.name,
+          size: f.size,
+          extractedText,
+          pageImages,
+          file: f
+        };
+      }));
+      setQuizDocuments(prev => [...prev, ...mapped]);
+      setUserNotification(`Converted ${files.length} document(s) to quiz context successfully!`);
+    } catch (err) {
+      console.error("Document upload error:", err);
+      setUserNotification("Failed to extract content from document.");
+    } finally {
+      setIsUploadingQuizDocs(false);
+    }
+  };
+
+  const removeQuizDocument = (id: string) => {
+    setQuizDocuments(prev => prev.filter(d => d.id !== id));
   };
   const [quizDifficulty, setQuizDifficulty] = useState<'Easy' | 'Medium' | 'Hard' | 'Professional'>('Medium');
   const [quizQuestionCount, setQuizQuestionCount] = useState(25);
@@ -8650,21 +8707,159 @@ Respond professionally, concisely, and use LaTeX for math.` }];
       return;
     }
     try {
-      const quizId = `quiz-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-      await setDoc(doc(db, 'quizzes', quizId), {
+      let cleanId = currentQuizId ? currentQuizId.replace(/^quiz-/, '') : '';
+      if (!cleanId || cleanId === 'current-quiz' || cleanId.startsWith('fin-')) {
+        cleanId = `${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+      }
+      const fullQuizId = `quiz-${cleanId}`;
+      await setDoc(doc(db, 'quizzes', fullQuizId), {
         questions: quizQuestions,
         topic: quizTopic,
         createdBy: user.uid,
         createdAt: new Date().toISOString()
-      });
-      const link = `${window.location.origin}${window.location.pathname}?quizId=${quizId}`;
+      }, { merge: true });
+
+      const link = `${window.location.origin}${window.location.pathname}?quizId=${fullQuizId}`;
       setShareQuizLink(link);
-      navigator.clipboard.writeText(link);
-      setUserNotification("Quiz link copied to clipboard!");
-      setShowShareModal(true); // Show the modal so user can see the link
+      setShowQuizShareModal(true);
     } catch (error) {
       console.error("Error sharing quiz:", error);
       setUserNotification("Failed to generate share link.");
+    }
+  };
+
+  const generateQuizPreviewImageBlob = async (): Promise<File | null> => {
+    if (!quizShareCardRef.current) return null;
+    try {
+      const dataUrl = await toPng(quizShareCardRef.current, {
+        quality: 0.95,
+        cacheBust: true,
+        backgroundColor: '#0B0813'
+      });
+      const res = await fetch(dataUrl);
+      const blob = await res.blob();
+      const fileName = `${(quizTopic || 'nsg_quiz').toLowerCase().replace(/[^a-z0-9]/g, '_')}_q1.png`;
+      return new File([blob], fileName, { type: 'image/png' });
+    } catch (err) {
+      console.error("Failed to render quiz preview image:", err);
+      return null;
+    }
+  };
+
+  const handleShareWhatsApp = async () => {
+    if (!shareQuizLink) return;
+    setUserNotification("Rendering quiz image preview for WhatsApp...");
+    setIsGeneratingShareImage(true);
+    try {
+      const imgFile = await generateQuizPreviewImageBlob();
+      const text = `🧠 *NSG Scholar Quiz: ${quizTopic || 'Interactive Quiz'}*\nTest your knowledge with this interactive quiz!\n👉 ${shareQuizLink}`;
+
+      if (imgFile && (navigator as any).canShare && (navigator as any).canShare({ files: [imgFile] })) {
+        try {
+          await navigator.share({
+            title: quizTopic || 'NSG Quiz',
+            text,
+            files: [imgFile]
+          });
+          setUserNotification("Shared via WhatsApp!");
+          setIsGeneratingShareImage(false);
+          return;
+        } catch (shareErr) {
+          console.warn("Native share fallback to WA link:", shareErr);
+        }
+      }
+
+      if (imgFile) {
+        const imgUrl = URL.createObjectURL(imgFile);
+        const a = document.createElement('a');
+        a.href = imgUrl;
+        a.download = imgFile.name;
+        a.click();
+      }
+
+      const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+      window.open(waUrl, '_blank');
+      setUserNotification("Opening WhatsApp... Quiz image card downloaded!");
+    } catch (err) {
+      console.error(err);
+      setUserNotification("Could not trigger WhatsApp share.");
+    } finally {
+      setIsGeneratingShareImage(false);
+    }
+  };
+
+  const handleShareTelegram = async () => {
+    if (!shareQuizLink) return;
+    setUserNotification("Rendering quiz image preview for Telegram...");
+    setIsGeneratingShareImage(true);
+    try {
+      const imgFile = await generateQuizPreviewImageBlob();
+      const text = `🧠 NSG Scholar Quiz: ${quizTopic || 'Interactive Quiz'}\nTest your knowledge!\n${shareQuizLink}`;
+
+      if (imgFile) {
+        const imgUrl = URL.createObjectURL(imgFile);
+        const a = document.createElement('a');
+        a.href = imgUrl;
+        a.download = imgFile.name;
+        a.click();
+      }
+
+      const tgUrl = `https://t.me/share/url?url=${encodeURIComponent(shareQuizLink)}&text=${encodeURIComponent(`🧠 NSG Scholar Quiz: ${quizTopic || 'Interactive Quiz'}`)}`;
+      window.open(tgUrl, '_blank');
+      setUserNotification("Opening Telegram... Quiz image card downloaded!");
+    } catch (err) {
+      console.error(err);
+      setUserNotification("Could not trigger Telegram share.");
+    } finally {
+      setIsGeneratingShareImage(false);
+    }
+  };
+
+  const handleShareOthers = async () => {
+    if (!shareQuizLink) return;
+    setUserNotification("Rendering quiz image for share menu...");
+    setIsGeneratingShareImage(true);
+    try {
+      const imgFile = await generateQuizPreviewImageBlob();
+      const text = `🧠 NSG Scholar Quiz: ${quizTopic || 'Interactive Quiz'}\nTest your knowledge with this interactive quiz!\n${shareQuizLink}`;
+
+      if (imgFile && navigator.share) {
+        if ((navigator as any).canShare && (navigator as any).canShare({ files: [imgFile] })) {
+          await navigator.share({
+            title: quizTopic || 'NSG Scholar Quiz',
+            text,
+            url: shareQuizLink,
+            files: [imgFile]
+          });
+          setUserNotification("Shared quiz successfully!");
+          setIsGeneratingShareImage(false);
+          return;
+        } else {
+          await navigator.share({
+            title: quizTopic || 'NSG Scholar Quiz',
+            text,
+            url: shareQuizLink
+          });
+          setUserNotification("Shared quiz link successfully!");
+          setIsGeneratingShareImage(false);
+          return;
+        }
+      }
+
+      await navigator.clipboard.writeText(shareQuizLink);
+      if (imgFile) {
+        const imgUrl = URL.createObjectURL(imgFile);
+        const a = document.createElement('a');
+        a.href = imgUrl;
+        a.download = imgFile.name;
+        a.click();
+      }
+      setUserNotification("Quiz link copied & image downloaded!");
+    } catch (err) {
+      console.error(err);
+      setUserNotification("Sharing cancelled or unavailable.");
+    } finally {
+      setIsGeneratingShareImage(false);
     }
   };
 
@@ -8791,8 +8986,8 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
       return;
     }
 
-    if (!activeTopic.trim() && quizImages.length === 0 && !importedQuizNote) {
-      setUserNotification("Please enter a topic, upload an image, or import a note first.");
+    if (!activeTopic.trim() && quizImages.length === 0 && quizDocuments.length === 0 && !importedQuizNote) {
+      setUserNotification("Please enter a topic, upload a document (PDF/Doc), upload a photo, or import a note first.");
       return;
     }
 
@@ -8814,7 +9009,7 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
 
     try {
       const aiInstance = getAiInstance();
-      const imageParts = await Promise.all(quizImages.map(async (img) => {
+      const photoImageParts = await Promise.all(quizImages.map(async (img) => {
         if (img.file) {
           return fileToGenerativePart(img.file);
         } else if (img.url) {
@@ -8835,9 +9030,36 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
         }
         return null;
       }));
-      const validImageParts = imageParts.filter(Boolean);
+
+      // Gather PDF page rendered images (up to 20 images total for vision context)
+      const docPdfImageParts: any[] = [];
+      let docPageImgCount = 0;
+      for (const doc of quizDocuments) {
+        if (doc.pageImages && doc.pageImages.length > 0) {
+          for (const pageDataUrl of doc.pageImages) {
+            if (docPageImgCount >= 20) break;
+            const b64 = pageDataUrl.split(',')[1];
+            if (b64) {
+              docPdfImageParts.push({ inlineData: { data: b64, mimeType: 'image/jpeg' } });
+              docPageImgCount++;
+            }
+          }
+        }
+      }
+
+      const validImageParts = [...photoImageParts.filter(Boolean), ...docPdfImageParts];
 
       let promptContext = "";
+
+      // Include text content from uploaded PDF / Doc files
+      if (quizDocuments.length > 0) {
+        quizDocuments.forEach((doc, idx) => {
+          if (doc.extractedText && doc.extractedText.trim().length > 0) {
+            promptContext += `\n--- ATTACHED STUDY DOCUMENT ${idx + 1}: "${doc.name}" ---\n${doc.extractedText.trim()}\n--- END OF DOCUMENT ${idx + 1} ---\n\n`;
+          }
+        });
+      }
+
       if (importedQuizNote) {
         let noteContent = importedQuizNote.content || "";
         if (importedQuizNote.attachments && importedQuizNote.attachments.length > 0) {
@@ -8851,17 +9073,18 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
       }
       
       const hasTextPrompt = activeTopic.trim().length > 0;
-      const hasImages = quizImages.length > 0;
+      const hasImages = validImageParts.length > 0;
+      const hasDocs = quizDocuments.length > 0;
 
-      if (hasTextPrompt && hasImages) {
-        promptContext += `MANDATORY DUAL-SOURCE REQUIREMENT: You MUST generate the ${activeCount} quiz questions by synthesizing and drawing from BOTH sources simultaneously: (1) the text prompt / note content ("${activeTopic}"), AND (2) the attached document(s)/image(s) provided. No matter the total question count (${activeCount}), distribute questions across both sources (e.g. alternate questions between text info and document/image info, combine them, or blend them dynamically throughout the questions so that every source is thoroughly tested). Never rely solely on text or solely on documents.\n\n`;
+      if ((hasTextPrompt || hasDocs) && hasImages) {
+        promptContext += `MANDATORY MULTI-SOURCE REQUIREMENT: You MUST generate the ${activeCount} quiz questions by synthesizing and drawing from ALL provided sources simultaneously: (1) text topic/instructions ("${activeTopic}"), (2) attached document text content, AND (3) visual page images/diagrams provided. No matter the total question count (${activeCount}), distribute questions across all sources thoroughly. Never rely solely on text or solely on images.\n\n`;
       } else if (hasTextPrompt) {
         if (importedQuizNote) {
           promptContext += `Integrate the note context above with the user's specific text instructions/topic: "${activeTopic}".\n\n`;
         } else {
           promptContext += `The questions must strictly cover and test the user's requested topic/context: "${activeTopic}".\n\n`;
         }
-      } else if (hasImages) {
+      } else if (hasImages || hasDocs) {
         promptContext += `You must analyze the attached document(s)/image(s) to generate relevant academic questions based strictly on the subject matter, text, equations, diagrams, and educational context shown in them.\n\n`;
       }
 
@@ -9078,51 +9301,25 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
     try {
       await new Promise(r => setTimeout(r, 650));
       if (item.type === 'quiz') {
-        const itemQuestions = item.questions || (item.data && item.data.questions);
-        if (itemQuestions && Array.isArray(itemQuestions) && itemQuestions.length > 0) {
-          setQuizQuestions(itemQuestions);
-          setQuizTopic(item.topic || item.title || "Study Quiz");
-          setQuizDifficulty((item.difficulty as any) || 'Medium');
-          setQuizQuestionCount(itemQuestions.length);
-          setCurrentQuizId(item.id);
-
-          if (item.score !== undefined) {
-            setQuizScore(item.score);
-            setQuizState('finished');
-            setUserQuizAnswers(item.answers || []);
-          } else {
-            setQuizScore(0);
-            setUserQuizAnswers(item.answers || []);
-            setCurrentQuestionIndex(0);
-            setSelectedOption(item.answers?.[0] !== undefined ? item.answers[0] : null);
-            setIsAnswered(item.answers?.[0] !== undefined);
-            setQuizState('active');
-          }
-          setActiveTab('tools');
-          setToolsSubTab('quiz');
-          setUserNotification("✅ Restored quiz session!");
-          return;
-        }
-
-        // Check local progress storage
         const cleanId = item.id.replace(/^quiz-/, '');
         const progressKey = (cleanId === 'current-quiz' || item.id === 'current-quiz') ? 'nsg_current_quiz_progress' : `nsg_quiz_progress_${cleanId}`;
-        const localProgress = safeStorage.getItem(progressKey) || safeStorage.getItem('nsg_current_quiz_progress');
+        const localProgress = safeStorage.getItem(progressKey) || safeStorage.getItem(`nsg_quiz_progress_${item.id}`) || safeStorage.getItem('nsg_current_quiz_progress');
         if (localProgress) {
           try {
             const p = JSON.parse(localProgress);
             if (p.quizQuestions && Array.isArray(p.quizQuestions) && p.quizQuestions.length > 0) {
+              const restoredIdx = p.currentQuestionIndex !== undefined ? p.currentQuestionIndex : 0;
               setQuizQuestions(p.quizQuestions);
               setQuizTopic(p.quizTopic || item.title || "Study Quiz");
-              setCurrentQuestionIndex(p.currentQuestionIndex || 0);
+              setCurrentQuestionIndex(restoredIdx);
               setQuizScore(p.quizScore || 0);
               setUserQuizAnswers(p.userQuizAnswers || []);
               setQuizDifficulty(p.quizDifficulty || 'Medium');
               setQuizQuestionCount(p.quizQuestionCount || p.quizQuestions.length);
               setCurrentQuizId(p.currentQuizId || item.id);
               setQuizState(p.quizState || 'active');
-              setSelectedOption(p.userQuizAnswers?.[p.currentQuestionIndex || 0] !== undefined ? p.userQuizAnswers[p.currentQuestionIndex || 0] : null);
-              setIsAnswered(p.userQuizAnswers?.[p.currentQuestionIndex || 0] !== undefined);
+              setSelectedOption(p.userQuizAnswers?.[restoredIdx] !== undefined ? p.userQuizAnswers[restoredIdx] : null);
+              setIsAnswered(p.userQuizAnswers?.[restoredIdx] !== undefined);
               setActiveTab('tools');
               setToolsSubTab('quiz');
               setUserNotification("🔄 Restored saved quiz progress!");
@@ -9131,6 +9328,48 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
           } catch (e) {
             console.error("Failed to restore history quiz progress:", e);
           }
+        }
+
+        const itemQuestions = item.questions || (item.data && item.data.questions);
+        if (itemQuestions && Array.isArray(itemQuestions) && itemQuestions.length > 0) {
+          setQuizQuestions(itemQuestions);
+          setQuizTopic(item.topic || item.title || "Study Quiz");
+          setQuizDifficulty((item.difficulty as any) || 'Medium');
+          setQuizQuestionCount(itemQuestions.length);
+          setCurrentQuizId(item.id);
+
+          if (item.score !== undefined && item.progress === 100) {
+            setQuizScore(item.score);
+            setQuizState('finished');
+            setUserQuizAnswers(item.answers || []);
+          } else {
+            let restoredIdx = 0;
+            if ((item as any).currentQuestionIndex !== undefined && (item as any).currentQuestionIndex < itemQuestions.length) {
+              restoredIdx = (item as any).currentQuestionIndex;
+            } else if (item.answers && Array.isArray(item.answers) && item.answers.length > 0) {
+              let lastAns = -1;
+              for (let aIdx = item.answers.length - 1; aIdx >= 0; aIdx--) {
+                if (item.answers[aIdx] !== undefined && item.answers[aIdx] !== null) {
+                  lastAns = aIdx;
+                  break;
+                }
+              }
+              if (lastAns !== -1) {
+                restoredIdx = Math.min(lastAns + 1, itemQuestions.length - 1);
+              }
+            }
+
+            setQuizScore(item.score || 0);
+            setUserQuizAnswers(item.answers || []);
+            setCurrentQuestionIndex(restoredIdx);
+            setSelectedOption(item.answers?.[restoredIdx] !== undefined ? item.answers[restoredIdx] : null);
+            setIsAnswered(item.answers?.[restoredIdx] !== undefined);
+            setQuizState('active');
+          }
+          setActiveTab('tools');
+          setToolsSubTab('quiz');
+          setUserNotification("✅ Restored quiz session!");
+          return;
         }
 
         // Check if there is a shared quiz ID in Firestore
@@ -9430,21 +9669,6 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
           ))}
         </AnimatePresence>
       </div>
-
-      {/* AUTH LOADING OVERLAY */}
-      <AnimatePresence>
-        {isAuthLoading && (
-          <motion.div 
-            initial={{ opacity: 0 }} 
-            animate={{ opacity: 1 }} 
-            exit={{ opacity: 0 }} 
-            className={`fixed inset-0 z-[300] ${theme === 'dark' ? 'bg-[#13111C]' : 'bg-white'} flex flex-col items-center justify-center space-y-4`}
-          >
-            <BlinkingBrain size={64} className="text-red-500" />
-            <p className={`text-[10px] font-black uppercase tracking-[0.3em] ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'} animate-pulse`}>Processing Authentication...</p>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* HISTORY LOADING BLUR LOCK POPUP */}
       <AnimatePresence>
@@ -10627,8 +10851,13 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
               setQuizDifficulty={setQuizDifficulty}
               quizImages={quizImages}
               setQuizImages={setQuizImages}
+              isUploadingQuizImages={isUploadingQuizImages}
+              isUploadingQuizDocs={isUploadingQuizDocs}
               handleQuizImageUpload={handleQuizImageUpload}
               removeQuizImage={removeQuizImage}
+              quizDocuments={quizDocuments}
+              handleQuizDocumentUpload={handleQuizDocumentUpload}
+              removeQuizDocument={removeQuizDocument}
               isGeneratingQuiz={isGeneratingQuiz}
               generateQuiz={generateQuiz}
               examLobbyState={examLobbyState}
@@ -14797,6 +15026,198 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
             </motion.div>
           </div>
         )}
+
+        {showQuizShareModal && (
+          <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }} 
+              animate={{ scale: 1, opacity: 1 }} 
+              exit={{ scale: 0.9, opacity: 0 }} 
+              className={`${theme === 'dark' ? 'bg-[#13111C] border-white/10' : 'bg-slate-900 border-slate-700'} border rounded-3xl p-6 sm:p-8 max-w-md w-full space-y-6 shadow-2xl relative`}
+            >
+              <button 
+                onClick={() => setShowQuizShareModal(false)}
+                className="absolute top-4 right-4 p-2 text-white/40 hover:text-white rounded-full bg-white/5 hover:bg-white/10 transition-all"
+              >
+                <X size={18} />
+              </button>
+
+              <div className="text-center space-y-2">
+                <div className="w-12 h-12 rounded-2xl bg-[#DC2626]/20 border border-[#DC2626]/40 flex items-center justify-center mx-auto text-[#DC2626]">
+                  <Share2 size={24} />
+                </div>
+                <h3 className="text-xl font-black text-white uppercase tracking-tight">Share Quiz</h3>
+                <p className="text-xs text-white/50 max-w-xs mx-auto">
+                  Share this quiz link and question card with your study partners!
+                </p>
+              </div>
+
+              {shareQuizLink && (
+                <div className="p-3.5 bg-white/5 rounded-2xl border border-white/10 space-y-1.5">
+                  <p className="text-[9px] font-black text-white/40 uppercase tracking-widest">Quiz Share Link</p>
+                  <div className="flex items-center gap-2">
+                    <input 
+                      readOnly 
+                      value={shareQuizLink} 
+                      className="flex-1 bg-transparent border-none outline-none text-xs text-red-400 font-mono truncate" 
+                    />
+                    <button 
+                      onClick={() => { 
+                        if (shareQuizLink) {
+                          navigator.clipboard.writeText(shareQuizLink); 
+                          setUserNotification("Quiz link copied to clipboard!"); 
+                        }
+                      }} 
+                      className="px-3 py-1.5 bg-[#DC2626] hover:bg-[#DC2626]/90 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1 shrink-0 shadow-lg shadow-[#DC2626]/20"
+                    >
+                      <Copy size={12} />
+                      <span>Copy</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* SOCIAL BUTTONS */}
+              <div className="space-y-2">
+                <p className="text-[9px] font-black text-white/30 uppercase tracking-widest text-center">Share via</p>
+                <div className="grid grid-cols-3 gap-3">
+                  {/* WhatsApp */}
+                  <button
+                    onClick={handleShareWhatsApp}
+                    disabled={isGeneratingShareImage}
+                    className="flex flex-col items-center justify-center gap-2 p-3.5 rounded-2xl bg-[#25D366]/10 hover:bg-[#25D366]/20 border border-[#25D366]/30 text-[#25D366] transition-all font-bold group disabled:opacity-50"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-[#25D366] text-white flex items-center justify-center shadow-lg shadow-[#25D366]/20 group-hover:scale-110 transition-transform">
+                      <MessageSquare size={20} />
+                    </div>
+                    <span className="text-[11px] font-black uppercase tracking-wider">WhatsApp</span>
+                  </button>
+
+                  {/* Telegram */}
+                  <button
+                    onClick={handleShareTelegram}
+                    disabled={isGeneratingShareImage}
+                    className="flex flex-col items-center justify-center gap-2 p-3.5 rounded-2xl bg-[#0088cc]/10 hover:bg-[#0088cc]/20 border border-[#0088cc]/30 text-[#0088cc] transition-all font-bold group disabled:opacity-50"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-[#0088cc] text-white flex items-center justify-center shadow-lg shadow-[#0088cc]/20 group-hover:scale-110 transition-transform">
+                      <Send size={20} />
+                    </div>
+                    <span className="text-[11px] font-black uppercase tracking-wider">Telegram</span>
+                  </button>
+
+                  {/* Others */}
+                  <button
+                    onClick={handleShareOthers}
+                    disabled={isGeneratingShareImage}
+                    className="flex flex-col items-center justify-center gap-2 p-3.5 rounded-2xl bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 text-purple-400 transition-all font-bold group disabled:opacity-50"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-purple-600 text-white flex items-center justify-center shadow-lg shadow-purple-600/20 group-hover:scale-110 transition-transform">
+                      <Share2 size={20} />
+                    </div>
+                    <span className="text-[11px] font-black uppercase tracking-wider">Others</span>
+                  </button>
+                </div>
+              </div>
+
+              {isGeneratingShareImage && (
+                <p className="text-[10px] font-bold text-center text-red-400 uppercase tracking-widest animate-pulse">
+                  Generating Quiz Image Card...
+                </p>
+              )}
+            </motion.div>
+          </div>
+        )}
+
+        {/* HIDDEN QUIZ CARD FOR PREVIEW IMAGE GENERATION (EXACT UI MATCH TO SCREENSHOT) */}
+        <div className="fixed -left-[9999px] top-0 pointer-events-none">
+          <div 
+            ref={quizShareCardRef} 
+            className="w-[620px] p-6 bg-[#0B0D17] text-white rounded-3xl border border-slate-800 flex flex-col space-y-3 shadow-2xl relative overflow-hidden"
+            style={{ fontFamily: 'DM Sans, sans-serif' }}
+          >
+            {/* Top Bar Pill Container with Gradient Background */}
+            <div className="bg-gradient-to-r from-[#D91B5C] via-[#8B1BD9] to-[#1D63D9] p-3.5 rounded-2xl border border-white/20 space-y-3 shadow-xl">
+              {/* Controls Row */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-black/40 border border-white/20 flex items-center justify-center text-white shadow-inner">
+                    <Calculator size={15} />
+                  </div>
+                  <div className="w-8 h-8 rounded-lg bg-black/40 border border-white/20 flex items-center justify-center text-white shadow-inner">
+                    <Volume2 size={15} />
+                  </div>
+                  <div className="w-8 h-8 rounded-lg bg-black/40 border border-white/20 flex items-center justify-center text-white shadow-inner">
+                    <Share2 size={15} />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-black uppercase tracking-widest bg-black/40 px-3.5 py-1.5 rounded-full border border-white/20 text-white font-mono">
+                    PROGRESS: 1/{quizQuestions.length || 50}
+                  </span>
+                  <div className="px-3.5 py-1.5 bg-[#133B70] rounded-xl text-[10px] font-black uppercase tracking-widest border border-white/20 text-white shadow-sm">
+                    BACK TO LOBBY
+                  </div>
+                </div>
+              </div>
+
+              {/* Numbered Pagination Pill Grid */}
+              <div className="flex flex-wrap items-center gap-1 pt-1 border-t border-white/20">
+                <div className="w-6 h-6 rounded-full bg-white text-black font-extrabold flex items-center justify-center text-[10px] shadow-md">
+                  1
+                </div>
+                {Array.from({ length: Math.min(quizQuestions.length || 50, 45) }, (_, i) => i + 2).map((num) => (
+                  <div key={num} className="w-6 h-6 rounded-md bg-black/30 border border-white/10 text-white/80 font-bold flex items-center justify-center text-[9px]">
+                    {num}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Main Question Card Container */}
+            <div className="bg-[#0B101D] border border-slate-800/80 rounded-2xl p-5 space-y-4 shadow-xl">
+              <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5">
+                <span className="text-[#EF4444] font-black text-xs uppercase tracking-widest">
+                  QUESTION 1 OF {quizQuestions.length || 50}
+                </span>
+                <span className="text-slate-400 font-bold text-[11px] uppercase tracking-wider truncate max-w-[300px]">
+                  {quizTopic ? quizTopic.toUpperCase() : 'ACADEMIC COURSE REVIEW QUIZ'}
+                </span>
+              </div>
+
+              <h3 className="text-white text-base font-bold leading-relaxed pt-1">
+                {quizQuestions[0]?.question || "What is the primary focus of public health as a science?"}
+              </h3>
+
+              <div className="space-y-2.5 pt-1">
+                {(quizQuestions[0]?.options || [
+                  "Treating individual patients with existing chronic conditions",
+                  "Diagnosing rare genetic disorders through specialized laboratory tests",
+                  "Preventing disease, prolonging life, and promoting health through organized community effort",
+                  "Rehabilitating patients following major orthopedic surgeries"
+                ]).slice(0, 4).map((optText: string, optIdx: number) => (
+                  <div 
+                    key={optIdx} 
+                    className="bg-[#121929] border border-slate-800/90 p-3.5 rounded-2xl flex items-center gap-3.5"
+                  >
+                    <div className="w-7 h-7 rounded-xl bg-white/5 border border-white/10 text-slate-300 font-extrabold flex items-center justify-center text-xs shrink-0">
+                      {String.fromCharCode(65 + optIdx)}
+                    </div>
+                    <span className="text-slate-200 text-sm font-semibold leading-snug">
+                      {optText}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Card Footer */}
+            <div className="flex items-center justify-between border-t border-slate-800/80 pt-2.5 px-1 text-[10px]">
+              <span className="text-slate-500 font-mono">NSG SCHOLAR OMNI • INTERACTIVE QUIZ</span>
+              <span className="text-[#EF4444] font-bold uppercase tracking-wider">{shareQuizLink || 'https://nsg-scholar.app'}</span>
+            </div>
+          </div>
+        </div>
 
         {showInviteModal && (
           <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
