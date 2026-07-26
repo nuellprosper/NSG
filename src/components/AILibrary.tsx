@@ -79,7 +79,8 @@ export const AILibrary: React.FC<{
   const MODEL_NAME = "gemini-3.1-flash-lite";
   
   const getAiInstance = () => {
-    const key = process.env.GEMINI_API_KEY;
+    const key = (typeof process !== 'undefined' && process.env ? process.env.GEMINI_API_KEY : '') ||
+                (import.meta.env ? (import.meta.env.VITE_GEMINI_API_KEY || (import.meta.env as any).GEMINI_API_KEY) : '');
     if (!key) throw new Error("Gemini API Key is missing. Please check your environment variables.");
     const instance = new GoogleGenAI({ apiKey: key });
     
