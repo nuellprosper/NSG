@@ -247,20 +247,33 @@ export interface FirestoreErrorInfo {
  * Deeply clean an object by removing undefined values, which Firestore does not support.
  */
 export function sanitizeData(data: any): any {
-  if (data === null || data === undefined) return null;
+  if (data === undefined) return null;
+  if (data === null) return null;
+  if (typeof data === 'function') return null;
+
+  if (data instanceof Date) return data.toISOString();
+  if (typeof data === 'object' && typeof data.toDate === 'function') return data; // Firestore Timestamp
+
   if (Array.isArray(data)) {
-    return data.map(item => sanitizeData(item));
+    return data
+      .filter(item => item !== undefined)
+      .map(item => sanitizeData(item));
   }
+
   if (typeof data === 'object') {
     const clean: any = {};
-    Object.keys(data).forEach(key => {
+    for (const key of Object.keys(data)) {
       const val = data[key];
-      if (val !== undefined) {
-        clean[key] = sanitizeData(val);
+      if (val !== undefined && typeof val !== 'function') {
+        const cleanedVal = sanitizeData(val);
+        if (cleanedVal !== undefined) {
+          clean[key] = cleanedVal;
+        }
       }
-    });
+    }
     return clean;
   }
+
   return data;
 }
 

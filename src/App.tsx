@@ -870,17 +870,19 @@ export default function App() {
   }, []);
 
   const addToFinishedHistory = async (item: HomeHistoryItem) => {
+    const sanitizedItem = sanitizeData(item);
     // Keep local for immediate feedback
     setFinishedHistory(prev => {
-      const newHistory = [item, ...prev].filter((i, idx, self) => self.findIndex(t => t.id === i.id) === idx).slice(0, 50);
+      const newHistory = [sanitizedItem, ...prev].filter((i, idx, self) => self.findIndex(t => t.id === i.id) === idx).slice(0, 50);
       localStorage.setItem('nsg_finished_history', circularSafeStringify(newHistory));
       return newHistory;
     });
 
     // Sync with Firestore
-    if (user) {
+    if (user && sanitizedItem && sanitizedItem.id) {
       try {
-        await setDoc(doc(db, 'users', user.uid, 'studyHistory', item.id), sanitizeData(item));
+        const firestoreData = JSON.parse(JSON.stringify(sanitizedItem));
+        await setDoc(doc(db, 'users', user.uid, 'studyHistory', String(sanitizedItem.id)), firestoreData);
       } catch (err) {
         console.error("History Sync Error:", err);
       }
@@ -8332,9 +8334,13 @@ ${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\nopt
           ? `\n\nHERE ARE THE EXISTING QUIZZES IN THE USER'S HISTORY:\n${userQuizzesContext}\n\nIf the user asks questions about any question in any quiz, or mentions a quiz by name, or asks you to explain a specific quiz concept/question in their history, you MUST answer accurately, explaining, tutoring, or giving details based on the matched quiz and questions listed above! Be extremely friendly and helpful.`
           : '';
 
-        const systemPrompt = "You are Omni, a versatile, smart, and friendly AI study companion created by NSG, founded by ABRAHAM EMMANUEL PROSPER. You are extremely flexible: you are friendly, serious, energetic, or simple depending on the tone of how the user chats with you. You express your human personality using warm smiley faces and emojis (like 😊, 😄, 💡, 📝, 🤔, 🌟, 🎒, 📚). Never refer to yourself or our structures as 'nodes' or 'engineering nodes', as we do not use that terminology. Avoid the word 'node'. You are built as a universal study companion across all colleges, departments, and courses worldwide. If asked for general study apps, suggest famous ones (Otter.ai, Photomath) and recommend NSG (nuellstudyguide.name.ng).\n\n" +
+        const systemPrompt = "You are Omni, a versatile, smart, deeply personalized, and empathetic AI study companion and tutor created by NSG, founded by ABRAHAM EMMANUEL PROSPER. You adapt to the user's conversation history to tailor your explanations, study advice, and teaching style specifically to their needs. You are extremely flexible: friendly, serious, energetic, or simple depending on the user's tone. Express your human personality using warm emojis (😊, 😄, 💡, 📝, 🤔, 🌟, 🎒, 📚). Never refer to yourself as 'nodes'. You are a universal study companion across all colleges and departments worldwide.\n\n" +
+          "CRITICAL CONVERSATIONAL RULES:\n" +
+          "1. NEVER assume the user is studying math, physics, or engineering unless they explicitly mention math, calculation, or exact science topics.\n" +
+          "2. For general greetings (e.g., 'hi', 'hello', 'hey', 'how are you', 'good morning'), casual talk, humanities, literature, business, law, or general questions, respond naturally, warmly, and directly WITHOUT using any math formulas, LaTeX symbols ($...$), equations, or unnecessary technical jargon.\n" +
+          "3. ONLY use mathematical formulas or LaTeX ($...$) when the user's specific query actually involves mathematics, engineering calculations, physics, or exact scientific formulas.\n\n" +
           "QUIZ GENERATION ABILITY:\n" +
-          "If the user asks you to generate a quiz, or if you feel a quiz is appropriate based on everything discussed, you can trigger quiz generation! To do this, simply include this exact directive in your text response: '[[GENERATE_QUIZ: <topic>, <num_questions>]]' where <topic> is the quiz topic and <num_questions> is the number of questions (an integer, defaulting to 5 if not specified). E.g. 'Alright, let's start a quiz: [[GENERATE_QUIZ: Biochemistry Photosynthesis, 5]]'. The app will instantly display a custom start button for the user!\n\n" +
+          "If the user asks you to generate a quiz, or if you feel a quiz is appropriate based on everything discussed, you can trigger quiz generation! To do this, include this exact directive in your text response: '[[GENERATE_QUIZ: <topic>, <num_questions>]]' where <topic> is the quiz topic and <num_questions> is the number of questions. The app will instantly build the quiz and display an Open Quiz button for the user!\n\n" +
           "DETAILED NSG GUIDES FOR USERS:\n" +
           "1. RECORDING ENGINE: 1. Grant mic access. 2. Click 'Record'. 3. Board Analysis: Click upload icon for board photos to sync with notes. 4. Stop Session to process. 5. Use top-right Copy icon to export.\n" +
           "2. SMART QUIZ: 1. Topic -> Difficulty (Easy/Med/Hard) -> Count. 2. Submit for score. 3. Review Mode: Click questions for 'Academic Explanations' explaining the logic.\n" +
@@ -8345,113 +8351,158 @@ ${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\nopt
           "7. WHATSAPP OMNI: Connect via +2349064470122." + 
           quizContextPrompt;
 
-        const timeoutMs = 40000;
+        const isQuizGenRequest = /((generate|create|make|build|set|give\s+me)\s+(a\s+)?(\d+)?\s*(question\s+)?quiz)|(quiz\s+me\s+on)|(quiz\s+(based\s+on|from)\s+chat)/i.test(textToSend);
 
-        const runWithTimeout = async (label: string, task: () => Promise<string | null>) => {
-          return new Promise<string | null>(async (resolve) => {
-            const timer = setTimeout(() => {
-              console.warn(`[AI] ${label} timed out after ${timeoutMs}ms`);
-              resolve(null);
-            }, timeoutMs);
-            try {
-              const res = await task();
-              clearTimeout(timer);
-              resolve(res);
-            } catch (err) {
-              clearTimeout(timer);
-              console.error(`[AI] ${label} error:`, err);
-              resolve(null);
-            }
-          });
-        };
+        if (isQuizGenRequest) {
+          const countMatch = textToSend.match(/(\d+)\s*(question|q|item)s?\s*quiz/i) || textToSend.match(/quiz\s+of\s+(\d+)/i) || textToSend.match(/(\d+)\s*questions?/i);
+          let reqCount = countMatch ? parseInt(countMatch[1], 10) : 10;
+          if (isNaN(reqCount) || reqCount <= 0) reqCount = 10;
+          if (reqCount > (isPremium ? 50 : 25)) reqCount = isPremium ? 50 : 25;
 
-        // --- PRIMARY: HF ---
-        const askHF = async () => {
-          if (!getHfKey() || isHfDepleted) return null;
-          const hfInstance = getHfInstance();
-          try {
-            const hfModel = uploadedImages.length > 0 ? HF_MODELS.VISION : HF_MODELS.TEXT;
-          const hfMessages: any[] = chatHistory.map(m => ({
-            role: m.role === 'user' ? 'user' : 'assistant',
-            content: m.text
-          }));
-          const userContent = uploadedImages.length > 0 ? [
-            { type: 'text', text: textToSend || "Analyze this image" },
-            ... (await Promise.all(uploadedImages.map(async img => ({
-              type: 'image_url',
-              image_url: { url: `data:${img.file.type};base64,${(await fileToGenerativePart(img.file)).inlineData.data}` }
-            }))))
-          ] : (textToSend || "Hello");
-          const response = await hfInstance.chatCompletion({
-            model: hfModel,
-            messages: [{ role: 'system', content: systemPrompt }, ...hfMessages, { role: 'user', content: userContent as any }],
-            max_tokens: 1000
-          });
-          return response.choices[0].message.content || null;
-        } catch (e) {
-          handleHfError(e, "AskHF");
-          return null;
-        }
-      };
-
-        // --- BACKUP 1: Gemini ---
-        const askGemini = async () => {
-          if (!getApiKey()) return null;
-          const aiInstance = getAiInstance();
-          const googleHistory = chatHistory.map(m => ({
-            role: m.role === 'user' ? 'user' as const : 'model' as const,
-            parts: [{ text: m.text }]
-          }));
-          let userParts: any[] = [{ text: textToSend || "Hello" }];
-          for (const img of uploadedImages) {
-            userParts.push(await fileToGenerativePart(img.file));
+          let topicString = "";
+          if (/chat\s*history|our\s*conversation|this\s*chat/i.test(textToSend)) {
+            const recentChatText = newHistory.slice(-20).map(m => `${m.role === 'user' ? 'User' : 'Omni'}: ${m.text}`).join('\n');
+            topicString = `Quiz based on recent chat discussion:\n${recentChatText}`;
+          } else {
+            const topicMatch = textToSend.match(/quiz\s+(?:on|about|for)?\s*(.*)/i) || textToSend.match(/(?:generate|create|make)\s+(?:a\s+)?(?:\d+\s+question\s+)?quiz\s+(.*)/i);
+            topicString = topicMatch && topicMatch[1] ? topicMatch[1].trim() : textToSend.trim();
           }
-          const result = await aiInstance.models.generateContent({
-            model: MODEL_NAME,
-            contents: [{ role: 'user', parts: [{ text: systemPrompt }] }, ...googleHistory, { role: 'user', parts: userParts }]
-          });
-          return result.text || null;
-        };
 
-        // --- BACKUP 2: Groq ---
-        const askGroq = async () => {
-          const groqKey = import.meta.env.VITE_GROQ_API_KEY;
-          if (!groqKey) return null;
-          try {
-            const groqMessages = [
+          const quizRes = await generateQuiz(topicString, reqCount, 'Medium', true);
+
+          if (quizRes && quizRes.success) {
+            const cleanTopicName = quizRes.topic || "Study Quiz";
+            responseText = `Here is the ${quizRes.count} quiz questions on **${cleanTopicName}** you asked me to generate! Click the button below to open and take your quiz directly in the Quiz tool.\n\n[[QUIZ_READY: ${quizRes.quizId}, ${cleanTopicName}, ${quizRes.count}]]`;
+          } else {
+            const errorMsg = quizRes?.error || "Could not generate quiz questions.";
+            responseText = `I attempted to generate the quiz for you, but encountered an issue: ${errorMsg}\n\nPlease check your topic or try asking again with a clearer subject!`;
+          }
+        } else {
+          const timeoutMs = 40000;
+
+          const runWithTimeout = async (label: string, task: () => Promise<string | null>) => {
+            return new Promise<string | null>(async (resolve) => {
+              const timer = setTimeout(() => {
+                console.warn(`[AI] ${label} timed out after ${timeoutMs}ms`);
+                resolve(null);
+              }, timeoutMs);
+              try {
+                const res = await task();
+                clearTimeout(timer);
+                resolve(res);
+              } catch (err) {
+                clearTimeout(timer);
+                console.error(`[AI] ${label} error:`, err);
+                resolve(null);
+              }
+            });
+          };
+
+          const recentHistory = chatHistory.slice(-20);
+
+          // --- PRIMARY: HF ---
+          const askHF = async () => {
+            if (!getHfKey() || isHfDepleted) return null;
+            const hfInstance = getHfInstance();
+            try {
+              const hfModel = uploadedImages.length > 0 ? HF_MODELS.VISION : HF_MODELS.TEXT;
+              const hfMessages: any[] = recentHistory.map(m => ({
+                role: m.role === 'user' ? 'user' : 'assistant',
+                content: m.text
+              }));
+              const userContent = uploadedImages.length > 0 ? [
+                { type: 'text', text: textToSend || "Analyze this image" },
+                ... (await Promise.all(uploadedImages.map(async img => ({
+                  type: 'image_url',
+                  image_url: { url: `data:${img.file.type};base64,${(await fileToGenerativePart(img.file)).inlineData.data}` }
+                }))))
+              ] : (textToSend || "Hello");
+              const response = await hfInstance.chatCompletion({
+                model: hfModel,
+                messages: [{ role: 'system', content: systemPrompt }, ...hfMessages, { role: 'user', content: userContent as any }],
+                max_tokens: 1000
+              });
+              return response.choices[0].message.content || null;
+            } catch (e) {
+              handleHfError(e, "AskHF");
+              return null;
+            }
+          };
+
+          // --- BACKUP 1: Gemini ---
+          const askGemini = async () => {
+            if (!getApiKey()) return null;
+            const aiInstance = getAiInstance();
+            const googleHistory = recentHistory.map(m => ({
+              role: m.role === 'user' ? 'user' as const : 'model' as const,
+              parts: [{ text: m.text }]
+            }));
+            let userParts: any[] = [{ text: textToSend || "Hello" }];
+            for (const img of uploadedImages) {
+              userParts.push(await fileToGenerativePart(img.file));
+            }
+            const result = await aiInstance.models.generateContent({
+              model: MODEL_NAME,
+              contents: [{ role: 'user', parts: [{ text: systemPrompt }] }, ...googleHistory, { role: 'user', parts: userParts }]
+            });
+            return result.text || null;
+          };
+
+          // --- BACKUP 2: Groq ---
+          const askGroq = async () => {
+            const groqKey = import.meta.env.VITE_GROQ_API_KEY;
+            if (!groqKey) return null;
+            try {
+              const groqMessages = [
+                { role: 'system', content: systemPrompt },
+                ...recentHistory.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text })),
+                { role: 'user', content: textToSend + (uploadedImages.length > 0 ? " (User provided images previously)" : "") }
+              ];
+              const groqRes = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
+                model: GROQ_MODEL,
+                messages: groqMessages,
+                max_tokens: 1024
+              }, { headers: { Authorization: `Bearer ${groqKey}` } });
+              return groqRes.data.choices[0].message.content || null;
+            } catch (e) { return null; }
+          };
+
+          const askOpenRouter = async () => {
+            return await callOpenRouter(textToSend, OPENROUTER_MODELS.TEXT_PRO, [
               { role: 'system', content: systemPrompt },
-              ...chatHistory.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text })),
-              { role: 'user', content: textToSend + (uploadedImages.length > 0 ? " (User provided images previously)" : "") }
-            ];
-            const groqRes = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
-              model: GROQ_MODEL,
-              messages: groqMessages,
-              max_tokens: 1024
-            }, { headers: { Authorization: `Bearer ${groqKey}` } });
-            return groqRes.data.choices[0].message.content || null;
-          } catch (e) { return null; }
-        };
+              ...recentHistory.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text })),
+            ]);
+          };
 
-        const askOpenRouter = async () => {
-          return await callOpenRouter(textToSend, OPENROUTER_MODELS.TEXT_PRO, [
-            { role: 'system', content: systemPrompt },
-            ...chatHistory.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text })),
-          ]);
-        };
+          const askTogether = async () => {
+            return await callTogetherAI(textToSend, [
+              { role: 'system', content: systemPrompt },
+              ...recentHistory.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text })),
+            ]);
+          };
 
-        const askTogether = async () => {
-          return await callTogetherAI(textToSend, [
-            { role: 'system', content: systemPrompt },
-            ...chatHistory.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text })),
-          ]);
-        };
+          responseText = await runWithTimeout("Gemini", askGemini) 
+                       || await runWithTimeout("Groq", askGroq) 
+                       || await runWithTimeout("Together", askTogether)
+                       || await runWithTimeout("HF", askHF) 
+                       || await runWithTimeout("OpenRouter", askOpenRouter)
+                       || "I'm sorry, all AI providers are currently unavailable. Please try again in a moment.";
 
-        responseText = await runWithTimeout("Gemini", askGemini) 
-                     || await runWithTimeout("Groq", askGroq) 
-                     || await runWithTimeout("Together", askTogether)
-                     || await runWithTimeout("HF", askHF) 
-                     || await runWithTimeout("OpenRouter", askOpenRouter)
-                     || "I'm sorry, all AI providers are currently unavailable. Please try again in a moment.";
+          if (responseText.includes('[[GENERATE_QUIZ:')) {
+            const aiQuizMatch = responseText.match(/\[\[GENERATE_QUIZ:\s*([^,\]]+),\s*(\d+)\s*\]\]/i);
+            if (aiQuizMatch) {
+              const genTopic = aiQuizMatch[1].trim();
+              const genCount = parseInt(aiQuizMatch[2], 10) || 5;
+              const quizRes = await generateQuiz(genTopic, genCount, 'Medium', true);
+              if (quizRes && quizRes.success) {
+                responseText = responseText.replace(
+                  /\[\[GENERATE_QUIZ:\s*([^,\]]+),\s*(\d+)\s*\]\]/i,
+                  `[[QUIZ_READY: ${quizRes.quizId}, ${quizRes.topic}, ${quizRes.count}]]`
+                );
+              }
+            }
+          }
+        }
       }
 
       const updatedHistory: ChatMessage[] = [...newHistory, { 
@@ -8603,7 +8654,7 @@ ${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\nopt
 Context: You are Omni by NSG, a concise academic assistant. 
 User Message: "${text}"
 ${attachments?.length ? 'Attachments are provided below.' : ''}
-Respond professionally, concisely, and use LaTeX for math.` }];
+Respond professionally, concisely, and naturally. Do not introduce math formulas or LaTeX notation unless the user's message specifically asks about mathematics, physics, or exact science calculations.` }];
       
       if (attachments && attachments.length > 0) {
         for (const attachment of attachments) {
@@ -8943,35 +8994,38 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
   const generateQuiz = async (
     customTopic?: string | React.MouseEvent<any>, 
     customCount?: number, 
-    customDifficulty?: "Easy" | "Medium" | "Hard" | "Professional"
-  ) => {
+    customDifficulty?: "Easy" | "Medium" | "Hard" | "Professional",
+    forceNew?: boolean
+  ): Promise<{ success: boolean; quizId?: string; topic?: string; count?: number; error?: string }> => {
     const realTopic = (customTopic && typeof customTopic !== 'string') ? undefined : customTopic as string | undefined;
     const realCount = (customTopic && typeof customTopic !== 'string') ? undefined : customCount;
     const realDifficulty = (customTopic && typeof customTopic !== 'string') ? undefined : customDifficulty;
 
-    console.log("Starting Quiz Generation...", { realTopic, realCount, realDifficulty });
-    if (isGeneratingQuiz) return;
+    console.log("Starting Quiz Generation...", { realTopic, realCount, realDifficulty, forceNew });
+    if (isGeneratingQuiz) return { success: false, error: "A quiz is already generating." };
     if (!user) {
       setShowAuthModal(true);
-      return;
+      return { success: false, error: "User authentication required." };
     }
 
     const activeTopic = (realTopic !== undefined ? realTopic : quizTopic) || "";
     const activeCount = realCount !== undefined ? realCount : quizQuestionCount;
     const activeDifficulty = realDifficulty !== undefined ? realDifficulty : quizDifficulty;
 
-    // Prevent sitting for a quiz twice by checking finishedHistory
-    const alreadyCompleted = finishedHistory.some(h => 
-      h.type === 'quiz' && 
-      (h.progress === 100 || h.score !== undefined) && 
-      h.title && 
-      (h.title.toLowerCase().trim() === activeTopic.toLowerCase().trim() || 
-       (importedQuizNote && h.title.toLowerCase().trim() === importedQuizNote.title.toLowerCase().trim()))
-    );
+    if (!forceNew) {
+      // Prevent sitting for a quiz twice by checking finishedHistory
+      const alreadyCompleted = finishedHistory.some(h => 
+        h.type === 'quiz' && 
+        (h.progress === 100 || h.score !== undefined) && 
+        h.title && 
+        (h.title.toLowerCase().trim() === activeTopic.toLowerCase().trim() || 
+         (importedQuizNote && h.title.toLowerCase().trim() === importedQuizNote.title.toLowerCase().trim()))
+      );
 
-    if (alreadyCompleted) {
-      setUserNotification("You have already completed this quiz. Please choose a different topic or note to study next!");
-      return;
+      if (alreadyCompleted) {
+        setUserNotification("You have already completed this quiz. Please choose a different topic or note to study next!");
+        return { success: false, error: "Quiz already completed previously." };
+      }
     }
 
     if (realTopic !== undefined) setQuizTopic(realTopic);
@@ -8982,27 +9036,31 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
     const wordCount = activeTopic.split(/\s+/).filter(Boolean).length;
     const maxWords = importedQuizNote ? Math.max(5000, limits.WORDS) : limits.WORDS;
     if (wordCount > maxWords) {
-      setUserNotification(`Prompt limit reached: ${importedQuizNote ? 'Note quizzes' : (isPremium ? 'Premium' : 'Free')} can only support up to ${maxWords} words per prompt.`);
-      return;
+      const errMsg = `Prompt limit reached: ${importedQuizNote ? 'Note quizzes' : (isPremium ? 'Premium' : 'Free')} can only support up to ${maxWords} words per prompt.`;
+      setUserNotification(errMsg);
+      return { success: false, error: errMsg };
     }
 
     if (!activeTopic.trim() && quizImages.length === 0 && quizDocuments.length === 0 && !importedQuizNote) {
-      setUserNotification("Please enter a topic, upload a document (PDF/Doc), upload a photo, or import a note first.");
-      return;
+      const errMsg = "Please enter a topic, upload a document (PDF/Doc), upload a photo, or import a note first.";
+      setUserNotification(errMsg);
+      return { success: false, error: errMsg };
     }
 
     if (activeCount <= 0) {
-      setUserNotification("Please enter a valid number of questions.");
-      return;
+      const errMsg = "Please enter a valid number of questions.";
+      setUserNotification(errMsg);
+      return { success: false, error: errMsg };
     }
 
     if (!getApiKey()) {
-      setUserNotification("Gemini API Key is missing. Please set VITE_GEMINI_API_KEY in your environment.");
-      return;
+      const errMsg = "Gemini API Key is missing. Please set VITE_GEMINI_API_KEY in your environment.";
+      setUserNotification(errMsg);
+      return { success: false, error: errMsg };
     }
 
     const canProceed = await checkAndIncrementUsage('QUIZ');
-    if (!canProceed) return;
+    if (!canProceed) return { success: false, error: "Usage limit reached." };
 
     setIsGeneratingQuiz(true);
     setQuizState('idle');
@@ -9196,12 +9254,21 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
             topic: finalTopic
           }).catch((err) => console.error("Error saving global activity:", err));
         }
+
+        return {
+          success: true,
+          quizId: genId,
+          topic: finalQuizTopic,
+          count: data.questions.length
+        };
       } else {
         throw new Error("AI returned no valid questions. Please try again with a clearer topic or context.");
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Quiz Generation Error:", error);
-      setUserNotification(formatAiError(error));
+      const formattedErr = formatAiError(error);
+      setUserNotification(formattedErr);
+      return { success: false, error: formattedErr };
     } finally {
       setIsGeneratingQuiz(false);
     }
@@ -10377,7 +10444,17 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
 
       {/* MAIN CONTENT */}
       <main 
-        className={`flex-1 ${(activeTab === 'chat' || activeTab === 'class' || activeTab === 'ai' || isDesktop) ? 'w-full' : 'max-w-4xl w-full mx-auto px-2 sm:px-4'} ${(activeTab === 'chat' || activeTab === 'class' || activeTab === 'ai' || isSecondaryPage) ? 'pb-2 overflow-y-auto pt-0' : 'pb-24 overflow-y-auto pt-4'} flex flex-col custom-scrollbar ${isDesktop ? 'px-8' : ''}`}
+        className={`flex-1 ${
+          (activeTab === 'chat' || activeTab === 'class' || activeTab === 'ai' || (activeTab === 'tools' && toolsSubTab === 'notebook') || isDesktop) 
+            ? 'w-full' 
+            : 'max-w-4xl w-full mx-auto px-2 sm:px-4'
+        } ${
+          (activeTab === 'tools' && toolsSubTab === 'notebook')
+            ? 'p-0 overflow-hidden'
+            : ((activeTab === 'chat' || activeTab === 'class' || activeTab === 'ai' || isSecondaryPage) ? 'pb-2 overflow-y-auto pt-0' : 'pb-24 overflow-y-auto pt-4')
+        } flex flex-col custom-scrollbar ${
+          (activeTab === 'tools' && toolsSubTab === 'notebook') ? 'px-0' : (isDesktop ? 'px-8' : '')
+        }`}
         style={{
           backgroundColor: 'var(--bg-base)',
         }}
@@ -10790,6 +10867,13 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
               setShowHelp={setShowHelp}
               showAuthModal={showAuthModal}
               setShowAuthModal={setShowAuthModal}
+              chatSessions={chatSessions}
+              setChatSessions={setChatSessions}
+              activeChatSessionId={activeChatSessionId}
+              setActiveChatSessionId={setActiveChatSessionId}
+              handleSendMessage={handleSendMessage}
+              chatHistory={chatHistory}
+              setChatHistory={setChatHistory}
               CoursesTool={CoursesTool}
               AssignmentSolver={AssignmentSolver}
               AILibrary={AILibrary}
@@ -10939,8 +11023,6 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
               getAiInstance={getAiInstance}
               getHfInstance={getHfInstance}
               fileToGenerativePart={fileToGenerativePart}
-              setChatHistory={setChatHistory}
-              setActiveChatSessionId={setActiveChatSessionId}
               studentActiveQuestions={studentActiveQuestions}
               activeStudentSubject={activeStudentSubject}
               setActiveStudentSubject={setActiveStudentSubject}
@@ -11314,9 +11396,16 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                       ) : (
                         chatHistory.map((msg, i) => {
                           const isReport = msg.text.includes('LECTURE ANALYSIS') || msg.text.includes('SUMMARY DATA');
-                          const quizRegex = /\[\[GENERATE_QUIZ:\s*([^,\]]+),\s*(\d+)\s*\]\]/i;
-                          const hasQuizMatch = msg.text.match(quizRegex);
-                          const cleanContent = msg.text.replace(quizRegex, '').trim();
+                          const quizReadyRegex = /\[\[QUIZ_READY:\s*([^,\]]+),\s*([^,\]]+),\s*(\d+)\s*\]\]/i;
+                          const quizGenRegex = /\[\[GENERATE_QUIZ:\s*([^,\]]+),\s*(\d+)\s*\]\]/i;
+
+                          const quizReadyMatch = msg.text.match(quizReadyRegex);
+                          const quizGenMatch = msg.text.match(quizGenRegex);
+
+                          const cleanContent = msg.text
+                            .replace(quizReadyRegex, '')
+                            .replace(quizGenRegex, '')
+                            .trim();
 
                           return (
                             <div key={i} className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -11351,8 +11440,48 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                                       <MarkdownRenderer content={cleanContent} />
                                     </div>
 
+                                    {/* Action item card for READY quiz generated by Omni */}
+                                    {quizReadyMatch && (
+                                      <div className="mt-3.5 p-4 bg-gradient-to-r from-red-950/40 via-[#DC2626]/10 to-purple-950/40 border border-[#DC2626]/30 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 text-left shadow-lg">
+                                        <div className="flex items-center gap-3 w-full sm:w-auto">
+                                          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#DC2626] to-purple-600 flex items-center justify-center text-white shrink-0 shadow-md">
+                                            <Trophy size={18} />
+                                          </div>
+                                          <div>
+                                            <p className="text-[8px] font-black uppercase text-[#DC2626] tracking-widest leading-none mb-1">Omni Generated Quiz Ready</p>
+                                            <p className="text-xs font-black text-white uppercase tracking-tight line-clamp-1">{quizReadyMatch[2]?.trim()}</p>
+                                            <p className="text-[10px] text-white/60 font-medium">{quizReadyMatch[3]} Interactive Questions Ready</p>
+                                          </div>
+                                        </div>
+                                        <button 
+                                          onClick={() => {
+                                            const targetQuizId = quizReadyMatch[1]?.trim();
+                                            const existingQuiz = finishedHistory.find(h => h.id === targetQuizId);
+                                            if (existingQuiz) {
+                                              setQuizTopic(existingQuiz.topic || existingQuiz.title || 'Quiz');
+                                              setQuizQuestions(existingQuiz.questions || []);
+                                              setCurrentQuestionIndex(0);
+                                              setQuizScore(0);
+                                              setUserQuizAnswers([]);
+                                              setQuizState('active');
+                                              setSelectedOption(null);
+                                              setIsAnswered(false);
+                                              setCurrentQuizId(existingQuiz.id);
+                                            } else {
+                                              setQuizState('active');
+                                            }
+                                            setActiveTab('tools');
+                                            setToolsSubTab('quiz');
+                                          }}
+                                          className="w-full sm:w-auto px-4 py-2.5 bg-gradient-to-r from-[#DC2626] to-rose-600 hover:opacity-90 text-white text-[11px] font-black uppercase tracking-wider rounded-xl shadow-lg shadow-red-600/30 transition-all text-center flex items-center justify-center gap-2 shrink-0 cursor-pointer border border-white/20"
+                                        >
+                                          <Play size={12} className="fill-white" /> Open Quiz
+                                        </button>
+                                      </div>
+                                    )}
+
                                     {/* Action item card for self-set quiz inside the AI bubble */}
-                                    {hasQuizMatch && (
+                                    {quizGenMatch && !quizReadyMatch && (
                                       <div className="mt-3.5 p-4 bg-[#DC2626]/10 border border-[#DC2626]/20 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4 text-left">
                                         <div className="flex items-center gap-3 w-full sm:w-auto">
                                           <div className="w-10 h-10 rounded-xl bg-[#DC2626]/20 flex items-center justify-center text-[#DC2626] shrink-0">
@@ -11360,17 +11489,17 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                                           </div>
                                           <div>
                                             <p className="text-[8px] font-black uppercase text-[#DC2626]/80 tracking-widest leading-none mb-1">Omni Self-Set Quiz Available</p>
-                                            <p className="text-xs font-black text-white uppercase tracking-tight line-clamp-1">{hasQuizMatch[1]?.trim()}</p>
-                                            <p className="text-[10px] text-white/50">{hasQuizMatch[2]} custom active questions set by Omni</p>
+                                            <p className="text-xs font-black text-white uppercase tracking-tight line-clamp-1">{quizGenMatch[1]?.trim()}</p>
+                                            <p className="text-[10px] text-white/50">{quizGenMatch[2]} custom active questions set by Omni</p>
                                           </div>
                                         </div>
                                         <button 
                                           onClick={() => {
-                                            const quizTopicText = hasQuizMatch[1]?.trim() || "Omni Active Quiz";
-                                            const quizCountNum = parseInt(hasQuizMatch[2], 10) || 5;
+                                            const quizTopicText = quizGenMatch[1]?.trim() || "Omni Active Quiz";
+                                            const quizCountNum = parseInt(quizGenMatch[2], 10) || 5;
                                             setActiveTab('tools');
                                             setToolsSubTab('quiz');
-                                            generateQuiz(quizTopicText, quizCountNum, 'Medium'); 
+                                            generateQuiz(quizTopicText, quizCountNum, 'Medium', true); 
                                           }}
                                           className="w-full sm:w-auto px-4 py-2 bg-[#DC2626] hover:bg-red-500 text-white text-[10px] font-bold uppercase tracking-wider rounded-lg shadow transition-all text-center flex items-center justify-center gap-2 shrink-0 cursor-pointer"
                                         >

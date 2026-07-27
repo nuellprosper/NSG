@@ -12,7 +12,7 @@ import {
   ChevronUp, ChevronDown, Bold, ThumbsUp, Volume2, VolumeX, Square, Send, Pin, CreditCard as Clock,
   ArrowLeft, RefreshCcw, Camera, Award, ShieldCheck, BookOpen, FileText, Zap, Info, AlertTriangle, Loader2,
   Share2, Trophy, Search, Check, X, ArrowLeft as ChevronLeft, GraduationCap, Users, User, Clock as ClockIcon,
-  Activity, Video, Copy, PlusCircle, Plus, Italic, List, XCircle, CheckCircle2,
+  Activity, Video, Copy, PlusCircle, Plus, Italic, List, XCircle, CheckCircle2, MessageSquare,
   Undo2, Redo2, Save, CornerDownRight, Menu, ExternalLink, Percent, Bookmark, AlertCircle, Book, HelpCircle, Calculator
 } from 'lucide-react';
 
@@ -219,6 +219,7 @@ export const ToolsPage = (props: any) => {
   const [configQuizCount, setConfigQuizCount] = React.useState(10);
   const [configQuizDifficulty, setConfigQuizDifficulty] = React.useState<"Easy" | "Medium" | "Hard" | "Professional">('Medium');
   const [isScrolledUp, setIsScrolledUp] = React.useState(false);
+  const [showOmniQuizModal, setShowOmniQuizModal] = React.useState(false);
   const {
     theme,
     user,
@@ -244,8 +245,13 @@ export const ToolsPage = (props: any) => {
     getAiInstance,
     getHfInstance,
     fileToGenerativePart,
-    setChatHistory,
+    chatSessions = [],
+    setChatSessions,
+    activeChatSessionId,
     setActiveChatSessionId,
+    handleSendMessage,
+    chatHistory = [],
+    setChatHistory,
 
     // Core states & handlers
     sessions,
@@ -402,6 +408,100 @@ export const ToolsPage = (props: any) => {
     setAudioTranscribingPopup
   } = props;
 
+  const handleLaunchOmniQuizDiscussion = (targetSessionId: 'new' | string) => {
+    const percentage = Math.round((quizScore / ((quizQuestions && quizQuestions.length) || 1)) * 100);
+    
+    let docsContext = '';
+    if (quizDocuments && quizDocuments.length > 0) {
+      docsContext = `\nAttached Documents: ${quizDocuments.map((d: any) => d.name).join(', ')}`;
+    }
+    let imagesContext = '';
+    if (quizImages && quizImages.length > 0) {
+      imagesContext = `\nAttached Photos: ${quizImages.length} study image(s) uploaded.`;
+    }
+
+    const breakdown = (quizQuestions || []).map((q: any, idx: number) => {
+      const userAns = userQuizAnswers[idx];
+      const userChoiceText = userAns !== undefined && q.options && q.options[userAns] ? `${String.fromCharCode(65 + userAns)}) ${q.options[userAns]}` : 'Not Answered / Skipped';
+      const correctChoiceText = q.options && q.options[q.correctAnswer] ? `${String.fromCharCode(65 + q.correctAnswer)}) ${q.options[q.correctAnswer]}` : 'N/A';
+      const isCorrect = userAns === q.correctAnswer;
+      
+      return `Question ${idx + 1}: ${q.question}
+Options: ${(q.options || []).map((opt: string, oIdx: number) => `${String.fromCharCode(65 + oIdx)}) ${opt}`).join(' | ')}
+Student Selected: ${userChoiceText}
+Correct Answer: ${correctChoiceText}
+Status: ${isCorrect ? 'CORRECT ✅' : 'INCORRECT ❌'}
+Explanation: ${q.explanation || 'N/A'}`;
+    }).join('\n\n');
+
+    const contextPrompt = `📚 QUIZ PERFORMANCE & DETAILED REVIEW REQUEST
+Topic: "${quizTopic || 'Study Material'}"
+Score: ${quizScore} / ${(quizQuestions && quizQuestions.length) || 0} (${percentage}% Grade)${docsContext}${imagesContext}
+
+DETAILED QUESTION & ANSWER BREAKDOWN:
+${breakdown}
+
+Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}". Please review my score and performance breakdown above. Point out my mistakes, explain why my wrong choices were incorrect and why the right options were correct, teach me the core concepts I missed, and provide a friendly study coaching summary!`;
+
+    let chosenSessionId = targetSessionId;
+    const timestampStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    if (targetSessionId === 'new') {
+      chosenSessionId = `chat-${Date.now()}`;
+      const newSessionTitle = `Quiz Review: ${(quizTopic || 'Study').slice(0, 30)}`;
+      const initialUserMsg = {
+        role: 'user' as const,
+        text: contextPrompt,
+        timestamp: timestampStr
+      };
+
+      const newSession = {
+        id: chosenSessionId,
+        title: newSessionTitle,
+        history: [initialUserMsg],
+        timestamp: new Date().toLocaleString(),
+        uid: user?.uid || 'guest'
+      };
+
+      if (setChatSessions) {
+        setChatSessions((prev: any[]) => [newSession, ...(prev || [])]);
+      }
+      if (setActiveChatSessionId) {
+        setActiveChatSessionId(chosenSessionId);
+      }
+      if (setChatHistory) {
+        setChatHistory([initialUserMsg]);
+      }
+    } else {
+      const targetSession = (chatSessions || []).find((s: any) => s.id === targetSessionId);
+      const existingHist = targetSession ? targetSession.history : (chatHistory || []);
+      const newUserMsg = {
+        role: 'user' as const,
+        text: contextPrompt,
+        timestamp: timestampStr
+      };
+      const updatedHist = [...existingHist, newUserMsg].slice(-100);
+
+      if (setActiveChatSessionId) {
+        setActiveChatSessionId(targetSessionId);
+      }
+      if (setChatHistory) {
+        setChatHistory(updatedHist);
+      }
+    }
+
+    setShowOmniQuizModal(false);
+    if (setActiveTab) {
+      setActiveTab('chat');
+    }
+
+    if (handleSendMessage) {
+      setTimeout(() => {
+        handleSendMessage(contextPrompt);
+      }, 150);
+    }
+  };
+
   const getAudioSrc = useCallback((session: any) => {
     if (!session) return "";
     if (session.audioUrl) return session.audioUrl;
@@ -557,19 +657,16 @@ export const ToolsPage = (props: any) => {
   }, [toolsSubTab]);
 
   const handleToolsBack = useCallback(() => {
-    setNavigationHistory(prev => {
-      if (prev.length > 1) {
-        const newHistory = [...prev];
-        newHistory.pop(); // Remove current subtab
-        const previous = newHistory[newHistory.length - 1] || 'menu';
-        setToolsSubTab(previous as any);
-        return newHistory;
-      } else {
-        setToolsSubTab('menu');
-        return ['menu'];
-      }
-    });
-  }, [setToolsSubTab]);
+    if (navigationHistory.length > 1) {
+      const newStack = navigationHistory.slice(0, -1);
+      const previous = newStack[newStack.length - 1] || 'menu';
+      setNavigationHistory(newStack);
+      setToolsSubTab(previous as any);
+    } else {
+      setNavigationHistory(['menu']);
+      setToolsSubTab('menu');
+    }
+  }, [navigationHistory, setToolsSubTab]);
 
   const handleToolClick = useCallback((tool: any) => {
     if (tool.id === 'whatsapp') {
@@ -866,7 +963,7 @@ export const ToolsPage = (props: any) => {
       )}
 
       {toolsSubTab === 'notebook' && (
-        <motion.div key="notebook" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
+        <motion.div key="notebook" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={selectedNote ? "w-full flex-1 flex flex-col min-h-[calc(100vh-65px)] bg-[#0B0E17]" : "space-y-6 px-4 py-4"}>
           {!selectedNote && (
             <div className="flex items-center justify-between px-2 sticky top-0 z-40 bg-transparent py-2">
               <button onClick={() => { setSelectedNote(null); handleToolsBack(); }} className="text-white/40 hover:text-[#DC2626] transition-all flex items-center gap-1.5 text-xs font-black uppercase cursor-pointer">
@@ -891,9 +988,9 @@ export const ToolsPage = (props: any) => {
 
           {selectedNote ? (
             isPodcastActive ? (
-              // FULL SCREEN PODCAST PAGE
-              <div className="w-full max-w-4xl mx-auto flex flex-col bg-[#050811] border border-white/10 rounded-3xl overflow-hidden shadow-2xl h-[82vh] min-h-0">
-                <div className="p-4 border-b border-white/10 flex items-center justify-between shrink-0 bg-white/2">
+              // FULL SCREEN PODCAST PAGE SEAMLESSLY INTEGRATED
+              <div className="w-full flex-1 flex flex-col bg-[#070A12] min-h-[calc(100vh-65px)]">
+                <div className="p-4 border-b border-white/10 flex items-center justify-between shrink-0 bg-[#0B0F1D]/80 backdrop-blur-md">
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 bg-green-500/10 rounded-xl flex items-center justify-center animate-pulse">
                       <Volume2 className="text-green-400" size={16} />
@@ -927,13 +1024,13 @@ export const ToolsPage = (props: any) => {
                         )}
                       </div>
                     )}
-                    <button onClick={() => setIsPodcastActive(false)} className="text-white/40 hover:text-white shrink-0">
+                    <button onClick={() => setIsPodcastActive(false)} className="text-white/40 hover:text-white shrink-0 cursor-pointer">
                       <X size={16} />
                     </button>
                   </div>
                 </div>
                 
-                <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar bg-[#08070F]">
+                <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 custom-scrollbar bg-[#08070F]">
                   {podcastDialogue.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center text-center p-8 space-y-6">
                       <div className="flex items-center justify-center gap-4 relative">
@@ -953,7 +1050,7 @@ export const ToolsPage = (props: any) => {
                       <button 
                         onClick={() => generatePodcastDiscussion(selectedNote.content)}
                         disabled={isGeneratingPodcast}
-                        className="px-8 py-4 bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black rounded-2xl text-[10px] uppercase tracking-widest hover:scale-110 active:scale-95 transition-all disabled:opacity-50 shadow-xl shadow-[#DC2626]/20"
+                        className="px-8 py-4 bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black rounded-2xl text-[10px] uppercase tracking-widest hover:scale-110 active:scale-95 transition-all disabled:opacity-50 shadow-xl shadow-[#DC2626]/20 cursor-pointer"
                       >
                         {isGeneratingPodcast ? 'Analyzing...' : 'Create Podcast'}
                       </button>
@@ -976,7 +1073,7 @@ export const ToolsPage = (props: any) => {
                                   const inp = document.getElementById('tools-podcast-chat-input');
                                   if (inp) inp.focus();
                                 }}
-                                className="opacity-0 group-hover:opacity-100 transition-opacity bg-white/10 hover:bg-white/20 px-2 py-0.5 rounded-lg text-[8px] font-black uppercase tracking-tighter"
+                                className="opacity-0 group-hover:opacity-100 transition-opacity bg-white/10 hover:bg-white/20 px-2 py-0.5 rounded-lg text-[8px] font-black uppercase tracking-tighter cursor-pointer"
                               >
                                 Tag & Reply
                               </button>
@@ -1015,7 +1112,7 @@ export const ToolsPage = (props: any) => {
                           <p className="text-[10px] text-white/60 truncate line-clamp-1">{replyingTo.text}</p>
                         </div>
                       </div>
-                      <button onClick={() => setReplyingTo(null)} className="p-2 text-white/20 hover:text-white shrink-0">
+                      <button onClick={() => setReplyingTo(null)} className="p-2 text-white/20 hover:text-white shrink-0 cursor-pointer">
                         <X size={14} />
                       </button>
                     </div>
@@ -1093,7 +1190,7 @@ export const ToolsPage = (props: any) => {
                             input.style.height = '42px';
                           }
                         }}
-                        className="p-1.5 bg-[#DC2626] text-white rounded-lg shadow-lg hover:scale-110 active:scale-95 transition-all"
+                        className="p-1.5 bg-[#DC2626] text-white rounded-lg shadow-lg hover:scale-110 active:scale-95 transition-all cursor-pointer"
                       >
                         <Send size={14} />
                       </button>
@@ -1102,444 +1199,328 @@ export const ToolsPage = (props: any) => {
                 </div>
               </div>
             ) : (
-              // ORIGINAL GRID VIEW FOR NOTE & TEACHER MODE
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {isTeacherMode && (
-                  <div className="lg:col-span-1 space-y-6">
-                    <div className="p-6 bg-[#0E0B16] border border-white/10 rounded-3xl space-y-6 relative overflow-hidden shadow-2xl">
-                      <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-purple-500/10 to-transparent rounded-full translate-x-12 -translate-y-12" />
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-purple-500/10 rounded-2xl flex items-center justify-center animate-pulse"><Award className="text-purple-400" size={20} /></div>
-                        <div>
-                          <h4 className="text-xs font-black text-white uppercase tracking-wider">Interactive Lecture</h4>
-                          <p className="text-[8px] text-purple-400 font-bold uppercase tracking-widest font-mono">Teacher Active</p>
-                        </div>
-                      </div>
-                      <div className="space-y-4 max-h-[300px] overflow-y-auto custom-scrollbar p-1">
-                        {podcastDialogue.length === 0 ? (
-                          <div className="text-center py-10 opacity-20 space-y-2">
-                            <RefreshCcw size={24} className="animate-spin mx-auto text-purple-500" />
-                            <p className="text-[8px] font-black uppercase text-white tracking-widest">Constructing Classroom Guide...</p>
-                          </div>
-                        ) : (
-                          podcastDialogue.map((line: any, idx: number) => (
+              // INTEGRATED SEAMLESS ACTIVE NOTE WORKSPACE
+              <div className="flex-1 flex flex-col w-full h-full min-h-[calc(100vh-65px)] bg-[#0B0E17]">
+                {/* STATIONARY TOP HEADER BAR (Integrated with Main Shell) */}
+                <div className="sticky top-0 z-40 bg-[#0F1424]/90 backdrop-blur-md border-b border-white/10 px-4 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-3 shrink-0 shadow-md">
+                  <div className="flex items-center gap-3 flex-1 min-w-[200px]">
+                    <button 
+                      onClick={() => {
+                        setSelectedNote(null);
+                      }} 
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 text-white/70 hover:text-white font-bold text-xs rounded-xl cursor-pointer transition-all border border-white/10"
+                    >
+                      <ArrowLeft size={16} />
+                      <span>Back</span>
+                    </button>
+
+                    <input 
+                      value={selectedNote.title || ''} 
+                      onChange={(e) => setSelectedNote({...selectedNote, title: e.target.value})}
+                      readOnly={selectedNote?.sharedAccessType === 'readonly'}
+                      className="bg-transparent border-none text-base sm:text-lg font-black text-white outline-none flex-1 placeholder:text-white/20 px-2 truncate focus:ring-1 focus:ring-white/20 rounded-lg transition-all"
+                      placeholder="Note Title..."
+                    />
+                  </div>
+
+                  {/* ACTION BUTTONS GROUP */}
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    {/* Create Podcast button */}
+                    <button 
+                      onClick={() => {
+                        setIsPodcastActive(true);
+                        setIsTeacherMode(false);
+                        if (podcastDialogue.length === 0 && selectedNote?.content) {
+                          generatePodcastDiscussion(selectedNote.content);
+                        }
+                      }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setIsPodcastActive(true);
+                        setIsTeacherMode(false);
+                        if (podcastDialogue.length === 0 && selectedNote?.content) {
+                          generatePodcastDiscussion(selectedNote.content);
+                        }
+                      }}
+                      className="px-3.5 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-90 text-white font-bold text-xs rounded-xl transition-all shadow-md flex items-center gap-1.5 shrink-0 cursor-pointer"
+                      title="Create Podcast by Omni & Zeal"
+                    >
+                      <Mic size={14} />
+                      <span>Create Podcast</span>
+                    </button>
+
+                    {/* + Attachment button */}
+                    <div className="relative">
+                      <button 
+                        onClick={() => setShowNoteInsertMenu(!showNoteInsertMenu)} 
+                        className="p-2 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white rounded-xl transition-all border border-white/10 flex items-center justify-center cursor-pointer" 
+                        title="Insert Attachment"
+                      >
+                        <Plus size={16} />
+                      </button>
+
+                      <AnimatePresence>
+                        {showNoteInsertMenu && (
+                          <>
+                            <div className="fixed inset-0 z-40" onClick={() => setShowNoteInsertMenu(false)} />
                             <motion.div 
-                              key={idx}
                               initial={{ opacity: 0, y: 10 }}
                               animate={{ opacity: 1, y: 0 }}
-                              className={`p-3 rounded-2xl border ${line.speaker === 'Teacher' ? 'bg-purple-500/5 border-purple-500/10 text-purple-200' : 'bg-white/5 border-white/5 text-white/80'}`}
+                              exit={{ opacity: 0, y: 10 }}
+                              className="absolute right-0 mt-2 w-44 bg-[#181525] border border-white/10 rounded-2xl p-2 shadow-2xl z-50 flex flex-col gap-1"
                             >
-                              <p className="text-[9px] font-black uppercase tracking-wider mb-1 text-white/40">{line.speaker}</p>
-                              <p className="text-xs leading-relaxed">{line.text}</p>
+                              <label className="flex items-center gap-2.5 p-2 bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer">
+                                <ImageIcon size={14} className="text-blue-400" />
+                                <span className="text-[10px] font-bold text-white uppercase">Image</span>
+                                <input type="file" className="hidden" accept="image/*" onChange={(e) => { uploadNoteFile(e, 'image'); setShowNoteInsertMenu(false); }} />
+                              </label>
+                              <label className="flex items-center gap-2.5 p-2 bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer">
+                                <Mic size={14} className="text-green-400" />
+                                <span className="text-[10px] font-bold text-white uppercase">Audio</span>
+                                <input type="file" className="hidden" accept="audio/*" onChange={(e) => { uploadNoteFile(e, 'audio'); setShowNoteInsertMenu(false); }} />
+                              </label>
+                              <label className="flex items-center gap-2.5 p-2 bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer">
+                                <FileText size={14} className="text-yellow-400" />
+                                <span className="text-[10px] font-bold text-white uppercase">Document</span>
+                                <input type="file" className="hidden" accept=".pdf,.doc,.docx,.txt" onChange={(e) => { uploadNoteFile(e, 'doc'); setShowNoteInsertMenu(false); }} />
+                              </label>
                             </motion.div>
-                          ))
+                          </>
                         )}
+                      </AnimatePresence>
+                    </div>
+
+                    {/* Audio transcribe button */}
+                    <label className="p-2 bg-white/5 hover:bg-white/10 text-red-500 hover:text-red-400 rounded-xl transition-all border border-white/10 flex items-center justify-center cursor-pointer" title="Upload Audio for Transcription">
+                      <Mic size={16} />
+                      <input type="file" accept="audio/*" className="hidden" onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          if (props.handleUploadAudioRecordPage) {
+                            props.handleUploadAudioRecordPage(file);
+                          } else if (uploadNoteFile) {
+                            uploadNoteFile(e, 'audio');
+                          }
+                        }
+                      }} />
+                    </label>
+
+                    {/* Set Quiz button */}
+                    <div className="relative flex flex-col items-end">
+                      <button 
+                        onClick={() => {
+                          setShowQuizConfigPopup(true);
+                        }} 
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setShowSetQuizHelp(!showSetQuizHelp);
+                        }}
+                        className="px-3.5 py-1.5 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white font-bold text-xs rounded-xl transition-all border border-white/10 cursor-pointer"
+                        title="Set Quiz (Right-click/Long press for info)"
+                      >
+                        Set Quiz
+                      </button>
+                      {showSetQuizHelp && (
+                        <span className="absolute top-full right-0 mt-1 text-[9px] text-white/70 italic bg-[#181525] border border-white/10 px-2.5 py-1 rounded-xl shadow-xl z-50 whitespace-nowrap">
+                          tap this button to set quiz on the content of this note
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Save button */}
+                    <button 
+                      onClick={() => {
+                        if (saveNote) saveNote(selectedNote.content || '', selectedNote.title || 'Untitled Note', selectedNote.id);
+                        if (setUserNotification) setUserNotification("Note saved successfully!");
+                      }} 
+                      className="p-2 bg-white/5 hover:bg-white/10 text-emerald-400 hover:text-emerald-300 rounded-xl transition-all border border-white/10 flex items-center justify-center cursor-pointer" 
+                      title="Save Note"
+                    >
+                      <Save size={16} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* MODE TOGGLE & FORMATTING SUB-HEADER */}
+                <div className="px-4 sm:px-6 py-2 border-b border-white/5 bg-[#0A0D18]/80 flex items-center justify-between gap-2 shrink-0">
+                  <div className="flex gap-1 bg-white/5 p-1 rounded-xl">
+                    <button 
+                      onClick={() => {
+                        setActiveNotebookTab('write');
+                        if (setNotePreviewMode) setNotePreviewMode(false);
+                      }} 
+                      className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase transition-all cursor-pointer ${!notePreviewMode ? 'bg-[#DC2626] text-white shadow' : 'text-white/50 hover:text-white'}`}
+                    >
+                      Write Mode
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setActiveNotebookTab('sources');
+                        if (setNotePreviewMode) setNotePreviewMode(true);
+                      }} 
+                      className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase transition-all cursor-pointer ${notePreviewMode ? 'bg-[#DC2626] text-white shadow' : 'text-white/50 hover:text-white'}`}
+                    >
+                      Read Mode
+                    </button>
+                  </div>
+
+                  {!notePreviewMode && (
+                    <div className="flex items-center gap-1">
+                      <button onMouseDown={(e) => { e.preventDefault(); if (undoNote) undoNote(); }} disabled={!noteHistory || noteHistory.length === 0} className="p-1.5 bg-white/5 hover:bg-white/10 disabled:opacity-30 rounded-lg text-white/60 hover:text-white transition-all cursor-pointer" title="Undo"><Undo2 size={14} /></button>
+                      <button onMouseDown={(e) => { e.preventDefault(); if (redoNote) redoNote(); }} disabled={!redoStack || redoStack.length === 0} className="p-1.5 bg-white/5 hover:bg-white/10 disabled:opacity-30 rounded-lg text-white/60 hover:text-white transition-all cursor-pointer" title="Redo"><Redo2 size={14} /></button>
+                      <button onMouseDown={(e) => { e.preventDefault(); insertText('**', '**'); }} className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-all cursor-pointer" title="Bold"><Bold size={14} /></button>
+                      <button onMouseDown={(e) => { e.preventDefault(); insertText('*', '*'); }} className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-all cursor-pointer" title="Italic"><Italic size={14} /></button>
+                      <button onMouseDown={(e) => { e.preventDefault(); insertText('\n- '); }} className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-all cursor-pointer" title="List"><List size={14} /></button>
+                    </div>
+                  )}
+                </div>
+
+                {/* TEACHER MODE PANEL (IF ACTIVE) */}
+                {isTeacherMode && (
+                  <div className="px-4 py-3 bg-[#0E0B16] border-b border-white/10">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="w-8 h-8 bg-purple-500/10 rounded-xl flex items-center justify-center animate-pulse"><Award className="text-purple-400" size={16} /></div>
+                      <div>
+                        <h4 className="text-xs font-black text-white uppercase tracking-wider">Interactive Lecture</h4>
+                        <p className="text-[8px] text-purple-400 font-bold uppercase tracking-widest font-mono">Teacher Active</p>
                       </div>
+                    </div>
+                    <div className="space-y-2 max-h-[160px] overflow-y-auto custom-scrollbar p-1">
+                      {podcastDialogue.length === 0 ? (
+                        <div className="text-center py-4 opacity-30 space-y-1">
+                          <RefreshCcw size={18} className="animate-spin mx-auto text-purple-500" />
+                          <p className="text-[8px] font-black uppercase text-white tracking-widest">Constructing Classroom Guide...</p>
+                        </div>
+                      ) : (
+                        podcastDialogue.map((line: any, idx: number) => (
+                          <motion.div 
+                            key={idx}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className={`p-2.5 rounded-xl border ${line.speaker === 'Teacher' ? 'bg-purple-500/5 border-purple-500/10 text-purple-200' : 'bg-white/5 border-white/5 text-white/80'}`}
+                          >
+                            <p className="text-[8px] font-black uppercase tracking-wider mb-0.5 text-white/40">{line.speaker}</p>
+                            <p className="text-xs leading-relaxed">{line.text}</p>
+                          </motion.div>
+                        ))
+                      )}
                     </div>
                   </div>
                 )}
 
-                <div className={isTeacherMode ? 'lg:col-span-2' : 'col-span-full flex flex-col h-[84vh] gap-3'}>
-                  {/* STATIONARY HEADING AND TOOLBAR BAR (Merged with App Shell) */}
-                  <div className="px-2 py-1 flex flex-col gap-3 shrink-0 z-30">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex items-center gap-3 flex-1 min-w-[200px]">
-                        <button 
-                          onClick={() => {
-                            setSelectedNote(null);
-                          }} 
-                          className="flex items-center gap-1.5 text-white/60 hover:text-white font-bold text-xs shrink-0 cursor-pointer transition-colors"
-                        >
-                          <ArrowLeft size={16} />
-                          <span>Back</span>
-                        </button>
-
-                        <input 
-                          value={selectedNote.title || ''} 
-                          onChange={(e) => setSelectedNote({...selectedNote, title: e.target.value})}
-                          readOnly={selectedNote?.sharedAccessType === 'readonly'}
-                          className="bg-transparent border-none text-lg font-black text-white outline-none flex-1 placeholder:text-white/20 px-2 truncate"
-                          placeholder="Note Title..."
-                        />
+                {/* INDEPENDENT NOTE WRITING CANVAS */}
+                <div className="flex-1 flex flex-col relative min-h-0 bg-[#0C0F1A]">
+                  <div 
+                    ref={scrollContainerRef}
+                    onScroll={(e) => {
+                      if (handleNoteScroll) handleNoteScroll(e);
+                      const el = e.currentTarget;
+                      const isUp = el.scrollTop < el.scrollHeight - el.clientHeight - 80;
+                      setIsScrolledUp(isUp);
+                    }}
+                    className="flex-1 overflow-y-auto px-4 sm:px-12 md:px-20 lg:px-28 py-8 custom-scrollbar relative"
+                    style={{
+                      backgroundImage: 'linear-gradient(to bottom, transparent 27px, rgba(255, 255, 255, 0.03) 27px)',
+                      backgroundSize: '100% 28px',
+                      lineHeight: '28px',
+                    }}
+                  >
+                    {(selectedNote.isTranscribing || (props.isAudioTranscribing && selectedNote.id === props.activeAudioNoteId)) && (
+                      <div className="mb-6 flex items-center gap-2.5 px-4 py-2.5 bg-[#DC2626]/15 border border-[#DC2626]/30 rounded-xl w-fit">
+                        <span className="relative flex h-2.5 w-2.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#DC2626]"></span>
+                        </span>
+                        <span className="text-[10px] font-black text-[#DC2626] uppercase tracking-wider flex items-center gap-1.5">
+                          <RefreshCcw size={12} className="animate-spin" /> IN PROGRESS: Actively transcribing & writing study note...
+                        </span>
                       </div>
-
-                      {/* ACTION BUTTONS GROUP (Shifted inward with pr-4) */}
-                      <div className="flex flex-wrap items-center gap-2 shrink-0 pr-4">
-                        {/* Create Podcast button */}
-                        <button 
-                          onClick={() => {
-                            setIsPodcastActive(true);
-                            setIsTeacherMode(false);
-                            if (podcastDialogue.length === 0 && selectedNote?.content) {
-                              generatePodcastDiscussion(selectedNote.content);
-                            }
-                          }}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            setIsPodcastActive(true);
-                            setIsTeacherMode(false);
-                            if (podcastDialogue.length === 0 && selectedNote?.content) {
-                              generatePodcastDiscussion(selectedNote.content);
-                            }
-                          }}
-                          className="px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-90 text-white font-bold text-xs rounded-xl transition-all shadow-md flex items-center gap-1.5 shrink-0 cursor-pointer"
-                          title="Create Podcast by Omni & Zeal"
-                        >
-                          <Mic size={14} />
-                          <span>Create Podcast</span>
-                        </button>
-
-                        {/* + button */}
-                        <div className="relative">
-                          <button 
-                            onClick={() => setShowNoteInsertMenu(!showNoteInsertMenu)} 
-                            className="p-2 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white rounded-xl transition-all border border-white/10 flex items-center justify-center cursor-pointer" 
-                            title="Insert Attachment"
-                          >
-                            <Plus size={16} />
-                          </button>
-
-                          <AnimatePresence>
-                            {showNoteInsertMenu && (
-                              <>
-                                <div className="fixed inset-0 z-40" onClick={() => setShowNoteInsertMenu(false)} />
-                                <motion.div 
-                                  initial={{ opacity: 0, y: 10 }}
-                                  animate={{ opacity: 1, y: 0 }}
-                                  exit={{ opacity: 0, y: 10 }}
-                                  className="absolute right-0 mt-2 w-44 bg-[#181525] border border-white/10 rounded-2xl p-2 shadow-2xl z-50 flex flex-col gap-1"
-                                >
-                                  <label className="flex items-center gap-2.5 p-2 bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer">
-                                    <ImageIcon size={14} className="text-blue-400" />
-                                    <span className="text-[10px] font-bold text-white uppercase">Image</span>
-                                    <input type="file" className="hidden" accept="image/*" onChange={(e) => { uploadNoteFile(e, 'image'); setShowNoteInsertMenu(false); }} />
-                                  </label>
-                                  <label className="flex items-center gap-2.5 p-2 bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer">
-                                    <Mic size={14} className="text-green-400" />
-                                    <span className="text-[10px] font-bold text-white uppercase">Audio</span>
-                                    <input type="file" className="hidden" accept="audio/*" onChange={(e) => { uploadNoteFile(e, 'audio'); setShowNoteInsertMenu(false); }} />
-                                  </label>
-                                  <label className="flex items-center gap-2.5 p-2 bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer">
-                                    <FileText size={14} className="text-yellow-400" />
-                                    <span className="text-[10px] font-bold text-white uppercase">Document</span>
-                                    <input type="file" className="hidden" accept=".pdf,.doc,.docx,.txt" onChange={(e) => { uploadNoteFile(e, 'doc'); setShowNoteInsertMenu(false); }} />
-                                  </label>
-                                </motion.div>
-                              </>
-                            )}
-                          </AnimatePresence>
-                        </div>
-
-                        {/* record symbol button */}
-                        <label className="p-2 bg-white/5 hover:bg-white/10 text-red-500 hover:text-red-400 rounded-xl transition-all border border-white/10 flex items-center justify-center cursor-pointer" title="Upload Audio for Transcription">
-                          <Mic size={16} />
-                          <input type="file" accept="audio/*" className="hidden" onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              if (props.handleUploadAudioRecordPage) {
-                                props.handleUploadAudioRecordPage(file);
-                              } else if (uploadNoteFile) {
-                                uploadNoteFile(e, 'audio');
-                              }
-                            }
-                          }} />
-                        </label>
-
-                        {/* Set Quiz button */}
-                        <div className="relative flex flex-col items-end">
-                          <button 
-                            onClick={() => {
-                              setShowQuizConfigPopup(true);
-                            }} 
-                            onContextMenu={(e) => {
-                              e.preventDefault();
-                              setShowSetQuizHelp(!showSetQuizHelp);
-                            }}
-                            className="px-3.5 py-1.5 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white font-bold text-xs rounded-xl transition-all border border-white/10 cursor-pointer"
-                            title="Set Quiz (Right-click/Long press for info)"
-                          >
-                            Set Quiz
-                          </button>
-                          {showSetQuizHelp && (
-                            <span className="absolute top-full right-0 mt-1 text-[9px] text-white/70 italic bg-[#181525] border border-white/10 px-2.5 py-1 rounded-xl shadow-xl z-50 whitespace-nowrap">
-                              tap this button to set quiz on the content of this note
-                            </span>
-                          )}
-                        </div>
-
-                        {/* save as symbol button */}
-                        <button 
-                          onClick={() => {
-                            if (saveNote) saveNote(selectedNote.content || '', selectedNote.title || 'Untitled Note', selectedNote.id);
-                            if (setUserNotification) setUserNotification("Note saved successfully!");
-                          }} 
-                          className="p-2 bg-white/5 hover:bg-white/10 text-emerald-400 hover:text-emerald-300 rounded-xl transition-all border border-white/10 flex items-center justify-center cursor-pointer" 
-                          title="Save Note"
-                        >
-                          <Save size={16} />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Mode Toggle & Formatting Bar */}
-                    <div className="flex items-center justify-between pt-1">
-                      <div className="flex gap-1 bg-white/5 p-1 rounded-xl">
-                        <button 
-                          onClick={() => {
-                            setActiveNotebookTab('write');
-                            if (setNotePreviewMode) setNotePreviewMode(false);
-                          }} 
-                          className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase transition-all ${!notePreviewMode ? 'bg-[#DC2626] text-white shadow' : 'text-white/50 hover:text-white'}`}
-                        >
-                          Write Mode
-                        </button>
-                        <button 
-                          onClick={() => {
-                            setActiveNotebookTab('sources');
-                            if (setNotePreviewMode) setNotePreviewMode(true);
-                          }} 
-                          className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase transition-all ${notePreviewMode ? 'bg-[#DC2626] text-white shadow' : 'text-white/50 hover:text-white'}`}
-                        >
-                          Read Mode
-                        </button>
-                      </div>
-
-                      {!notePreviewMode && (
-                        <div className="flex items-center gap-1">
-                          <button onMouseDown={(e) => { e.preventDefault(); if (undoNote) undoNote(); }} disabled={!noteHistory || noteHistory.length === 0} className="p-1.5 bg-white/5 hover:bg-white/10 disabled:opacity-30 rounded-lg text-white/60 hover:text-white transition-all" title="Undo"><Undo2 size={14} /></button>
-                          <button onMouseDown={(e) => { e.preventDefault(); if (redoNote) redoNote(); }} disabled={!redoStack || redoStack.length === 0} className="p-1.5 bg-white/5 hover:bg-white/10 disabled:opacity-30 rounded-lg text-white/60 hover:text-white transition-all" title="Redo"><Redo2 size={14} /></button>
-                          <button onMouseDown={(e) => { e.preventDefault(); insertText('**', '**'); }} className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-all" title="Bold"><Bold size={14} /></button>
-                          <button onMouseDown={(e) => { e.preventDefault(); insertText('*', '*'); }} className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-all" title="Italic"><Italic size={14} /></button>
-                          <button onMouseDown={(e) => { e.preventDefault(); insertText('\n- '); }} className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-all" title="List"><List size={14} /></button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* INDEPENDENT NOTE WRITING CONTAINER (The ONLY independent container) */}
-                  <div className="flex-1 bg-[#13111C] border border-white/10 rounded-3xl overflow-hidden relative shadow-2xl flex flex-col">
-                    <div 
-                      ref={scrollContainerRef}
-                      onScroll={(e) => {
-                        if (handleNoteScroll) handleNoteScroll(e);
-                        const el = e.currentTarget;
-                        const isUp = el.scrollTop < el.scrollHeight - el.clientHeight - 80;
-                        setIsScrolledUp(isUp);
-                      }}
-                      className="flex-1 overflow-y-auto p-6 sm:p-8 custom-scrollbar relative"
-                      style={{
-                        backgroundImage: 'linear-gradient(to bottom, transparent 27px, rgba(255, 255, 255, 0.03) 27px)',
-                        backgroundSize: '100% 28px',
-                        lineHeight: '28px',
-                      }}
-                    >
-                      {(selectedNote.isTranscribing || (props.isAudioTranscribing && selectedNote.id === props.activeAudioNoteId)) && (
-                        <div className="mb-4 flex items-center gap-2.5 px-3 py-2 bg-[#DC2626]/15 border border-[#DC2626]/30 rounded-xl w-fit">
-                          <span className="relative flex h-2.5 w-2.5">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#DC2626]"></span>
-                          </span>
-                          <span className="text-[10px] font-black text-[#DC2626] uppercase tracking-wider flex items-center gap-1.5">
-                            <RefreshCcw size={12} className="animate-spin" /> IN PROGRESS: Actively transcribing & writing study note...
-                          </span>
-                        </div>
-                      )}
-
-                      {notePreviewMode ? (
-                        <div className="space-y-6 relative z-10 select-text">
-                          <div className="markdown-body prose prose-invert max-w-none text-white/85 text-sm leading-relaxed">
-                            <MarkdownRenderer selectable={true} content={selectedNote.content || "_No source content yet._"} />
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex-1 relative z-10 pb-20">
-                          <textarea
-                            id="note-main-textarea"
-                            style={{ 
-                              height: `${Math.max(450, (selectedNote.content || '').split('\n').length * 28 + 100)}px`,
-                              lineHeight: '28px'
-                            }}
-                            value={selectedNote.content || ''}
-                            onChange={(e) => handleNoteContentChange(e.target.value)}
-                            readOnly={selectedNote?.sharedAccessType === 'readonly'}
-                            onFocus={(e) => {
-                              lastFocusedBlock.current = { id: 'main', start: e.target.selectionStart, end: e.target.selectionEnd };
-                            }}
-                            onBlur={(e) => {
-                              lastFocusedBlock.current = { id: 'main', start: e.target.selectionStart, end: e.target.selectionEnd };
-                            }}
-                            className="w-full bg-transparent border-none text-white/90 text-sm leading-[28px] outline-none resize-none font-mono placeholder:text-white/20 p-0 focus:outline-none min-h-[60vh]"
-                            placeholder="Start writing or typing your notes..."
-                          />
-
-                          {selectedNote.attachments && selectedNote.attachments.length > 0 && (
-                            <div className="mt-12 border-t border-white/10 pt-6 space-y-3 relative z-20">
-                              <p className="text-[10px] font-bold tracking-widest text-white/60 uppercase">Attachments ({selectedNote.attachments.length})</p>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                {selectedNote.attachments.map((att: any, attIdx: number) => {
-                                  const isImg = att.type?.startsWith('image/') || att.name?.toLowerCase().endsWith('.png') || att.name?.toLowerCase().endsWith('.jpg') || att.name?.toLowerCase().endsWith('.jpeg');
-                                  return (
-                                    <div key={attIdx} className="bg-white/5 border border-white/10 rounded-2xl p-3 flex items-center justify-between">
-                                      <div className="flex items-center gap-3 overflow-hidden">
-                                        {isImg ? (
-                                          <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0 bg-black/40 border border-white/10">
-                                            <img src={att.url} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                                          </div>
-                                        ) : (
-                                          <div className="w-10 h-10 bg-yellow-500/10 rounded-xl flex items-center justify-center shrink-0">
-                                            <FileText size={18} className="text-yellow-400" />
-                                          </div>
-                                        )}
-                                        <div className="overflow-hidden">
-                                          <p className="text-[10px] font-bold text-white/80 truncate">{att.name || 'attachment'}</p>
-                                        </div>
-                                      </div>
-                                      <a href={att.url} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-white/80">
-                                        <ExternalLink size={12} />
-                                      </a>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Dedicated Scroll Down Floating Button */}
-                    {isScrolledUp && (
-                      <button
-                        onClick={() => {
-                          if (scrollContainerRef.current) {
-                            scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' });
-                          }
-                          setIsScrolledUp(false);
-                        }}
-                        className="absolute bottom-16 right-6 p-3 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-2xl z-30 transition-all flex items-center justify-center animate-bounce cursor-pointer"
-                        title="Scroll to Latest Line"
-                      >
-                        <ChevronDown size={18} />
-                      </button>
                     )}
 
-                    {/* STATIONARY FOOTER (Merged into bottom of independent container) */}
-                    <div className="p-3 border-t border-white/10 bg-[#0E0B16] flex items-center justify-between shrink-0 text-xs text-white/40 font-mono">
-                      <span>notes tool</span>
-                      <span>{selectedNote.content ? selectedNote.content.split(' ').filter(Boolean).length : 0} words</span>
-                    </div>
+                    {notePreviewMode ? (
+                      <div className="space-y-6 relative z-10 select-text pb-20">
+                        <div className="markdown-body prose prose-invert max-w-none text-white/85 text-sm sm:text-base leading-[28px]">
+                          <MarkdownRenderer selectable={true} content={selectedNote.content || "_No source content yet._"} />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex-1 relative z-10 pb-20">
+                        <textarea
+                          id="note-main-textarea"
+                          style={{ 
+                            height: `${Math.max(500, (selectedNote.content || '').split('\n').length * 28 + 120)}px`,
+                            lineHeight: '28px'
+                          }}
+                          value={selectedNote.content || ''}
+                          onChange={(e) => handleNoteContentChange(e.target.value)}
+                          readOnly={selectedNote?.sharedAccessType === 'readonly'}
+                          onFocus={(e) => {
+                            lastFocusedBlock.current = { id: 'main', start: e.target.selectionStart, end: e.target.selectionEnd };
+                          }}
+                          onBlur={(e) => {
+                            lastFocusedBlock.current = { id: 'main', start: e.target.selectionStart, end: e.target.selectionEnd };
+                          }}
+                          className="w-full bg-transparent border-none text-white/90 text-sm sm:text-base leading-[28px] outline-none resize-none font-mono placeholder:text-white/20 p-0 focus:outline-none min-h-[65vh]"
+                          placeholder="Start writing or typing your notes..."
+                        />
+
+                        {selectedNote.attachments && selectedNote.attachments.length > 0 && (
+                          <div className="mt-12 border-t border-white/10 pt-6 space-y-3 relative z-20">
+                            <p className="text-[10px] font-bold tracking-widest text-white/60 uppercase">Attachments ({selectedNote.attachments.length})</p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                              {selectedNote.attachments.map((att: any, attIdx: number) => {
+                                const isImg = att.type?.startsWith('image/') || att.name?.toLowerCase().endsWith('.png') || att.name?.toLowerCase().endsWith('.jpg') || att.name?.toLowerCase().endsWith('.jpeg');
+                                return (
+                                  <div key={attIdx} className="bg-white/5 border border-white/10 rounded-2xl p-3 flex items-center justify-between">
+                                    <div className="flex items-center gap-3 overflow-hidden">
+                                      {isImg ? (
+                                        <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0 bg-black/40 border border-white/10">
+                                          <img src={att.url} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                        </div>
+                                      ) : (
+                                        <div className="w-10 h-10 bg-yellow-500/10 rounded-xl flex items-center justify-center shrink-0">
+                                          <FileText size={18} className="text-yellow-400" />
+                                        </div>
+                                      )}
+                                      <div className="overflow-hidden">
+                                        <p className="text-[10px] font-bold text-white/80 truncate">{att.name || 'attachment'}</p>
+                                      </div>
+                                    </div>
+                                    <a href={att.url} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-white/80">
+                                      <ExternalLink size={12} />
+                                    </a>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Dedicated Scroll Down Floating Button */}
+                  {isScrolledUp && (
+                    <button
+                      onClick={() => {
+                        if (scrollContainerRef.current) {
+                          scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' });
+                        }
+                        setIsScrolledUp(false);
+                      }}
+                      className="absolute bottom-12 right-8 p-3 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-2xl z-30 transition-all flex items-center justify-center animate-bounce cursor-pointer"
+                      title="Scroll to Latest Line"
+                    >
+                      <ChevronDown size={18} />
+                    </button>
+                  )}
+
+                  {/* SEAMLESS FOOTER STATUS BAR */}
+                  <div className="px-4 sm:px-6 py-2.5 border-t border-white/10 bg-[#060810] flex items-center justify-between shrink-0 text-xs text-white/40 font-mono select-none">
+                    <span>Notebook Workspace</span>
+                    <span>{selectedNote.content ? selectedNote.content.split(' ').filter(Boolean).length : 0} words</span>
                   </div>
                 </div>
-
-                {/* Quiz Configuration Modal Popup */}
-                <AnimatePresence>
-                  {showQuizConfigPopup && (
-                    <>
-                      <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" onClick={() => setShowQuizConfigPopup(false)} />
-                      <motion.div 
-                        initial={{ opacity: 0, scale: 0.95, y: 15 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95, y: 15 }}
-                        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 bg-[#181525] border border-white/10 rounded-3xl p-6 shadow-2xl z-50 space-y-5"
-                      >
-                        <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                          <h3 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
-                            <Trophy size={16} className="text-[#DC2626]" /> Configure Note Quiz
-                          </h3>
-                          <button onClick={() => setShowQuizConfigPopup(false)} className="text-white/40 hover:text-white p-1 rounded-lg">
-                            <X size={16} />
-                          </button>
-                        </div>
-
-                        <div className="space-y-4">
-                          <div>
-                            <label className="block text-[10px] font-bold text-white/60 uppercase tracking-wider mb-2">Number of Questions</label>
-                            <div className="grid grid-cols-4 gap-2 mb-2">
-                              {[5, 10, 15, 20].map(cnt => (
-                                <button
-                                  key={cnt}
-                                  onClick={() => setConfigQuizCount(cnt)}
-                                  className={`py-2 rounded-xl text-xs font-bold transition-all border ${configQuizCount === cnt ? 'bg-[#DC2626] text-white border-[#DC2626]' : 'bg-white/5 text-white/70 border-white/10 hover:bg-white/10'}`}
-                                >
-                                  {cnt}
-                                </button>
-                              ))}
-                            </div>
-                            <input
-                              type="number"
-                              min="1"
-                              max="100"
-                              value={configQuizCount}
-                              onChange={(e) => setConfigQuizCount(parseInt(e.target.value) || 10)}
-                              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-white font-mono outline-none focus:border-[#DC2626]"
-                              placeholder="Or type custom number..."
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-[10px] font-bold text-white/60 uppercase tracking-wider mb-2">Difficulty Level</label>
-                            <div className="grid grid-cols-2 gap-2">
-                              {(['Easy', 'Medium', 'Hard', 'Professional'] as const).map(diff => (
-                                <button
-                                  key={diff}
-                                  onClick={() => setConfigQuizDifficulty(diff)}
-                                  className={`py-2 rounded-xl text-xs font-bold transition-all border ${configQuizDifficulty === diff ? 'bg-[#DC2626] text-white border-[#DC2626]' : 'bg-white/5 text-white/70 border-white/10 hover:bg-white/10'}`}
-                                >
-                                  {diff}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="pt-2 flex items-center justify-end gap-3">
-                          <button 
-                            onClick={() => setShowQuizConfigPopup(false)}
-                            className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white/70 text-xs font-bold rounded-xl transition-all"
-                          >
-                            Cancel
-                          </button>
-                          <button 
-                            onClick={() => {
-                              setShowQuizConfigPopup(false);
-                              if (setImportedQuizNote && setToolsSubTab && generateQuiz) {
-                                setImportedQuizNote(selectedNote);
-                                const hasTextContent = selectedNote.content && selectedNote.content.trim().length > 0;
-                                const topicText = hasTextContent ? selectedNote.content : '';
-                                if (setQuizTopic) {
-                                  setQuizTopic(topicText);
-                                }
-                                if (setQuizImages && selectedNote.attachments) {
-                                  const noteImages = selectedNote.attachments
-                                    .filter((att: any) => att.type?.startsWith('image/') || att.url?.match(/\.(png|jpg|jpeg|webp)$/i))
-                                    .map((att: any, idx: number) => ({
-                                      id: `note-img-${idx}-${Date.now()}`,
-                                      file: null,
-                                      preview: att.url,
-                                      url: att.url,
-                                      name: att.name
-                                    }));
-                                  if (noteImages.length > 0) {
-                                    setQuizImages(noteImages);
-                                  } else {
-                                    setQuizImages([]);
-                                  }
-                                }
-                                setToolsSubTab('quiz');
-                                setTimeout(() => {
-                                  generateQuiz(topicText, configQuizCount, configQuizDifficulty);
-                                }, 150);
-                              }
-                            }}
-                            className="px-5 py-2 bg-[#DC2626] hover:bg-[#DC2626]/90 text-white text-xs font-bold rounded-xl shadow-lg shadow-[#DC2626]/30 transition-all flex items-center gap-2 cursor-pointer"
-                          >
-                            Generate Quiz
-                          </button>
-                        </div>
-                      </motion.div>
-                    </>
-                  )}
-                </AnimatePresence>
               </div>
             )
           ) : (
@@ -2250,9 +2231,14 @@ export const ToolsPage = (props: any) => {
                     </button>
                   </div>
 
-                  <button onClick={() => setQuizState('review')} className="w-full bg-[#DC2626] text-white font-black py-4 rounded-2xl text-xs sm:text-sm shadow-xl shadow-[#DC2626]/20 hover:bg-[#DC2626]/90 transition-all flex items-center justify-center gap-2">
-                    <Search size={18} /> CHECK RESULTS & DETAILED EXPLANATIONS
-                  </button>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button onClick={() => setQuizState('review')} className="w-full bg-[#DC2626] text-white font-black py-4 rounded-2xl text-xs sm:text-sm shadow-xl shadow-[#DC2626]/20 hover:bg-[#DC2626]/90 transition-all flex items-center justify-center gap-2 cursor-pointer">
+                      <Search size={18} /> CHECK RESULTS & REVIEW
+                    </button>
+                    <button onClick={() => setShowOmniQuizModal(true)} className="w-full bg-gradient-to-r from-purple-600 via-rose-600 to-red-600 text-white font-black py-4 rounded-2xl text-xs sm:text-sm shadow-xl shadow-purple-600/20 hover:opacity-95 transition-all flex items-center justify-center gap-2 border border-white/20 cursor-pointer">
+                      <Sparkles size={18} className="animate-pulse text-amber-300" /> DISCUSS & LEARN WITH OMNI AI
+                    </button>
+                  </div>
                   
                   <button onClick={() => setQuizState('idle')} className="w-full bg-white/5 text-white/40 font-bold py-3 rounded-2xl text-xs hover:bg-white/10 transition-all">
                     TRY ANOTHER TOPIC
@@ -2267,7 +2253,9 @@ export const ToolsPage = (props: any) => {
               <div className={`flex items-center justify-between ${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-4 rounded-2xl border shadow-sm`}>
                 <button onClick={() => setQuizState('finished')} className="text-white/40 hover:text-[#DC2626] flex items-center gap-1 text-xs font-bold uppercase"><ArrowLeft size={14} /> Back to Results</button>
                 <h3 className="text-sm font-black text-white uppercase tracking-tighter">Detailed Review</h3>
-                <div className="w-10"></div>
+                <button onClick={() => setShowOmniQuizModal(true)} className="px-3 py-1.5 bg-gradient-to-r from-purple-600 to-red-600 text-white text-[11px] font-black rounded-xl hover:opacity-90 flex items-center gap-1.5 shadow-md border border-white/20 cursor-pointer">
+                  <Sparkles size={13} className="text-amber-300" /> Learn with Omni
+                </button>
               </div>
 
               <div className="space-y-4">
@@ -3130,6 +3118,92 @@ export const ToolsPage = (props: any) => {
               </div>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* OMNI QUIZ SELECTION MODAL */}
+      <AnimatePresence>
+        {showOmniQuizModal && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[10000] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }} 
+              animate={{ opacity: 1, scale: 1 }} 
+              exit={{ opacity: 0, scale: 0.95 }}
+              className={`w-full max-w-lg ${theme === 'dark' ? 'bg-[#0F1322] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'} p-6 rounded-3xl border shadow-2xl space-y-6 relative overflow-hidden`}
+            >
+              <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-purple-600 to-rose-600 flex items-center justify-center text-white shadow-lg">
+                    <Sparkles size={20} className="animate-pulse text-amber-300" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black uppercase tracking-tight">Discuss Quiz with Omni AI</h3>
+                    <p className="text-[11px] font-medium opacity-60">Personalized tutoring & mistake corrections</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowOmniQuizModal(false)}
+                  className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center transition-all text-white/60 hover:text-white"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-xs font-bold opacity-80">Select where you would like to discuss and review this quiz with Omni:</p>
+
+                <button
+                  onClick={() => handleLaunchOmniQuizDiscussion('new')}
+                  className="w-full p-4 rounded-2xl border border-purple-500/30 bg-gradient-to-r from-purple-600/10 via-rose-600/10 to-transparent hover:border-purple-500/60 transition-all text-left flex items-start gap-3.5 group cursor-pointer"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-purple-600 text-white flex items-center justify-center shrink-0 shadow-md group-hover:scale-105 transition-transform">
+                    <PlusCircle size={20} />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-black uppercase tracking-wider text-purple-400">✨ Start a New Omni Chat Session</h4>
+                      <span className="text-[9px] font-extrabold uppercase bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-md">Recommended</span>
+                    </div>
+                    <p className="text-[11px] opacity-70 font-medium mt-0.5">Creates a fresh chat session dedicated to reviewing "{quizTopic || 'this quiz'}".</p>
+                  </div>
+                </button>
+
+                <div className="pt-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-2">Or attach context to an existing chat history:</p>
+                  <div className="max-h-48 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                    {chatSessions && chatSessions.length > 0 ? (
+                      chatSessions.slice(0, 10).map((session: any) => (
+                        <button
+                          key={session.id}
+                          onClick={() => handleLaunchOmniQuizDiscussion(session.id)}
+                          className="w-full p-3 rounded-xl border border-white/5 bg-white/5 hover:bg-white/10 hover:border-white/20 transition-all text-left flex items-center justify-between group cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2.5 line-clamp-1 flex-1 pr-2">
+                            <MessageSquare size={14} className="text-red-400 shrink-0" />
+                            <span className="text-xs font-bold truncate">{session.title || 'Conversation'}</span>
+                          </div>
+                          <span className="text-[9px] font-mono opacity-40 shrink-0">
+                            {session.history ? `${session.history.length} msgs` : ''}
+                          </span>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="p-4 text-center border border-dashed border-white/10 rounded-xl opacity-50 text-xs">
+                        No previous chat history found. Click "Start a New Omni Chat Session" above!
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <button 
+                onClick={() => setShowOmniQuizModal(false)}
+                className="w-full py-3 bg-white/5 hover:bg-white/10 text-white/60 font-bold rounded-2xl text-xs uppercase transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 
