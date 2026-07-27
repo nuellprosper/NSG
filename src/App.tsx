@@ -8,7 +8,7 @@ import {
   Database, Zap, Cpu, CheckCircle2, XCircle, RefreshCcw, ArrowLeft, FileText, AlertCircle, RotateCcw,
   Sun, Moon, ArrowDown, PlusCircle, Copy, User, Users, Clock, Lock, Unlock, Shield, ShieldCheck, AlertTriangle, FileDown, LayoutDashboard, ListChecks, Bell, GraduationCap, LayoutGrid, Home,
   Pin, Edit3, Share2, Trophy, LogOut, Plus, Menu, Camera, Monitor, X, Activity, MessageSquare, BookOpen, Calendar, Send, Save, MicOff, Video, AtSign, Paperclip, Bookmark, Book, Percent,
-  Search, Check, CheckCheck, Info, Volume2, VolumeX, Square, Mail, ArrowRight, BoxSelect, Globe, MapPin, Terminal, RefreshCw, Eye, EyeOff, HelpCircle, Calculator
+  Search, Check, CheckCheck, Info, Volume2, VolumeX, Square, Mail, ArrowRight, BoxSelect, Globe, MapPin, Terminal, RefreshCw, Eye, EyeOff, HelpCircle, Calculator, Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cleanTextForSpeech } from './lib/tts';
@@ -515,6 +515,51 @@ export default function App() {
   const [refurbishedResult, setRefurbishedResult] = useState<string | null>(null);
   const [showAnalysisInRecord, setShowAnalysisInRecord] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [isLinkQuizLoading, setIsLinkQuizLoading] = useState(false);
+  const [linkQuizTopic, setLinkQuizTopic] = useState('');
+  const [selectedChatForRoom, setSelectedChatForRoom] = useState<any>(null);
+
+  const handleOpenOmniWithPrompt = async (promptText: string) => {
+    const omniChatObj = {
+      id: `omni_${user?.uid || 'guest'}`,
+      name: 'Omni by NSG',
+      isOmni: true,
+      photoURL: 'https://images.unsplash.com/photo-1675557009875-436f09789900?q=80&w=200&auto=format&fit=crop',
+      type: 'direct',
+      members: [user?.uid || 'guest', 'Omni']
+    };
+    setSelectedChatForRoom(omniChatObj);
+    setActiveTab('chat');
+    setIsChatRoomActive(true);
+
+    if (promptText && user) {
+      const omniId = `omni_${user.uid}`;
+      try {
+        await addDoc(collection(db, 'chats', omniId, 'messages'), {
+          senderId: user.uid,
+          senderHandle: userHandle,
+          senderName: user.displayName || userHandle,
+          text: promptText,
+          timestamp: serverTimestamp(),
+          type: 'text',
+          encrypted: true,
+          seenBy: [user.uid]
+        });
+        await setDoc(doc(db, 'chats', omniId), {
+          id: omniId,
+          name: 'Omni by NSG',
+          isOmni: true,
+          lastMessage: promptText,
+          lastMessageSender: user.displayName || userHandle,
+          updatedAt: serverTimestamp(),
+          members: [user.uid, 'Omni']
+        }, { merge: true });
+        handleTagOmni(promptText, omniId);
+      } catch (err) {
+        console.error("Error creating Omni chat message:", err);
+      }
+    }
+  };
 
   const checkAndIncrementUsage = async (type: keyof typeof LIMITS) => {
     if (!user) {
@@ -8550,12 +8595,14 @@ ${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\nopt
     }
   };
 
-  // --- \u{1F4DD} QUIZ LOGIC ---
+  // --- 📝 QUIZ LOGIC ---
   const loadSharedQuiz = async (quizId: string) => {
+    setIsLinkQuizLoading(true);
     try {
       const quizDoc = await getDoc(doc(db, 'quizzes', quizId));
       if (quizDoc.exists()) {
         const data = quizDoc.data();
+        if (data.topic) setLinkQuizTopic(data.topic);
         
         // Update browser title & OpenGraph meta for social sharing previews
         updatePageMeta(
@@ -8644,42 +8691,133 @@ ${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\nopt
       }
     } catch (error) {
       console.error("Error loading shared quiz:", error);
+    } finally {
+      setTimeout(() => {
+        setIsLinkQuizLoading(false);
+      }, 400);
     }
   };
 
   const handleTagOmni = async (text: string, chatId: string, attachments?: { url: string, type: string, name: string }[]) => {
     if (!user) return;
     try {
-      const parts: any[] = [{ text: `User tagged you in a chat. 
-Context: You are Omni by NSG, a concise academic assistant. 
-User Message: "${text}"
-${attachments?.length ? 'Attachments are provided below.' : ''}
-Respond professionally, concisely, and naturally. Do not introduce math formulas or LaTeX notation unless the user's message specifically asks about mathematics, physics, or exact science calculations.` }];
+      // 1. Retrieve up to 100 past messages for true conversation memory
+      const msgsRef = collection(db, 'chats', chatId, 'messages');
+      const qMsgs = query(msgsRef, orderBy('timestamp', 'asc'), limit(100));
+      const snapshot = await getDocs(qMsgs);
       
+      const pastMessages: any[] = [];
+      snapshot.forEach(docSnap => {
+        const d = docSnap.data();
+        if (d.text) {
+          pastMessages.push({
+            role: (d.senderId === 'omni-ai' || d.isOmniResponse) ? 'model' : 'user',
+            text: d.text
+          });
+        }
+      });
+
+      // System instruction for Omni
+      const systemInstruction = {
+        parts: [{
+          text: `You are Omni by NSG, an empathetic, smart, highly personalized AI academic assistant created by NSG (founded by ABRAHAM EMMANUEL PROSPER).
+You remember all past conversation context with the user and tailor your guidance specifically to their learning style.
+
+CRITICAL FORMATTING & CONVERSATIONAL RULES:
+1. NEVER introduce mathematical formulas or LaTeX ($...$) notation unless the user's prompt or question specifically asks for math, physics, or exact calculations. For casual chat, general study advice, literature, business, humanities, or law, speak naturally and warmly.
+2. Use warm, encouraging tone and helpful emojis (😊, 💡, 📝, 📚, 🎓).
+3. QUIZ GENERATION MANDATE:
+   If the user asks you to generate, create, make, or set a quiz on ANY topic, or if you suggest taking a quiz, do NOT output quiz questions as raw text in your response!
+   Instead, write a warm 1-sentence intro (e.g., "I've generated a 5-question CBT quiz on Cell Biology for you!") and ALWAYS end your response with this exact tag:
+   '[[GENERATE_QUIZ: <topic>, <num_questions>]]' (e.g. '[[GENERATE_QUIZ: Cell Biology, 5]]').
+   The system will automatically build the interactive quiz and attach an 'Open Generated Quiz' button to your response!`
+        }]
+      };
+
+      // Build Gemini contents array with history
+      const contents: any[] = [];
+      for (const m of pastMessages) {
+        contents.push({
+          role: m.role,
+          parts: [{ text: m.text }]
+        });
+      }
+
+      // Add current attachments and user message
+      const userParts: any[] = [{ text: text }];
       if (attachments && attachments.length > 0) {
         for (const attachment of attachments) {
           try {
             const res = await fetch(attachment.url);
             const blob = await res.blob();
-            // Gemini 1.5 Flash supports image, audio, and video
             const genPart = await fileToGenerativePart(blob);
-            parts.push(genPart);
+            userParts.push(genPart);
           } catch (err) {
             console.error("Error processing attachment for Omni:", err);
-            parts.push({ text: `[Error processing attachment: ${attachment.name}]` });
+            userParts.push({ text: `[Attachment: ${attachment.name}]` });
           }
         }
       }
 
-      const response = await getAiInstance().models.generateContent({
-        model: MODEL_NAME,
-        contents: [{ role: 'user', parts }]
-      });
-      
-      const reply = response.text || "I apologize, but I couldn't process that request.";
-      const isOmniDirect = chatId.startsWith('omni_');
+      if (contents.length === 0 || contents[contents.length - 1].role !== 'user' || contents[contents.length - 1].parts[0].text !== text) {
+        contents.push({ role: 'user', parts: userParts });
+      }
 
-      // Send Omni's response
+      let reply = '';
+      try {
+        const response = await getAiInstance().models.generateContent({
+          model: MODEL_NAME,
+          config: { systemInstruction },
+          contents: contents
+        });
+        reply = response.text || '';
+      } catch (genErr) {
+        console.error("Primary Gemini call error, falling back:", genErr);
+      }
+
+      if (!reply) {
+        try {
+          const fullPrompt = systemInstruction.parts[0].text + "\n\nCONVERSATION HISTORY:\n" + pastMessages.map(m => `${m.role === 'user' ? 'Student' : 'Omni'}: ${m.text}`).join('\n') + `\nStudent: ${text}\nOmni:`;
+          const fbRes = await getAiInstance().models.generateContent({
+            model: FLASH_MODEL || MODEL_NAME,
+            contents: fullPrompt
+          });
+          reply = fbRes.text || '';
+        } catch (e) {
+          console.error("Fallback error:", e);
+        }
+      }
+
+      if (!reply) {
+        reply = "I'm sorry, I couldn't process your request right now. Please try again in a moment.";
+      }
+
+      // Parse for [[GENERATE_QUIZ: or explicit user quiz requests
+      if (reply.includes('[[GENERATE_QUIZ:')) {
+        const aiQuizMatch = reply.match(/\[\[GENERATE_QUIZ:\s*([^,\]]+),\s*(\d+)\s*\]\]/i);
+        if (aiQuizMatch) {
+          const genTopic = aiQuizMatch[1].trim();
+          const genCount = parseInt(aiQuizMatch[2], 10) || 5;
+          const quizRes = await generateQuiz(genTopic, genCount, 'Medium', true);
+          if (quizRes && quizRes.success) {
+            reply = reply.replace(
+              /\[\[GENERATE_QUIZ:\s*([^,\]]+),\s*(\d+)\s*\]\]/i,
+              `[[QUIZ_READY: ${quizRes.quizId}, ${quizRes.topic}, ${quizRes.count}]]`
+            );
+          }
+        }
+      } else {
+        const userQuizReq = text.match(/(?:generate|create|make|build|set)\s+(?:a\s+)?quiz\s+(?:on|about|for)?\s*([^.!?\n]+)/i);
+        if (userQuizReq) {
+          const genTopic = userQuizReq[1].trim();
+          const quizRes = await generateQuiz(genTopic, 5, 'Medium', true);
+          if (quizRes && quizRes.success) {
+            reply += `\n\nI have generated your interactive practice quiz on **${genTopic}**! Click below to start taking it:\n\n[[QUIZ_READY: ${quizRes.quizId}, ${genTopic}, 5]]`;
+          }
+        }
+      }
+
+      // Save Omni's response in Firestore
       await addDoc(collection(db, 'chats', chatId, 'messages'), {
         senderId: 'omni-ai',
         senderHandle: 'omni',
@@ -8690,13 +8828,12 @@ Respond professionally, concisely, and naturally. Do not introduce math formulas
         isOmniResponse: true,
         encrypted: true
       });
-      
-      // Update last message in chat
+
       await updateDoc(doc(db, 'chats', chatId), {
         lastMessage: reply,
         lastMessageSender: 'Omni by NSG',
         updatedAt: serverTimestamp(),
-        unreadBy: arrayUnion(user.uid) // Mark as unread for the user
+        unreadBy: arrayUnion(user.uid)
       });
     } catch (err) {
       console.error("Omni response error:", err);
@@ -11032,6 +11169,7 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
               audioTranscribingPopup={audioTranscribingPopup}
               setAudioTranscribingPopup={setAudioTranscribingPopup}
               subjectScores={subjectScores}
+              onOpenOmniWithPrompt={handleOpenOmniWithPrompt}
             />
           )}
 
@@ -11054,6 +11192,8 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                 setImportedQuizNote={setImportedQuizNote}
                 setQuizTopic={setQuizTopic}
                 generateQuiz={generateQuiz}
+                initialSelectedChat={selectedChatForRoom}
+                onOpenQuizById={(qId) => loadSharedQuiz(qId)}
               />
             ) : (
               <motion.div 
@@ -15524,6 +15664,33 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
         </motion.div>
       )}
     </AnimatePresence>
+
+      {/* QUIZ LINK LOADING POPUP OVERLAY */}
+      {isLinkQuizLoading && (
+        <div className="fixed inset-0 z-[999999] bg-[#070913]/95 backdrop-blur-2xl flex items-center justify-center p-6 text-center select-none">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="max-w-sm w-full bg-[#0F1424] border border-red-500/30 rounded-3xl p-8 shadow-2xl flex flex-col items-center space-y-5 relative overflow-hidden"
+          >
+            <div className="absolute -top-12 -left-12 w-32 h-32 bg-red-600/20 rounded-full blur-2xl pointer-events-none" />
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-purple-600 via-rose-600 to-red-600 flex items-center justify-center text-white shadow-xl shadow-red-500/30">
+              <Sparkles size={32} className="animate-spin text-amber-300" />
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-base font-black text-white uppercase tracking-tight">
+                {linkQuizTopic ? `Loading Quiz: ${linkQuizTopic}` : 'Loading Shared Quiz...'}
+              </h3>
+              <p className="text-xs text-white/60 font-medium leading-relaxed">
+                Setting up questions, options, and CBT practice environment. Please hold on...
+              </p>
+            </div>
+            <div className="flex items-center gap-2 px-4 py-2 bg-white/5 border border-white/10 rounded-full text-[10px] font-mono text-red-400 font-bold uppercase tracking-widest">
+              <Loader2 size={14} className="animate-spin text-red-500" /> Omni Quiz Engine Active
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {/* FOOTER REMOVED FROM HERE */}
     </div>

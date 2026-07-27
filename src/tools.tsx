@@ -408,6 +408,22 @@ export const ToolsPage = (props: any) => {
     setAudioTranscribingPopup
   } = props;
 
+  React.useEffect(() => {
+    if (selectedNote) {
+      setTimeout(() => {
+        if (scrollContainerRef && scrollContainerRef.current) {
+          scrollContainerRef.current.scrollTop = 0;
+        }
+        window.scrollTo(0, 0);
+        let parent = scrollContainerRef?.current?.parentElement;
+        while (parent) {
+          if (parent.scrollTop > 0) parent.scrollTop = 0;
+          parent = parent.parentElement;
+        }
+      }, 50);
+    }
+  }, [selectedNote?.id, notePreviewMode]);
+
   const handleLaunchOmniQuizDiscussion = (targetSessionId: 'new' | string) => {
     const percentage = Math.round((quizScore / ((quizQuestions && quizQuestions.length) || 1)) * 100);
     
@@ -443,62 +459,18 @@ ${breakdown}
 
 Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}". Please review my score and performance breakdown above. Point out my mistakes, explain why my wrong choices were incorrect and why the right options were correct, teach me the core concepts I missed, and provide a friendly study coaching summary!`;
 
-    let chosenSessionId = targetSessionId;
-    const timestampStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-    if (targetSessionId === 'new') {
-      chosenSessionId = `chat-${Date.now()}`;
-      const newSessionTitle = `Quiz Review: ${(quizTopic || 'Study').slice(0, 30)}`;
-      const initialUserMsg = {
-        role: 'user' as const,
-        text: contextPrompt,
-        timestamp: timestampStr
-      };
-
-      const newSession = {
-        id: chosenSessionId,
-        title: newSessionTitle,
-        history: [initialUserMsg],
-        timestamp: new Date().toLocaleString(),
-        uid: user?.uid || 'guest'
-      };
-
-      if (setChatSessions) {
-        setChatSessions((prev: any[]) => [newSession, ...(prev || [])]);
-      }
-      if (setActiveChatSessionId) {
-        setActiveChatSessionId(chosenSessionId);
-      }
-      if (setChatHistory) {
-        setChatHistory([initialUserMsg]);
-      }
-    } else {
-      const targetSession = (chatSessions || []).find((s: any) => s.id === targetSessionId);
-      const existingHist = targetSession ? targetSession.history : (chatHistory || []);
-      const newUserMsg = {
-        role: 'user' as const,
-        text: contextPrompt,
-        timestamp: timestampStr
-      };
-      const updatedHist = [...existingHist, newUserMsg].slice(-100);
-
-      if (setActiveChatSessionId) {
-        setActiveChatSessionId(targetSessionId);
-      }
-      if (setChatHistory) {
-        setChatHistory(updatedHist);
-      }
-    }
-
     setShowOmniQuizModal(false);
-    if (setActiveTab) {
-      setActiveTab('chat');
-    }
-
-    if (handleSendMessage) {
-      setTimeout(() => {
-        handleSendMessage(contextPrompt);
-      }, 150);
+    if (props.onOpenOmniWithPrompt) {
+      props.onOpenOmniWithPrompt(contextPrompt);
+    } else {
+      if (setActiveTab) {
+        setActiveTab('chat');
+      }
+      if (handleSendMessage) {
+        setTimeout(() => {
+          handleSendMessage(contextPrompt);
+        }, 150);
+      }
     }
   };
 
