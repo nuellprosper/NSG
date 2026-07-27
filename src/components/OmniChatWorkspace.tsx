@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  Paperclip, Mic, Send, StopCircle, Brain, ArrowLeft, 
-  Sparkles, Check, Copy, User, HelpCircle, BookOpen, FileText, X,
-  Plus, Image as ImageIcon, ArrowDown, Loader2, Maximize2
+  Paperclip, Mic, Send, StopCircle, ArrowLeft, 
+  Sparkles, Copy, User, BookOpen, FileText, X,
+  Plus, Image as ImageIcon, ArrowDown, Loader2, Maximize2,
+  Menu, ChevronDown, SquarePen, MoreHorizontal, ArrowUp, ArrowRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
@@ -68,25 +69,25 @@ const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniRepl
             const match = /language-(\w+)/.exec(className || '');
             const codeVal = String(children).replace(/\n$/, '');
             return className && match ? (
-              <div className="relative group/code my-3 rounded-xl overflow-hidden border border-white/5 bg-zinc-950 font-mono">
-                <div className="px-4 py-2 bg-zinc-900 border-[#1E1B2E] border-b flex items-center justify-between text-white/40 text-[9px] font-black uppercase tracking-widest">
+              <div className="relative group/code my-3 rounded-xl overflow-hidden border border-white/10 bg-[#090810] font-mono">
+                <div className="px-4 py-2 bg-white/5 border-b border-white/5 flex items-center justify-between text-white/50 text-[9px] font-bold uppercase tracking-widest">
                   <span>{match[1]}</span>
                   <button 
                     onClick={() => {
                       navigator.clipboard.writeText(codeVal);
                     }}
-                    className="px-2 py-1 hover:bg-white/5 rounded text-[#DC2626] border border-red-500/10 hover:text-red-400 transition-colors active:scale-95 text-[8.5px] font-black uppercase tracking-widest"
+                    className="px-2 py-1 hover:bg-white/10 rounded text-red-400 transition-colors active:scale-95 text-[9px] font-bold uppercase"
                     title="Copy Code"
                   >
                     Copy Block
                   </button>
                 </div>
-                <pre className="p-4 overflow-x-auto text-[11px] leading-relaxed text-slate-300">
+                <pre className="p-4 overflow-x-auto text-[12px] leading-relaxed text-slate-200">
                   <code {...props} className={className}>{children}</code>
                 </pre>
               </div>
             ) : (
-              <code {...props} className={`bg-zinc-900 px-1.5 py-0.5 rounded text-[11px] font-mono text-red-400 ${className || ''}`}>{children}</code>
+              <code {...props} className={`bg-white/10 px-1.5 py-0.5 rounded text-[12px] font-mono text-red-400 ${className || ''}`}>{children}</code>
             );
           }
         }}
@@ -98,14 +99,14 @@ const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniRepl
       )}
 
       {quizMatch && (
-        <div className="mt-4 p-4 rounded-2xl bg-gradient-to-r from-purple-900/50 via-rose-900/40 to-slate-900/90 border border-red-500/40 shadow-2xl space-y-3">
+        <div className="mt-4 p-4 rounded-2xl bg-[#1A162B] border border-red-500/30 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 to-red-600 flex items-center justify-center text-white shadow-lg shrink-0">
-              <Sparkles size={20} className="animate-pulse text-amber-300" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 to-red-600 flex items-center justify-center text-white shadow-md shrink-0">
+              <Sparkles size={18} className="text-amber-300 animate-pulse" />
             </div>
             <div>
-              <p className="text-xs font-black uppercase text-white tracking-wider">CBT Practice Quiz Ready!</p>
-              <p className="text-[10px] text-white/70 font-medium">{quizMatch[2]} ({quizMatch[3]} Questions)</p>
+              <p className="text-xs font-bold text-white">{quizMatch[2]}</p>
+              <p className="text-[10px] text-white/60 font-medium">{quizMatch[3]} Questions Practice Quiz</p>
             </div>
           </div>
           <button
@@ -114,13 +115,65 @@ const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniRepl
                 onOpenQuizById(quizMatch[1]);
               }
             }}
-            className="w-full py-3 bg-gradient-to-r from-purple-600 via-rose-600 to-red-600 hover:opacity-95 text-white font-black text-xs rounded-xl shadow-xl shadow-purple-600/30 flex items-center justify-center gap-2 uppercase tracking-wider cursor-pointer border border-white/20 transition-all hover:scale-[1.01] active:scale-95"
+            className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-purple-600 via-rose-600 to-red-600 hover:opacity-95 text-white font-bold text-xs rounded-xl shadow-lg flex items-center justify-center gap-2 cursor-pointer transition-all hover:scale-[1.02] active:scale-95 shrink-0"
           >
-            <Sparkles size={16} className="text-amber-300 animate-pulse" />
-            <span>🚀 Open & Take Quiz Now</span>
+            <span>Open & Take Quiz Now</span>
+            <ArrowRight size={14} />
           </button>
         </div>
       )}
+    </div>
+  );
+};
+
+// User Message Item with Read More / Show Less truncation
+const UserMessageItem: React.FC<{ 
+  msg: Message; 
+  user: any; 
+  userHandle: string; 
+  onZoomImage?: (url: string) => void; 
+}> = ({ msg, onZoomImage }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const text = msg.text || '';
+  const isLong = text.length > 220;
+  const displayText = isLong && !isExpanded ? text.substring(0, 220) + '...' : text;
+
+  return (
+    <div className="w-full py-2.5 px-4 sm:px-8 flex justify-end font-sans">
+      <div className="max-w-[88%] sm:max-w-[75%] bg-[#1E1A2E]/90 border border-white/10 rounded-[22px] px-5 py-3.5 shadow-md text-left">
+        {msg.mediaUrl && (
+          <div className="mb-2.5">
+            <div 
+              onClick={() => onZoomImage?.(msg.mediaUrl)}
+              className="relative group max-w-[220px] h-36 rounded-xl overflow-hidden border border-white/15 bg-black/40 cursor-pointer shadow-lg hover:border-red-500/50 transition-all"
+            >
+              <img 
+                referrerPolicy="no-referrer" 
+                src={msg.mediaUrl} 
+                alt="Attachment preview" 
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-80 group-hover:opacity-100 transition-opacity flex items-end p-2">
+                <span className="text-[8.5px] font-black uppercase text-white tracking-wider flex items-center gap-1 drop-shadow-md">
+                  <Maximize2 size={10} className="text-red-400" /> Tap to view
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="text-sm font-medium tracking-tight text-white leading-relaxed whitespace-pre-wrap">
+          {displayText}
+          {isLong && (
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="text-xs font-bold text-red-400 hover:text-red-300 ml-1.5 focus:outline-none cursor-pointer hover:underline"
+            >
+              {isExpanded ? 'Show less' : 'Read more'}
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 };
@@ -181,75 +234,68 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
-  const [showNoteSelector, setShowNoteSelector] = useState(false);
-  const [selectedImportedNote, setSelectedImportedNote] = useState<any | null>(null);
-  const [showPlusMenu, setShowPlusMenu] = useState(false);
-
-  const [isUploadingImage, setIsUploadingImage] = useState(false);
-  const [attachedImage, setAttachedImage] = useState<{ file: File; previewUrl: string; cloudUrl: string } | null>(null);
+  const [showScrollDown, setShowScrollDown] = useState(false);
   const [viewingFullImageUrl, setViewingFullImageUrl] = useState<string | null>(null);
+  const [showPlusMenu, setShowPlusMenu] = useState(false);
+  const [showNoteSelector, setShowNoteSelector] = useState(false);
+  const [selectedImportedNote, setSelectedImportedNote] = useState<any>(null);
+  const [attachedImage, setAttachedImage] = useState<{ file: File; previewUrl: string } | null>(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [showModelDropdown, setShowModelDropdown] = useState(false);
 
-  const handleImagePickerChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files?.[0]) return;
-    const file = e.target.files[0];
-    if (file.type.startsWith('image/')) {
-      setIsUploadingImage(true);
-      const previewUrl = URL.createObjectURL(file);
-      setAttachedImage({ file, previewUrl, cloudUrl: '' });
-      try {
-        if (uploadToCloudinary) {
-          const cloudUrl = await uploadToCloudinary(file);
-          setAttachedImage(prev => prev ? { ...prev, cloudUrl } : null);
-        }
-      } catch (err) {
-        console.error("Failed to upload image:", err);
-      } finally {
-        setIsUploadingImage(false);
-      }
-    } else {
-      onFileUpload(e);
-    }
-  };
-
-  const handleSendWithImage = async () => {
-    if (!attachedImage || isUploadingImage) return;
-    const caption = inputText.trim();
-    const file = attachedImage.file;
-    setAttachedImage(null);
-    setInputText('');
-    
-    if (onSendImageMessage) {
-      await onSendImageMessage(file, caption || 'Analyze this image');
-    } else {
-      onSendMessage();
-    }
-  };
-  
+  // Maintain list of initially loaded message IDs to avoid re-triggering typewriter effect on old messages
   const initiallyLoadedIdsRef = useRef<Set<string>>(new Set());
   const [initialLoadDone, setInitialLoadDone] = useState(false);
-  const [showScrollDown, setShowScrollDown] = useState(false);
 
-  // Cache existing messages on mount so they aren't typed again
   useEffect(() => {
-    if (messages.length > 0 && !initialLoadDone) {
-      const ids = new Set<string>();
-      messages.forEach((msg) => {
-        const idKey = msg.id || `msg_hash_${msg.text?.length || 0}_${(msg.text || '').substring(0, 30)}`;
-        ids.add(idKey);
+    if (!initialLoadDone && messages.length > 0) {
+      messages.forEach(m => {
+        const idKey = m.id || `msg_hash_${m.text?.length || 0}_${(m.text || '').substring(0, 30)}`;
+        initiallyLoadedIdsRef.current.add(idKey);
       });
-      initiallyLoadedIdsRef.current = ids;
       setInitialLoadDone(true);
     }
   }, [messages, initialLoadDone]);
 
-  // Auto scroll logic when messages are added or thinking starts
+  // Handle local image attachment before sending
+  const handleImagePickerChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.type.startsWith('image/')) {
+      const previewUrl = URL.createObjectURL(file);
+      setAttachedImage({ file, previewUrl });
+    } else {
+      onFileUpload(e);
+    }
+    setShowPlusMenu(false);
+  };
+
+  const handleSendWithImage = async () => {
+    if (!attachedImage) return;
+    try {
+      setIsUploadingImage(true);
+      if (onSendImageMessage) {
+        await onSendImageMessage(attachedImage.file, inputText.trim());
+      } else {
+        onSendMessage();
+      }
+    } catch (err) {
+      console.error("Error sending image message:", err);
+    } finally {
+      setIsUploadingImage(false);
+      setAttachedImage(null);
+      setInputText('');
+    }
+  };
+
+  // Scroll logic
   useEffect(() => {
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
     }
   }, [messages, isThinking]);
 
-  // Force scroll down on mount
   useEffect(() => {
     const forceScroll = () => {
       if (scrollContainerRef.current) {
@@ -285,144 +331,126 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#13111C] text-slate-100 overflow-hidden relative">
-      {/* Zero border sticky clean header */}
-      <div className="px-6 py-4 bg-[#13111C]/90 backdrop-blur-md border-b border-white/5 flex items-center justify-between shrink-0 z-10">
-        <div className="flex items-center gap-3">
+    <div className="flex flex-col h-full bg-[#0F0E17] text-slate-100 overflow-hidden relative font-sans">
+      
+      {/* Top Header */}
+      <div className="px-4 py-3 bg-[#0F0E17]/90 backdrop-blur-md border-b border-white/5 flex items-center justify-between shrink-0 z-10">
+        <button 
+          id="omni_back_nav_btn"
+          onClick={onClose}
+          className="p-2 rounded-xl text-white/60 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+          title="Back"
+        >
+          <Menu size={20} />
+        </button>
+
+        {/* Center Model Selector Dropdown - Strictly OMNI */}
+        <div className="relative">
           <button 
-            id="omni_back_nav_btn"
-            onClick={onClose}
-            className="p-2 -ml-2 rounded-xl transition-all hover:bg-white/5 text-white/40 hover:text-white"
+            onClick={() => setShowModelDropdown(!showModelDropdown)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-white font-bold text-sm hover:bg-white/10 transition-all cursor-pointer"
           >
-            <ArrowLeft size={18} />
+            <span>Omni</span>
+            <ChevronDown size={14} className="text-white/60" />
           </button>
-          <div className="text-left">
-            <h2 className="text-sm font-black uppercase tracking-tight italic text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.3)] flex items-center gap-1.5">
-              <Brain size={16} /> Omni Workspace
-            </h2>
-            <p className="text-[8.5px] font-bold uppercase tracking-wider text-white/30">Academic Assistant</p>
-          </div>
+        </div>
+
+        {/* Right Action Icons: New Chat & Options */}
+        <div className="flex items-center gap-1">
+          <button 
+            onClick={onClose}
+            className="p-2 rounded-xl text-white/60 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+            title="New Chat"
+          >
+            <SquarePen size={18} />
+          </button>
+          <button 
+            className="p-2 rounded-xl text-white/60 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+            title="Options"
+          >
+            <MoreHorizontal size={18} />
+          </button>
         </div>
       </div>
 
-      {/* Main scrolling viewport (uninhibited Gemini-style full horizontal alignment) */}
+      {/* Main scrolling viewport */}
       <div 
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto w-full custom-scrollbar flex flex-col pt-4 min-h-0"
+        className="flex-1 overflow-y-auto w-full custom-scrollbar flex flex-col pt-4 pb-6 min-h-0"
       >
         {messages.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 max-w-2xl mx-auto my-auto text-center gap-6">
-            <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-yellow-400 via-[#DC2626] to-[#9933FF] p-0.5 shadow-2xl animate-spin-slow">
-              <div className="w-full h-full rounded-full bg-zinc-950 flex items-center justify-center">
-                <Brain size={32} className="text-red-500 drop-shadow-[0_0_12px_rgba(239,68,68,1)]" />
+          <div className="flex-1 flex flex-col items-center justify-center p-6 max-w-2xl mx-auto my-auto text-center gap-6">
+            <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-purple-600 via-rose-600 to-red-600 p-0.5 shadow-xl">
+              <div className="w-full h-full rounded-full bg-[#0F0E17] flex items-center justify-center text-white font-black text-xl">
+                O
               </div>
             </div>
             
             <div>
-              <h1 className="text-xl font-black uppercase tracking-tighter italic text-white">How can I support your study guide today?</h1>
-              <p className="text-[10px] uppercase font-black tracking-widest text-[#DC2626] mt-1.5">Omni Multimodal Academic Nexus</p>
-              <p className="text-xs text-white/40 leading-relaxed max-w-md mt-3 font-medium">Explain equations, parse complex engineering schematics, outline study schedules, or generate practice quizzes instantly.</p>
+              <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">How can I help you today?</h1>
             </div>
 
-            {/* Elegant grid of suggestion cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full mt-4 text-left">
+            {/* Clean, minimalist suggestion pills */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full mt-2 text-left">
               {[
                 { 
-                  title: '🎓 Syllabus Blueprint', 
-                  desc: 'Draft structured educational syllabus review matrices on mechanical processes.',
-                  prompt: 'Prepare a highly exhaustive syllabus review guide for advanced fluid dynamics, outline the core 5 chapters and formulate quick-recall principles.'
+                  title: 'Syllabus Review', 
+                  prompt: 'Prepare a structured syllabus review guide for my upcoming exams.'
                 },
                 { 
-                  title: '⚡ Formula Cheat-Sheet', 
-                  desc: 'Compile chemical structures and physics constants lists for active recall.',
-                  prompt: 'Generate an extensive physics formula memory cheat sheet covering general thermodynamics, fluid expansion rates, and kinetic motion formulas.'
+                  title: 'Formula Cheat-Sheet', 
+                  prompt: 'Generate an extensive formula cheat sheet covering key principles.'
                 },
                 { 
-                  title: '❓ MCQ Exam Practice', 
-                  desc: 'Generate interactive multiple-choice testing questions directly.',
-                  prompt: 'Synthesize exactly 5 high-difficulty scholastic multiple-choice questions on organic polymer synthesis. Provide full detailed rationales for each.'
+                  title: 'Practice CBT Quiz', 
+                  prompt: 'Generate a 5-question practice quiz on my study topic.'
                 },
                 { 
-                  title: '🔬 Fluid Concept Review', 
-                  desc: 'Break down complex conceptual technical equations into layperson prose.',
-                  prompt: 'Explain quantum entanglement and basic entanglement states with extremely simple, digestible analogies suitable for a novice level.'
+                  title: 'Concept Breakdown', 
+                  prompt: 'Explain complex concepts in simple, digestible terms.'
                 }
               ].map((card, index) => (
                 <button
                   key={index}
                   onClick={() => loadSuggestion(card.prompt)}
-                  className="p-4 bg-white/[0.02]/30 hover:bg-white/5 border border-white/5 hover:border-[#DC2626]/20 rounded-2xl transition-all cursor-pointer text-left focus:outline-none hover:shadow-xl active:scale-95 flex flex-col gap-1 relative"
+                  className="p-3.5 bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/20 rounded-2xl transition-all cursor-pointer text-left focus:outline-none hover:shadow-lg active:scale-95 flex flex-col gap-1"
                 >
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-100">{card.title}</p>
-                  <p className="text-xs text-white/40 leading-snug font-medium">{card.desc}</p>
+                  <p className="text-xs font-bold text-white">{card.title}</p>
+                  <p className="text-[11px] text-white/50 leading-snug font-normal">{card.prompt}</p>
                 </button>
               ))}
             </div>
           </div>
         ) : (
-          <div className="flex flex-col w-full">
+          <div className="flex flex-col w-full max-w-4xl mx-auto">
             {messages.map((msg, index) => {
               const isMe = msg.senderId === user?.uid || msg.senderHandle === userHandle;
               
               if (isMe) {
-                // User Messages: Wrapped in Cold Purple (#1E1B2E) background band, full horizontal width
                 return (
-                  <div key={msg.id || index} className="w-full bg-[#1E1B2E]/90 border-y border-white/[0.03] py-6 px-6 md:px-12 flex gap-4 text-left font-sans">
-                    <div className="w-7 h-7 rounded-lg bg-[#6D28D9] border border-white/10 shrink-0 flex items-center justify-center text-white/80">
-                      <User size={14} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1 flex items-center gap-2">
-                        {user?.displayName || 'SCHOLASTIC USER'} <span className="text-[7.5px] text-white/20 font-bold">● {msg.timestamp?.toDate ? msg.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just Now'}</span>
-                      </p>
-                      
-                      {msg.mediaUrl && (msg.type === 'image' || msg.mediaUrl.match(/\.(png|jpg|jpeg|webp|gif)/i)) && (
-                        <div className="my-2.5">
-                          <div 
-                            onClick={() => setViewingFullImageUrl(msg.mediaUrl)}
-                            className="relative group max-w-[200px] h-32 rounded-2xl overflow-hidden border border-white/15 bg-black/40 cursor-pointer shadow-xl hover:border-red-500/50 hover:shadow-red-500/20 transition-all"
-                          >
-                            <img 
-                              referrerPolicy="no-referrer" 
-                              src={msg.mediaUrl} 
-                              alt="Attachment preview" 
-                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
-                            />
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-80 group-hover:opacity-100 transition-opacity flex items-end p-2">
-                              <span className="text-[8.5px] font-black uppercase text-white tracking-wider flex items-center gap-1 drop-shadow-md">
-                                <Maximize2 size={10} className="text-red-400" /> Tap to view
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="text-sm font-semibold tracking-tight text-white leading-relaxed whitespace-pre-wrap">
-                        {msg.text}
-                      </div>
-                    </div>
-                  </div>
+                  <UserMessageItem 
+                    key={msg.id || index}
+                    msg={msg}
+                    user={user}
+                    userHandle={userHandle}
+                    onZoomImage={(url) => setViewingFullImageUrl(url)}
+                  />
                 );
               } else {
-                // AI Responses: No bubbles or defined container boundaries. Render directly inline.
                 const idKey = msg.id || `msg_hash_${msg.text?.length || 0}_${(msg.text || '').substring(0, 30)}`;
                 const isNewResponse = initialLoadDone && !initiallyLoadedIdsRef.current.has(idKey);
                 return (
-                  <div key={msg.id || index} className="w-full py-8 px-6 md:px-12 flex gap-4 text-left font-sans">
-                    <div className="w-7 h-7 rounded-lg bg-zinc-950 border border-red-500/20 shrink-0 flex items-center justify-center shadow-[0_0_8px_rgba(239,68,68,0.4)]">
-                      <Brain size={14} className="text-red-500 animate-pulse" />
+                  <div key={msg.id || index} className="w-full py-4 px-4 sm:px-8 flex gap-3 text-left font-sans">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-purple-600 via-rose-600 to-red-600 shrink-0 flex items-center justify-center text-white shadow-md font-black text-xs">
+                      O
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-red-400 mb-1 flex items-center gap-2">
-                        OMNI <span className="text-[7.5px] text-white/20 font-bold">● {msg.timestamp?.toDate ? msg.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Now'}</span>
-                      </p>
-                      
-                      <div className="text-[14px] leading-relaxed text-slate-200 tracking-normal font-medium prose prose-invert max-w-none">
+                    <div className="flex-1 min-w-0 pt-0.5">
+                      <div className="text-[14px] leading-relaxed text-slate-100 font-normal prose prose-invert max-w-none">
                         <TypewriterText 
                           text={msg.text} 
                           msgId={msg.id} 
-                          isOmniReply={index === messages.length - 1 && isNewResponse} // Typewriter stream effects strictly once on newly generated replies
+                          isOmniReply={index === messages.length - 1 && isNewResponse} 
                           onOpenQuizById={onOpenQuizById}
                         />
                       </div>
@@ -433,16 +461,15 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
             })}
 
             {isThinking && (
-              <div className="w-full py-8 px-6 md:px-12 flex gap-4 text-left">
-                <div className="w-7 h-7 rounded-lg bg-zinc-950 border border-red-500/20 shrink-0 flex items-center justify-center animate-spin">
-                  <Brain size={14} className="text-red-500" />
+              <div className="w-full py-4 px-4 sm:px-8 flex gap-3 text-left">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-purple-600 via-rose-600 to-red-600 shrink-0 flex items-center justify-center text-white shadow-md font-black text-xs animate-spin">
+                  O
                 </div>
-                <div className="flex-1">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-[#DC2626] mb-1">Responding</p>
-                  <div className="flex gap-1.5 items-center py-2">
-                    <span className="w-1.5 h-1.5 bg-[#DC2626] rounded-full animate-bounce [animation-delay:-0.3s]" />
-                    <span className="w-1.5 h-1.5 bg-[#DC2626] rounded-full animate-bounce [animation-delay:-0.15s]" />
-                    <span className="w-1.5 h-1.5 bg-[#DC2626] rounded-full animate-bounce" />
+                <div className="flex-1 pt-1">
+                  <div className="flex gap-1.5 items-center py-1">
+                    <span className="w-2 h-2 bg-red-500 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                    <span className="w-2 h-2 bg-red-500 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                    <span className="w-2 h-2 bg-red-500 rounded-full animate-bounce" />
                   </div>
                 </div>
               </div>
@@ -451,7 +478,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
         )}
       </div>
 
-      {/* Scroll back down button floating dynamically */}
+      {/* Scroll back down button */}
       <AnimatePresence>
         {showScrollDown && (
           <motion.button
@@ -463,29 +490,29 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                 scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' });
               }
             }}
-            className="absolute bottom-28 right-6 p-2 w-9 h-9 bg-red-650 hover:bg-red-600 text-white rounded-full shadow-2xl transition-all z-30 cursor-pointer active:scale-95 flex items-center justify-center border border-white/10"
+            className="absolute bottom-24 right-6 w-9 h-9 bg-red-600 hover:bg-red-500 text-white rounded-full shadow-2xl transition-all z-30 cursor-pointer active:scale-95 flex items-center justify-center border border-white/10"
             title="Latest message"
           >
-            <ArrowDown size={15} className="animate-bounce" />
+            <ArrowDown size={16} />
           </motion.button>
         )}
       </AnimatePresence>
 
-      {/* Floating Tray Bottom Control Panel */}
-      <div className="w-full bg-[#13111C]/90 backdrop-blur-md border-t border-white/5 py-4 px-6 shrink-0 z-20 flex flex-col gap-2.5 items-center">
+      {/* Floating Bottom Control Panel */}
+      <div className="w-full bg-[#0F0E17]/90 backdrop-blur-md pb-4 pt-2 px-4 shrink-0 z-20 flex flex-col items-center">
         
-        {/* Floating omni_stop_generation_btn visible strictly during active inference stream */}
+        {/* Stop generation button */}
         <AnimatePresence>
           {isThinking && (
             <motion.button
               id="omni_stop_generation_btn"
-              initial={{ scale: 0.9, y: 15, opacity: 0 }}
+              initial={{ scale: 0.9, y: 10, opacity: 0 }}
               animate={{ scale: 1, y: 0, opacity: 1 }}
-              exit={{ scale: 0.9, y: 15, opacity: 0 }}
+              exit={{ scale: 0.9, y: 10, opacity: 0 }}
               onClick={onStopGeneration}
-              className="px-4 py-2 bg-red-650 hover:bg-red-600 border border-red-500/30 text-white rounded-full font-black text-[9px] uppercase tracking-widest transition-all hover:shadow-[0_0_15px_rgba(220,38,38,0.4)] flex items-center gap-2"
+              className="mb-2 px-4 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-full font-bold text-xs shadow-lg transition-all flex items-center gap-2"
             >
-              <StopCircle size={12} className="animate-spin" /> Stop
+              <StopCircle size={14} /> Stop
             </motion.button>
           )}
         </AnimatePresence>
@@ -497,18 +524,18 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              className="w-full max-w-4xl bg-[#1c182ee0] border border-white/10 rounded-2xl p-3 mb-2 space-y-2 max-h-40 overflow-y-auto custom-scrollbar text-left"
+              className="w-full max-w-3xl bg-[#171424] border border-white/10 rounded-2xl p-3 mb-2 space-y-2 max-h-40 overflow-y-auto custom-scrollbar text-left"
             >
               <div className="flex items-center justify-between border-b border-white/5 pb-1.5 mb-1">
-                <p className="text-[10px] font-black text-violet-400 uppercase tracking-widest flex items-center gap-1.5">
-                  <BookOpen size={12} /> Select Academic Note to Import
+                <p className="text-[10px] font-bold text-red-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <BookOpen size={12} /> Select Academic Note
                 </p>
                 <button onClick={() => setShowNoteSelector(false)} className="text-white/40 hover:text-white">
                   <X size={12} />
                 </button>
               </div>
               {userNotes.length === 0 ? (
-                <p className="text-[10px] text-white/30 text-center py-4">No notes found. Create a study note in your notebook first!</p>
+                <p className="text-[10px] text-white/30 text-center py-4">No notes found.</p>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {userNotes.map(n => (
@@ -518,10 +545,10 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                         setSelectedImportedNote(n);
                         setShowNoteSelector(false);
                       }}
-                      className="flex flex-col items-start p-2.5 rounded-xl bg-white/5 hover:bg-violet-600/20 border border-white/5 hover:border-violet-500/30 transition-all text-left w-full cursor-pointer"
+                      className="flex flex-col items-start p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 transition-all text-left w-full cursor-pointer"
                     >
                       <span className="text-xs font-bold text-white line-clamp-1">{n.title || 'Untitled note'}</span>
-                      <span className="text-[9px] text-zinc-400 line-clamp-1 mt-0.5">{n.content ? n.content.substring(0, 100) : 'Empty note'}</span>
+                      <span className="text-[10px] text-zinc-400 line-clamp-1 mt-0.5">{n.content ? n.content.substring(0, 80) : 'Empty note'}</span>
                     </button>
                   ))}
                 </div>
@@ -530,59 +557,37 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
           )}
         </AnimatePresence>
 
-        {/* Imported Note Action Box */}
+        {/* Imported Note Box */}
         <AnimatePresence>
           {selectedImportedNote && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 10 }}
-              className="w-full max-w-4xl bg-violet-950/40 border border-violet-500/25 rounded-2xl p-3.5 flex flex-col sm:flex-row items-center justify-between gap-3 text-left mb-2.5"
+              className="w-full max-w-3xl bg-[#171424] border border-white/10 rounded-2xl p-3 flex items-center justify-between gap-3 text-left mb-2"
             >
-              <div className="flex items-center gap-2.5 overflow-hidden w-full sm:w-auto">
-                <div className="w-10 h-10 rounded-xl bg-violet-600/25 border border-violet-500/30 flex items-center justify-center shrink-0">
-                  <FileText size={18} className="text-violet-300" />
+              <div className="flex items-center gap-2.5 overflow-hidden">
+                <div className="w-8 h-8 rounded-lg bg-red-600/20 border border-red-500/30 flex items-center justify-center shrink-0">
+                  <FileText size={16} className="text-red-400" />
                 </div>
-                <div className="leading-tight overflow-hidden">
-                  <p className="text-[8px] font-black uppercase tracking-wider text-violet-400">Imported Study Source</p>
-                  <h4 className="text-xs font-black text-white truncate mt-0.5">{selectedImportedNote.title || 'Untitled Note'}</h4>
+                <div className="truncate">
+                  <h4 className="text-xs font-bold text-white truncate">{selectedImportedNote.title || 'Untitled Note'}</h4>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 justify-end">
+              <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={() => {
-                    setInputText(`Please analyze, explain, and write deep academic summaries of the following study note:\nTitle: ${selectedImportedNote.title}\nContent:\n"""\n${selectedImportedNote.content}\n"""`);
+                    setInputText(`Please analyze and summarize this study note:\nTitle: ${selectedImportedNote.title}\nContent:\n${selectedImportedNote.content}`);
                     setSelectedImportedNote(null);
                   }}
-                  className="px-3 py-2 rounded-xl bg-violet-600/30 border border-violet-500/30 text-violet-300 font-bold text-[10px] uppercase tracking-wider hover:bg-violet-650/45 transition-all text-center cursor-pointer"
+                  className="px-3 py-1.5 rounded-xl bg-white/10 text-white font-bold text-[10px] uppercase hover:bg-white/20 transition-all cursor-pointer"
                 >
-                  Analyze & Explain
-                </button>
-                <button
-                  onClick={() => {
-                    if (setAppActiveTab && setToolsSubTab && setImportedQuizNote && generateQuiz) {
-                      setImportedQuizNote(selectedImportedNote);
-                      if (setQuizTopic) {
-                        setQuizTopic(selectedImportedNote.content || '');
-                      }
-                      setAppActiveTab('tools');
-                      setToolsSubTab('quiz');
-                      setTimeout(() => {
-                        generateQuiz(selectedImportedNote.content || selectedImportedNote.title || 'Note Quiz', 10, 'Medium');
-                      }, 150);
-                    } else {
-                      setInputText(`Please generate an interactive practice quiz on the following study note:\nTitle: ${selectedImportedNote.title}\nContent:\n"""\n${selectedImportedNote.content}\n"""\n\nYou MUST end your response exactly with this structured trigger: [[GENERATE_QUIZ: ${selectedImportedNote.title}, 10]] so I can launch the interactive CBT quiz player.`);
-                    }
-                    setSelectedImportedNote(null);
-                  }}
-                  className="px-3 py-2 rounded-xl bg-[#DC2626]/20 border border-[#DC2626]/30 text-red-400 font-bold text-[10px] uppercase tracking-wider hover:bg-[#DC2626]/35 transition-all text-center cursor-pointer"
-                >
-                  Generate Quiz
+                  Analyze
                 </button>
                 <button
                   onClick={() => setSelectedImportedNote(null)}
-                  className="p-2 hover:bg-white/5 rounded-xl text-white/40 hover:text-white"
+                  className="p-1 hover:bg-white/10 rounded-lg text-white/50 hover:text-white"
                 >
                   <X size={14} />
                 </button>
@@ -595,25 +600,22 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
         <AnimatePresence>
           {attachedImage && (
             <motion.div
-              initial={{ opacity: 0, y: 10, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 10, scale: 0.95 }}
-              className="w-full max-w-4xl bg-[#120F1F] border border-white/10 rounded-2xl p-2.5 flex items-center justify-between gap-3 mb-2"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10 }}
+              className="w-full max-w-3xl bg-[#171424] border border-white/10 rounded-2xl p-2.5 flex items-center justify-between gap-3 mb-2"
             >
               <div className="flex items-center gap-3 overflow-hidden">
-                <div className="relative w-12 h-12 rounded-xl overflow-hidden border border-white/15 shrink-0 bg-black">
+                <div className="relative w-10 h-10 rounded-xl overflow-hidden border border-white/15 shrink-0 bg-black">
                   <img src={attachedImage.previewUrl} alt="Attached draft" className="w-full h-full object-cover" />
                   {isUploadingImage && (
                     <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
-                      <Loader2 size={16} className="text-red-500 animate-spin" />
+                      <Loader2 size={14} className="text-red-500 animate-spin" />
                     </div>
                   )}
                 </div>
                 <div className="leading-tight overflow-hidden text-left">
-                  <p className="text-[9px] font-black uppercase tracking-wider text-red-400">
-                    {isUploadingImage ? 'Uploading image...' : 'Image ready'}
-                  </p>
-                  <p className="text-xs text-white/80 font-medium truncate mt-0.5">{attachedImage.file.name}</p>
+                  <p className="text-xs text-white/80 font-medium truncate">{attachedImage.file.name}</p>
                 </div>
               </div>
               <button
@@ -631,21 +633,26 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
           )}
         </AnimatePresence>
 
-        {/* Dynamic input control bar wrapper */}
-        <div className="flex items-center gap-3 w-full max-w-4xl bg-[#0A0713]/90 border border-white/10 rounded-2xl p-2 shadow-2xl relative">
+        {/* Input Bar Container */}
+        <div className="w-full max-w-3xl bg-[#171424] border border-white/10 rounded-[32px] p-2 shadow-2xl flex items-center gap-2 relative">
           
-          {/* Plus menu button */}
+          {/* Plus Attachment Button */}
           <div className="relative">
             <button
               type="button"
               id="omni_plus_menu_btn"
               onClick={() => setShowPlusMenu(!showPlusMenu)}
-              className={`p-2.5 w-11 h-11 rounded-2xl transition-all flex items-center justify-center cursor-pointer border ${showPlusMenu ? 'bg-[#DC2626] text-white border-[#DC2626]' : 'bg-white/5 text-white/50 border-white/10 hover:text-white hover:bg-white/10'}`}
-              title="Add Attachment"
+              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border ${
+                showPlusMenu 
+                  ? 'bg-red-600 text-white border-red-500' 
+                  : 'bg-white/5 text-white/60 border-white/10 hover:text-white hover:bg-white/10'
+              }`}
+              title="Add content"
             >
-              <Plus size={18} className={`transition-transform duration-200 ${showPlusMenu ? 'rotate-45' : ''}`} />
+              <Plus size={20} className={`transition-transform duration-200 ${showPlusMenu ? 'rotate-45' : ''}`} />
             </button>
 
+            {/* Plus Menu Popup */}
             <AnimatePresence>
               {showPlusMenu && (
                 <>
@@ -654,7 +661,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                     initial={{ opacity: 0, y: 10, scale: 0.95 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                    className="absolute bottom-14 left-0 bg-[#120F1F] border border-white/10 p-2 rounded-2xl min-w-[140px] shadow-2xl z-40 flex flex-col gap-1 text-left"
+                    className="absolute bottom-14 left-0 bg-[#1A162B] border border-white/10 p-2 rounded-2xl min-w-[160px] shadow-2xl z-40 flex flex-col gap-1 text-left"
                   >
                     <button
                       type="button"
@@ -664,7 +671,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                       }}
                       className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/5 text-xs font-bold transition-all text-left w-full"
                     >
-                      <BookOpen size={14} className="text-[#DC2626]" /> notes
+                      <BookOpen size={14} className="text-red-400" /> Notes
                     </button>
                     <button
                       type="button"
@@ -674,7 +681,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                       }}
                       className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/5 text-xs font-bold transition-all text-left w-full"
                     >
-                      <ImageIcon size={14} className="text-blue-400" /> gallery
+                      <ImageIcon size={14} className="text-blue-400" /> Gallery
                     </button>
                     <button
                       type="button"
@@ -684,14 +691,14 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                       }}
                       className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/5 text-xs font-bold transition-all text-left w-full"
                     >
-                      <Paperclip size={14} className="text-emerald-400" /> files
+                      <Paperclip size={14} className="text-emerald-400" /> Files
                     </button>
                   </motion.div>
                 </>
               )}
             </AnimatePresence>
           </div>
-          
+
           <input 
             type="file"
             ref={fileInputRef}
@@ -708,7 +715,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
             accept="image/*"
           />
 
-          {/* Text input area */}
+          {/* Textarea */}
           <textarea
             id="omni-workspace-chat-textarea"
             value={inputText}
@@ -734,29 +741,28 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
             placeholder={isUploadingImage ? 'Uploading image...' : isRecording ? 'Recording audio...' : 'Ask Omni...'}
             disabled={isRecording || isUploadingImage}
             rows={1}
-            className="flex-1 bg-transparent px-2 py-2 text-xs text-white max-h-32 resize-none outline-none placeholder-white/20 select-text font-medium leading-relaxed disabled:opacity-50"
+            className="flex-1 bg-transparent px-2 py-2 text-sm text-white max-h-32 resize-none outline-none placeholder-white/30 select-text font-medium leading-relaxed disabled:opacity-50"
           />
 
-          {/* Send / Rotating Spinner / Record button on far right end */}
-          {isUploadingImage ? (
-            <div 
-              className="p-3 w-11 h-11 bg-white/5 border border-white/10 text-red-500 rounded-2xl flex items-center justify-center transition-all shadow-md cursor-not-allowed shrink-0"
-              title="Uploading image..."
-            >
-              <Loader2 size={18} className="animate-spin text-red-500" />
-            </div>
-          ) : isRecording ? (
+          {/* Microphone and Send Buttons */}
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
-              id="omni_voice_stop_btn"
-              onClick={onStopVoiceRecord}
-              className="p-3 w-11 h-11 bg-red-600 text-white rounded-2xl flex items-center justify-center transition-all shadow-md animate-pulse cursor-pointer shrink-0"
-              title="Stop Recording"
+              id="omni_voice_record_btn"
+              type="button"
+              onClick={isRecording ? onStopVoiceRecord : onStartVoiceRecord}
+              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
+                isRecording ? 'bg-red-600 text-white animate-pulse' : 'text-white/50 hover:text-white hover:bg-white/5'
+              }`}
+              title="Voice"
             >
-              <StopCircle size={16} />
+              <Mic size={18} />
             </button>
-          ) : (inputText.trim() || attachedImage) ? (
+
+            {/* Circular Send Arrow Button matching reference screenshot */}
             <button
               id="omni_send_message_btn"
+              type="button"
+              disabled={!inputText.trim() && !attachedImage}
               onClick={() => {
                 if (attachedImage) {
                   handleSendWithImage();
@@ -768,52 +774,46 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                   (textarea as HTMLTextAreaElement).style.height = 'auto';
                 }
               }}
-              className="p-3 w-11 h-11 bg-red-650 hover:bg-red-500 text-white rounded-2xl flex items-center justify-center transition-all shadow-md active:translate-y-0.5 cursor-pointer shrink-0"
+              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
+                (inputText.trim() || attachedImage)
+                  ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg cursor-pointer active:scale-95'
+                  : 'bg-white/10 text-white/30 cursor-not-allowed'
+              }`}
               title="Send"
             >
-              <Send size={16} />
+              <ArrowUp size={18} />
             </button>
-          ) : (
-            <button
-              id="omni_voice_record_btn"
-              onClick={onStartVoiceRecord}
-              className="p-3 w-11 h-11 bg-white/5 hover:bg-white/10 text-white/50 hover:text-white rounded-2xl flex items-center justify-center transition-all shadow-md cursor-pointer border border-white/5 shrink-0"
-              title="Record Voice"
-            >
-              <Mic size={16} />
-            </button>
-          )}
+          </div>
 
         </div>
       </div>
 
-      {/* Full Image Viewer Popup Modal */}
+      {/* Full screen image modal preview */}
       <AnimatePresence>
         {viewingFullImageUrl && (
-          <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              className="relative max-w-4xl max-h-[90vh] flex flex-col items-center justify-center"
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setViewingFullImageUrl(null)}
+            className="fixed inset-0 z-[99999] bg-black/95 backdrop-blur-md flex items-center justify-center p-4 cursor-pointer"
+          >
+            <button
+              onClick={() => setViewingFullImageUrl(null)}
+              className="absolute top-6 right-6 p-3 rounded-full bg-white/10 text-white hover:bg-white/20 transition-all z-10"
             >
-              <button
-                onClick={() => setViewingFullImageUrl(null)}
-                className="absolute -top-12 right-0 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer border border-white/10"
-                title="Close preview"
-              >
-                <X size={20} />
-              </button>
-              <img 
-                referrerPolicy="no-referrer" 
-                src={viewingFullImageUrl} 
-                alt="Full resolution view" 
-                className="max-w-full max-h-[80vh] object-contain rounded-2xl shadow-2xl border border-white/10"
-              />
-            </motion.div>
-          </div>
+              <X size={20} />
+            </button>
+            <img
+              referrerPolicy="no-referrer"
+              src={viewingFullImageUrl}
+              alt="Full view"
+              className="max-w-full max-h-full object-contain rounded-2xl shadow-2xl"
+            />
+          </motion.div>
         )}
       </AnimatePresence>
+
     </div>
   );
 };
