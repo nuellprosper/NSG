@@ -8596,75 +8596,114 @@ ${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\nopt
   };
 
   // --- 📝 QUIZ LOGIC ---
-  const loadSharedQuiz = async (quizId: string) => {
+  const loadSharedQuiz = async (rawQuizId: string) => {
+    if (!rawQuizId) return;
     setIsLinkQuizLoading(true);
 
-    // Fallback safety timeout (12s max) to prevent indefinite loading in case of severe network failure
+    const cleanInputId = decodeURIComponent(rawQuizId).trim();
+    const withPrefixId = cleanInputId.startsWith('quiz-') ? cleanInputId : `quiz-${cleanInputId}`;
+    const withoutPrefixId = cleanInputId.replace(/^quiz-/, '');
+
+    // List of candidate IDs to attempt fetching from Firestore
+    const candidateIds = Array.from(new Set([cleanInputId, withPrefixId, withoutPrefixId])).filter(Boolean);
+
+    // Fallback safety timeout (15s max)
     const safetyTimeout = setTimeout(() => {
       setIsLinkQuizLoading(false);
-    }, 12000);
+    }, 15000);
 
-    try {
-      const quizDoc = await getDoc(doc(db, 'quizzes', quizId));
-      if (quizDoc.exists()) {
-        const data = quizDoc.data();
-        if (data.topic) setLinkQuizTopic(data.topic);
-        
+    let foundData: any = null;
+    let foundQuizId: string = cleanInputId;
+
+    // Retry loop (up to 3 attempts with delay for cold-start network connections)
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        for (const candidate of candidateIds) {
+          const quizDoc = await getDoc(doc(db, 'quizzes', candidate));
+          if (quizDoc.exists()) {
+            foundData = quizDoc.data();
+            foundQuizId = candidate;
+            break;
+          }
+        }
+        if (foundData) break;
+      } catch (err) {
+        console.warn(`Attempt ${attempt} to fetch quiz ${cleanInputId} failed:`, err);
+      }
+
+      // If not found yet and not last attempt, wait 1 second before retrying
+      if (!foundData && attempt < 3) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+
+    // Fallback: Check local finishedHistory if Firestore network did not return
+    if (!foundData) {
+      const localHistoryMatch = finishedHistory.find(h => 
+        h.type === 'quiz' && 
+        candidateIds.some(cid => h.id === cid || h.id === `quiz-${cid}`)
+      );
+      if (localHistoryMatch && localHistoryMatch.questions) {
+        foundData = {
+          questions: localHistoryMatch.questions,
+          topic: localHistoryMatch.topic || localHistoryMatch.title,
+          difficulty: localHistoryMatch.difficulty || 'Medium'
+        };
+      }
+    }
+
+    if (foundData && Array.isArray(foundData.questions) && foundData.questions.length > 0) {
+      try {
+        if (foundData.topic) setLinkQuizTopic(foundData.topic);
+
         // Close active chat room so view transfers directly to Quiz tool
         setSelectedChatForRoom(null);
         setIsChatRoomActive(false);
 
         // Update browser title & OpenGraph meta for social sharing previews
         updatePageMeta(
-          `Quiz: ${data.topic || 'Academic Quiz'}`,
-          `Take this ${data.questions?.length || 10}-question interactive academic quiz on Omni!`
+          `Quiz: ${foundData.topic || 'Academic Quiz'}`,
+          `Take this ${foundData.questions.length}-question interactive academic quiz on Omni!`
         );
 
-        // Check if they already finished it
-        const alreadyFinished = finishedHistory.some(h => 
+        // Check if user already finished it
+        const alreadyFinished = finishedHistory.find(h => 
           h.type === 'quiz' && 
-          (h.id === `quiz-${quizId}` || h.id === quizId) && 
+          candidateIds.some(cid => h.id === cid || h.id === `quiz-${cid}`) && 
           h.score !== undefined
         );
+
         if (alreadyFinished) {
-          const finishedItem = finishedHistory.find(h => 
-            h.type === 'quiz' && 
-            (h.id === `quiz-${quizId}` || h.id === quizId) && 
-            h.score !== undefined
-          );
-          if (finishedItem) {
-            setQuizQuestions(finishedItem.questions || data.questions);
-            setQuizScore(finishedItem.score);
-            setQuizState('finished');
-            if (finishedItem.answers) setUserQuizAnswers(finishedItem.answers);
-            if (finishedItem.topic) setQuizTopic(finishedItem.topic);
-            else if (data.topic) setQuizTopic(data.topic);
-            setQuizDifficulty(finishedItem.difficulty as any || data.difficulty || 'Medium');
-            setUserNotification("You have already completed this quiz! Showing your scorecard.");
-            setActiveTab('tools');
-            setToolsSubTab('quiz');
-            clearTimeout(safetyTimeout);
-            return;
-          }
+          setQuizQuestions(alreadyFinished.questions || foundData.questions);
+          setQuizScore(alreadyFinished.score);
+          setQuizState('finished');
+          if (alreadyFinished.answers) setUserQuizAnswers(alreadyFinished.answers);
+          setQuizTopic(alreadyFinished.topic || foundData.topic || 'Academic Quiz');
+          setQuizDifficulty((alreadyFinished.difficulty as any) || foundData.difficulty || 'Medium');
+          setUserNotification("You have already completed this quiz! Showing your scorecard.");
+          setActiveTab('tools');
+          setToolsSubTab('quiz');
+          clearTimeout(safetyTimeout);
+          return;
         }
 
         // Auto Capture: Add to history immediately when opened
-        const historyId = `quiz-${quizId}`;
+        const historyId = `quiz-${foundQuizId.replace(/^quiz-/, '')}`;
         const historyItem: HomeHistoryItem = {
           id: historyId,
-          title: data.topic || 'Shared Quiz',
+          title: foundData.topic || 'Shared Quiz',
           type: 'quiz',
           date: new Date().toLocaleDateString(),
           timestamp: Date.now(),
           progress: 0,
-          questions: data.questions,
-          topic: data.topic,
-          difficulty: data.difficulty || 'Medium'
+          questions: foundData.questions,
+          topic: foundData.topic,
+          difficulty: foundData.difficulty || 'Medium'
         };
         addToFinishedHistory(historyItem);
 
-        // Check for local progress
-        const savedProgress = localStorage.getItem(`nsg_quiz_progress_${quizId}`);
+        // Check for local saved progress
+        const savedProgress = localStorage.getItem(`nsg_quiz_progress_${foundQuizId}`) || localStorage.getItem(`nsg_quiz_progress_${withoutPrefixId}`);
         if (savedProgress) {
           try {
             const p = JSON.parse(savedProgress);
@@ -8675,23 +8714,23 @@ ${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\nopt
             setUserQuizAnswers(p.userQuizAnswers || []);
             setQuizDifficulty(p.quizDifficulty || 'Medium');
             setQuizQuestionCount(p.quizQuestionCount || p.quizQuestions.length);
-            setCurrentQuizId(quizId);
+            setCurrentQuizId(foundQuizId);
             setQuizState('active');
             setSelectedOption(p.userQuizAnswers?.[p.currentQuestionIndex] !== undefined ? p.userQuizAnswers[p.currentQuestionIndex] : null);
             setIsAnswered(p.userQuizAnswers?.[p.currentQuestionIndex] !== undefined);
             setActiveTab('tools');
             setToolsSubTab('quiz');
             clearTimeout(safetyTimeout);
-            return; // Exit after loading progress
+            return;
           } catch (pe) {
             console.error("Failed to load saved quiz progress:", pe);
           }
         }
 
-        // Default load if no progress
-        setQuizQuestions(data.questions);
-        setQuizTopic(data.topic);
-        setCurrentQuizId(quizId);
+        // Default load
+        setQuizQuestions(foundData.questions);
+        setQuizTopic(foundData.topic || 'Academic Quiz');
+        setCurrentQuizId(foundQuizId);
         setQuizState('active');
         setActiveTab('tools');
         setToolsSubTab('quiz');
@@ -8701,16 +8740,16 @@ ${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\nopt
         setSelectedOption(null);
         setUserQuizAnswers([]);
         clearTimeout(safetyTimeout);
-      } else {
+      } catch (err) {
+        console.error("Error setting quiz state:", err);
         clearTimeout(safetyTimeout);
         setIsLinkQuizLoading(false);
-        setUserNotification("Quiz not found or may have been deleted.");
+        setUserNotification("Failed to display quiz. Please try again.");
       }
-    } catch (error) {
+    } else {
       clearTimeout(safetyTimeout);
-      console.error("Error loading shared quiz:", error);
       setIsLinkQuizLoading(false);
-      setUserNotification("Failed to load quiz. Please try again.");
+      setUserNotification("Quiz not found or may have been deleted.");
     }
   };
 
@@ -8945,12 +8984,18 @@ CRITICAL FORMATTING & CONVERSATIONAL RULES:
         cleanId = `${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
       }
       const fullQuizId = `quiz-${cleanId}`;
-      await setDoc(doc(db, 'quizzes', fullQuizId), {
+      const quizPayload = {
         questions: quizQuestions,
         topic: quizTopic,
+        difficulty: quizDifficulty || 'Medium',
         createdBy: user.uid,
         createdAt: new Date().toISOString()
-      }, { merge: true });
+      };
+
+      await Promise.all([
+        setDoc(doc(db, 'quizzes', fullQuizId), quizPayload, { merge: true }),
+        setDoc(doc(db, 'quizzes', cleanId), quizPayload, { merge: true })
+      ]);
 
       const link = `${window.location.origin}${window.location.pathname}?quizId=${fullQuizId}`;
       setShareQuizLink(link);
@@ -9422,6 +9467,20 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
           difficulty: activeDifficulty
         };
         addToFinishedHistory(historyItem);
+
+        // Auto Save to Firestore so generated quiz can be accessed via link
+        const cleanGenId = genId.replace(/^quiz-/, '');
+        const autoQuizPayload = {
+          questions: data.questions,
+          topic: finalQuizTopic,
+          difficulty: activeDifficulty || 'Medium',
+          createdBy: user?.uid || 'anonymous',
+          createdAt: new Date().toISOString()
+        };
+        Promise.all([
+          setDoc(doc(db, 'quizzes', genId), autoQuizPayload, { merge: true }),
+          setDoc(doc(db, 'quizzes', cleanGenId), autoQuizPayload, { merge: true })
+        ]).catch(err => console.error("Error auto-saving generated quiz to Firestore:", err));
 
         if (user) {
           const finalTopic = activeTopic || data.quizTitle || 'Visual Materials Quiz';
