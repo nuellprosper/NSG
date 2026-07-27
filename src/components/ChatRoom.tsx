@@ -182,16 +182,24 @@ interface ChatRoomProps {
   setImportedQuizNote?: (note: any) => void;
   setQuizTopic?: (topic: string) => void;
   generateQuiz?: (customTopic?: string, customCount?: number, customDifficulty?: any) => Promise<any>;
+  initialSelectedChat?: Chat | null;
+  onOpenQuizById?: (quizId: string) => void;
 }
 
 export const ChatRoom: React.FC<ChatRoomProps> = ({ 
   theme, user, userHandle, onTagOmni, uploadToCloudinary, setUserNotification, onChatSelect, userNotes = [], onOpenNote,
-  setAppActiveTab, setToolsSubTab, setImportedQuizNote, setQuizTopic, generateQuiz
+  setAppActiveTab, setToolsSubTab, setImportedQuizNote, setQuizTopic, generateQuiz, initialSelectedChat, onOpenQuizById
 }) => {
   const [activeTab, setActiveTab] = useState<'chats' | 'groups' | 'calls'>('chats');
   const [subFilter, setSubFilter] = useState<'all' | 'unread' | 'secured' | 'groups' | 'calls'>('all');
   const [chats, setChats] = useState<Chat[]>([]);
-  const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
+  const [selectedChat, setSelectedChat] = useState<Chat | null>(initialSelectedChat || null);
+
+  useEffect(() => {
+    if (initialSelectedChat) {
+      setSelectedChat(initialSelectedChat);
+    }
+  }, [initialSelectedChat]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -2288,6 +2296,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
               setImportedQuizNote={setImportedQuizNote}
               setQuizTopic={setQuizTopic}
               generateQuiz={generateQuiz}
+              onOpenQuizById={onOpenQuizById}
             />
           ) : (
             <PeerChatWorkspace

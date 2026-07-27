@@ -17,9 +17,10 @@ interface TypewriterTextProps {
   msgId: string;
   isOmniReply: boolean;
   onFinish?: () => void;
+  onOpenQuizById?: (quizId: string) => void;
 }
 
-const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniReply, onFinish }) => {
+const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniReply, onFinish, onOpenQuizById }) => {
   const [displayedText, setDisplayedText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   
@@ -52,6 +53,10 @@ const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniRepl
     
     return () => clearInterval(interval);
   }, [text, msgId, isOmniReply, onFinish]);
+
+  const quizReadyRegex = /\[\[QUIZ_READY:\s*([^,\]]+),\s*([^,\]]+),\s*(\d+)\s*\]\]/i;
+  const quizMatch = displayedText.match(quizReadyRegex);
+  const cleanMarkdownText = displayedText.replace(quizReadyRegex, '').trim();
 
   return (
     <div className="relative">
@@ -86,10 +91,35 @@ const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniRepl
           }
         }}
       >
-        {displayedText}
+        {cleanMarkdownText}
       </ReactMarkdown>
       {isTyping && (
         <span className="inline-block w-2 h-4 bg-red-600 animate-pulse ml-1 align-middle" />
+      )}
+
+      {quizMatch && (
+        <div className="mt-4 p-4 rounded-2xl bg-gradient-to-r from-purple-900/50 via-rose-900/40 to-slate-900/90 border border-red-500/40 shadow-2xl space-y-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 to-red-600 flex items-center justify-center text-white shadow-lg shrink-0">
+              <Sparkles size={20} className="animate-pulse text-amber-300" />
+            </div>
+            <div>
+              <p className="text-xs font-black uppercase text-white tracking-wider">CBT Practice Quiz Ready!</p>
+              <p className="text-[10px] text-white/70 font-medium">{quizMatch[2]} ({quizMatch[3]} Questions)</p>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              if (onOpenQuizById) {
+                onOpenQuizById(quizMatch[1]);
+              }
+            }}
+            className="w-full py-3 bg-gradient-to-r from-purple-600 via-rose-600 to-red-600 hover:opacity-95 text-white font-black text-xs rounded-xl shadow-xl shadow-purple-600/30 flex items-center justify-center gap-2 uppercase tracking-wider cursor-pointer border border-white/20 transition-all hover:scale-[1.01] active:scale-95"
+          >
+            <Sparkles size={16} className="text-amber-300 animate-pulse" />
+            <span>🚀 Open & Take Quiz Now</span>
+          </button>
+        </div>
       )}
     </div>
   );
@@ -119,6 +149,7 @@ interface OmniChatWorkspaceProps {
   setImportedQuizNote?: (note: any) => void;
   setQuizTopic?: (topic: string) => void;
   generateQuiz?: (customTopic?: string, customCount?: number, customDifficulty?: any) => Promise<void>;
+  onOpenQuizById?: (quizId: string) => void;
 }
 
 export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
@@ -144,7 +175,8 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
   setToolsSubTab,
   setImportedQuizNote,
   setQuizTopic,
-  generateQuiz
+  generateQuiz,
+  onOpenQuizById
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -391,6 +423,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                           text={msg.text} 
                           msgId={msg.id} 
                           isOmniReply={index === messages.length - 1 && isNewResponse} // Typewriter stream effects strictly once on newly generated replies
+                          onOpenQuizById={onOpenQuizById}
                         />
                       </div>
                     </div>
