@@ -8598,12 +8598,22 @@ ${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\nopt
   // --- 📝 QUIZ LOGIC ---
   const loadSharedQuiz = async (quizId: string) => {
     setIsLinkQuizLoading(true);
+
+    // Fallback safety timeout (12s max) to prevent indefinite loading in case of severe network failure
+    const safetyTimeout = setTimeout(() => {
+      setIsLinkQuizLoading(false);
+    }, 12000);
+
     try {
       const quizDoc = await getDoc(doc(db, 'quizzes', quizId));
       if (quizDoc.exists()) {
         const data = quizDoc.data();
         if (data.topic) setLinkQuizTopic(data.topic);
         
+        // Close active chat room so view transfers directly to Quiz tool
+        setSelectedChatForRoom(null);
+        setIsChatRoomActive(false);
+
         // Update browser title & OpenGraph meta for social sharing previews
         updatePageMeta(
           `Quiz: ${data.topic || 'Academic Quiz'}`,
@@ -8633,6 +8643,7 @@ ${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\nopt
             setUserNotification("You have already completed this quiz! Showing your scorecard.");
             setActiveTab('tools');
             setToolsSubTab('quiz');
+            clearTimeout(safetyTimeout);
             return;
           }
         }
@@ -8670,6 +8681,7 @@ ${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\nopt
             setIsAnswered(p.userQuizAnswers?.[p.currentQuestionIndex] !== undefined);
             setActiveTab('tools');
             setToolsSubTab('quiz');
+            clearTimeout(safetyTimeout);
             return; // Exit after loading progress
           } catch (pe) {
             console.error("Failed to load saved quiz progress:", pe);
@@ -8688,22 +8700,53 @@ ${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\nopt
         setIsAnswered(false);
         setSelectedOption(null);
         setUserQuizAnswers([]);
+        clearTimeout(safetyTimeout);
+      } else {
+        clearTimeout(safetyTimeout);
+        setIsLinkQuizLoading(false);
+        setUserNotification("Quiz not found or may have been deleted.");
       }
     } catch (error) {
+      clearTimeout(safetyTimeout);
       console.error("Error loading shared quiz:", error);
-    } finally {
-      setTimeout(() => {
-        setIsLinkQuizLoading(false);
-      }, 400);
+      setIsLinkQuizLoading(false);
+      setUserNotification("Failed to load quiz. Please try again.");
     }
   };
+
+  // Keep loading popup visible until Auth completes & Quiz is active and rendered on screen
+  useEffect(() => {
+    if (
+      isLinkQuizLoading && 
+      !isAuthLoading && 
+      quizQuestions && 
+      quizQuestions.length > 0 && 
+      (quizState === 'active' || quizState === 'finished')
+    ) {
+      // Force navigation state to Quiz tool view
+      if (activeTab !== 'tools') setActiveTab('tools');
+      if (toolsSubTab !== 'quiz') setToolsSubTab('quiz');
+      if (isChatRoomActive) setIsChatRoomActive(false);
+      if (selectedChatForRoom) setSelectedChatForRoom(null);
+
+      // Delay dismiss briefly to guarantee DOM paint of the quiz screen
+      const timer = setTimeout(() => {
+        setIsLinkQuizLoading(false);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [isLinkQuizLoading, isAuthLoading, quizQuestions, quizState, activeTab, toolsSubTab, isChatRoomActive, selectedChatForRoom]);
 
   const handleTagOmni = async (text: string, chatId: string, attachments?: { url: string, type: string, name: string }[]) => {
     if (!user) return;
     try {
-      // 1. Retrieve up to 100 past messages for true conversation memory
+      // Optimized History retrieval: Default 12 messages for fast responses, 40 if history explicitly requested
+      const lowerText = text.toLowerCase();
+      const isHistoryRequested = /check\s+my\s+history|history|previous\s+(?:chat|message|conversation)|what\s+did\s+I\s+say|remember\s+when|past\s+messages|check\s+history/i.test(lowerText);
+      const historyLimit = isHistoryRequested ? 40 : 12;
+
       const msgsRef = collection(db, 'chats', chatId, 'messages');
-      const qMsgs = query(msgsRef, orderBy('timestamp', 'asc'), limit(100));
+      const qMsgs = query(msgsRef, orderBy('timestamp', 'desc'), limit(historyLimit));
       const snapshot = await getDocs(qMsgs);
       
       const pastMessages: any[] = [];
@@ -8716,6 +8759,8 @@ ${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\nopt
           });
         }
       });
+      // Reverse to place back in chronological order
+      pastMessages.reverse();
 
       // System instruction for Omni
       const systemInstruction = {

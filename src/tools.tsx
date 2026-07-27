@@ -2207,7 +2207,7 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                     <button onClick={() => setQuizState('review')} className="w-full bg-[#DC2626] text-white font-black py-4 rounded-2xl text-xs sm:text-sm shadow-xl shadow-[#DC2626]/20 hover:bg-[#DC2626]/90 transition-all flex items-center justify-center gap-2 cursor-pointer">
                       <Search size={18} /> CHECK RESULTS & REVIEW
                     </button>
-                    <button onClick={() => setShowOmniQuizModal(true)} className="w-full bg-gradient-to-r from-purple-600 via-rose-600 to-red-600 text-white font-black py-4 rounded-2xl text-xs sm:text-sm shadow-xl shadow-purple-600/20 hover:opacity-95 transition-all flex items-center justify-center gap-2 border border-white/20 cursor-pointer">
+                    <button onClick={() => handleLaunchOmniQuizDiscussion('new')} className="w-full bg-gradient-to-r from-purple-600 via-rose-600 to-red-600 text-white font-black py-4 rounded-2xl text-xs sm:text-sm shadow-xl shadow-purple-600/20 hover:opacity-95 transition-all flex items-center justify-center gap-2 border border-white/20 cursor-pointer">
                       <Sparkles size={18} className="animate-pulse text-amber-300" /> DISCUSS & LEARN WITH OMNI AI
                     </button>
                   </div>
@@ -2225,7 +2225,7 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
               <div className={`flex items-center justify-between ${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-4 rounded-2xl border shadow-sm`}>
                 <button onClick={() => setQuizState('finished')} className="text-white/40 hover:text-[#DC2626] flex items-center gap-1 text-xs font-bold uppercase"><ArrowLeft size={14} /> Back to Results</button>
                 <h3 className="text-sm font-black text-white uppercase tracking-tighter">Detailed Review</h3>
-                <button onClick={() => setShowOmniQuizModal(true)} className="px-3 py-1.5 bg-gradient-to-r from-purple-600 to-red-600 text-white text-[11px] font-black rounded-xl hover:opacity-90 flex items-center gap-1.5 shadow-md border border-white/20 cursor-pointer">
+                <button onClick={() => handleLaunchOmniQuizDiscussion('new')} className="px-3 py-1.5 bg-gradient-to-r from-purple-600 to-red-600 text-white text-[11px] font-black rounded-xl hover:opacity-90 flex items-center gap-1.5 shadow-md border border-white/20 cursor-pointer">
                   <Sparkles size={13} className="text-amber-300" /> Learn with Omni
                 </button>
               </div>
