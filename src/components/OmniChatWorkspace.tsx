@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Paperclip, Mic, Send, StopCircle, Brain, ArrowLeft, 
   Sparkles, Check, Copy, User, HelpCircle, BookOpen, FileText, X,
-  Plus, Image as ImageIcon, ArrowDown
+  Plus, Image as ImageIcon, ArrowDown, Loader2, Maximize2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
@@ -106,6 +106,8 @@ interface OmniChatWorkspaceProps {
   onStartVoiceRecord: () => void;
   onStopVoiceRecord: () => void;
   onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  uploadToCloudinary?: (file: File | Blob) => Promise<string>;
+  onSendImageMessage?: (file: File, caption: string) => Promise<void>;
   onClose: () => void;
   user: any;
   userHandle: string;
@@ -130,6 +132,8 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
   onStartVoiceRecord,
   onStopVoiceRecord,
   onFileUpload,
+  uploadToCloudinary,
+  onSendImageMessage,
   onClose,
   user,
   userHandle,
@@ -148,6 +152,46 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
   const [showNoteSelector, setShowNoteSelector] = useState(false);
   const [selectedImportedNote, setSelectedImportedNote] = useState<any | null>(null);
   const [showPlusMenu, setShowPlusMenu] = useState(false);
+
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [attachedImage, setAttachedImage] = useState<{ file: File; previewUrl: string; cloudUrl: string } | null>(null);
+  const [viewingFullImageUrl, setViewingFullImageUrl] = useState<string | null>(null);
+
+  const handleImagePickerChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files?.[0]) return;
+    const file = e.target.files[0];
+    if (file.type.startsWith('image/')) {
+      setIsUploadingImage(true);
+      const previewUrl = URL.createObjectURL(file);
+      setAttachedImage({ file, previewUrl, cloudUrl: '' });
+      try {
+        if (uploadToCloudinary) {
+          const cloudUrl = await uploadToCloudinary(file);
+          setAttachedImage(prev => prev ? { ...prev, cloudUrl } : null);
+        }
+      } catch (err) {
+        console.error("Failed to upload image:", err);
+      } finally {
+        setIsUploadingImage(false);
+      }
+    } else {
+      onFileUpload(e);
+    }
+  };
+
+  const handleSendWithImage = async () => {
+    if (!attachedImage || isUploadingImage) return;
+    const caption = inputText.trim();
+    const file = attachedImage.file;
+    setAttachedImage(null);
+    setInputText('');
+    
+    if (onSendImageMessage) {
+      await onSendImageMessage(file, caption || 'Analyze this image');
+    } else {
+      onSendMessage();
+    }
+  };
   
   const initiallyLoadedIdsRef = useRef<Set<string>>(new Set());
   const [initialLoadDone, setInitialLoadDone] = useState(false);
@@ -301,9 +345,24 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                         {user?.displayName || 'SCHOLASTIC USER'} <span className="text-[7.5px] text-white/20 font-bold">● {msg.timestamp?.toDate ? msg.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Just Now'}</span>
                       </p>
                       
-                      {msg.mediaUrl && msg.type === 'image' && (
-                        <div className="max-w-md rounded-xl overflow-hidden border border-white/10 mb-2">
-                          <img referrerPolicy="no-referrer" src={msg.mediaUrl} alt="Scholastic scan upload" className="w-full h-auto object-cover" />
+                      {msg.mediaUrl && (msg.type === 'image' || msg.mediaUrl.match(/\.(png|jpg|jpeg|webp|gif)/i)) && (
+                        <div className="my-2.5">
+                          <div 
+                            onClick={() => setViewingFullImageUrl(msg.mediaUrl)}
+                            className="relative group max-w-[200px] h-32 rounded-2xl overflow-hidden border border-white/15 bg-black/40 cursor-pointer shadow-xl hover:border-red-500/50 hover:shadow-red-500/20 transition-all"
+                          >
+                            <img 
+                              referrerPolicy="no-referrer" 
+                              src={msg.mediaUrl} 
+                              alt="Attachment preview" 
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-80 group-hover:opacity-100 transition-opacity flex items-end p-2">
+                              <span className="text-[8.5px] font-black uppercase text-white tracking-wider flex items-center gap-1 drop-shadow-md">
+                                <Maximize2 size={10} className="text-red-400" /> Tap to view
+                              </span>
+                            </div>
+                          </div>
                         </div>
                       )}
 
@@ -351,7 +410,6 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                     <span className="w-1.5 h-1.5 bg-[#DC2626] rounded-full animate-bounce [animation-delay:-0.3s]" />
                     <span className="w-1.5 h-1.5 bg-[#DC2626] rounded-full animate-bounce [animation-delay:-0.15s]" />
                     <span className="w-1.5 h-1.5 bg-[#DC2626] rounded-full animate-bounce" />
-                    <span className="text-[10px] font-black uppercase tracking-widest text-white/25 ml-2">Assembling scholastic tokens...</span>
                   </div>
                 </div>
               </div>
@@ -500,6 +558,46 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
           )}
         </AnimatePresence>
 
+        {/* Draft Attached Image Container */}
+        <AnimatePresence>
+          {attachedImage && (
+            <motion.div
+              initial={{ opacity: 0, y: 10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.95 }}
+              className="w-full max-w-4xl bg-[#120F1F] border border-white/10 rounded-2xl p-2.5 flex items-center justify-between gap-3 mb-2"
+            >
+              <div className="flex items-center gap-3 overflow-hidden">
+                <div className="relative w-12 h-12 rounded-xl overflow-hidden border border-white/15 shrink-0 bg-black">
+                  <img src={attachedImage.previewUrl} alt="Attached draft" className="w-full h-full object-cover" />
+                  {isUploadingImage && (
+                    <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
+                      <Loader2 size={16} className="text-red-500 animate-spin" />
+                    </div>
+                  )}
+                </div>
+                <div className="leading-tight overflow-hidden text-left">
+                  <p className="text-[9px] font-black uppercase tracking-wider text-red-400">
+                    {isUploadingImage ? 'Uploading image...' : 'Image ready'}
+                  </p>
+                  <p className="text-xs text-white/80 font-medium truncate mt-0.5">{attachedImage.file.name}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setAttachedImage(null);
+                  setIsUploadingImage(false);
+                }}
+                className="p-1.5 hover:bg-white/10 rounded-xl text-white/50 hover:text-white transition-all cursor-pointer"
+                title="Remove attachment"
+              >
+                <X size={16} />
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Dynamic input control bar wrapper */}
         <div className="flex items-center gap-3 w-full max-w-4xl bg-[#0A0713]/90 border border-white/10 rounded-2xl p-2 shadow-2xl relative">
           
@@ -564,7 +662,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
           <input 
             type="file"
             ref={fileInputRef}
-            onChange={onFileUpload}
+            onChange={handleImagePickerChange}
             className="hidden"
             accept="image/*,application/pdf"
           />
@@ -572,7 +670,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
           <input 
             type="file"
             ref={galleryInputRef}
-            onChange={onFileUpload}
+            onChange={handleImagePickerChange}
             className="hidden"
             accept="image/*"
           />
@@ -589,38 +687,55 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
+                if (isUploadingImage) return;
                 const target = e.target as HTMLTextAreaElement;
                 target.style.height = 'auto';
-                handleKeyPress(e);
+                if (attachedImage) {
+                  e.preventDefault();
+                  handleSendWithImage();
+                } else {
+                  handleKeyPress(e);
+                }
               }
             }}
-            placeholder={isRecording ? 'Recording audio...' : 'Ask Omni...'}
-            disabled={isRecording}
+            placeholder={isUploadingImage ? 'Uploading image...' : isRecording ? 'Recording audio...' : 'Ask Omni...'}
+            disabled={isRecording || isUploadingImage}
             rows={1}
-            className="flex-1 bg-transparent px-2 py-2 text-xs text-white max-h-32 resize-none outline-none placeholder-white/20 select-text font-medium leading-relaxed"
+            className="flex-1 bg-transparent px-2 py-2 text-xs text-white max-h-32 resize-none outline-none placeholder-white/20 select-text font-medium leading-relaxed disabled:opacity-50"
           />
 
-          {/* Record button or Send button on far right end */}
-          {isRecording ? (
+          {/* Send / Rotating Spinner / Record button on far right end */}
+          {isUploadingImage ? (
+            <div 
+              className="p-3 w-11 h-11 bg-white/5 border border-white/10 text-red-500 rounded-2xl flex items-center justify-center transition-all shadow-md cursor-not-allowed shrink-0"
+              title="Uploading image..."
+            >
+              <Loader2 size={18} className="animate-spin text-red-500" />
+            </div>
+          ) : isRecording ? (
             <button
               id="omni_voice_stop_btn"
               onClick={onStopVoiceRecord}
-              className="p-3 w-11 h-11 bg-red-600 text-white rounded-2xl flex items-center justify-center transition-all shadow-md animate-pulse cursor-pointer"
+              className="p-3 w-11 h-11 bg-red-600 text-white rounded-2xl flex items-center justify-center transition-all shadow-md animate-pulse cursor-pointer shrink-0"
               title="Stop Recording"
             >
               <StopCircle size={16} />
             </button>
-          ) : inputText.trim() ? (
+          ) : (inputText.trim() || attachedImage) ? (
             <button
               id="omni_send_message_btn"
               onClick={() => {
-                onSendMessage();
+                if (attachedImage) {
+                  handleSendWithImage();
+                } else {
+                  onSendMessage();
+                }
                 const textarea = document.getElementById('omni-workspace-chat-textarea');
                 if (textarea) {
                   (textarea as HTMLTextAreaElement).style.height = 'auto';
                 }
               }}
-              className="p-3 w-11 h-11 bg-red-650 hover:bg-red-500 text-white rounded-2xl flex items-center justify-center transition-all shadow-md active:translate-y-0.5 cursor-pointer"
+              className="p-3 w-11 h-11 bg-red-650 hover:bg-red-500 text-white rounded-2xl flex items-center justify-center transition-all shadow-md active:translate-y-0.5 cursor-pointer shrink-0"
               title="Send"
             >
               <Send size={16} />
@@ -629,7 +744,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
             <button
               id="omni_voice_record_btn"
               onClick={onStartVoiceRecord}
-              className="p-3 w-11 h-11 bg-white/5 hover:bg-white/10 text-white/50 hover:text-white rounded-2xl flex items-center justify-center transition-all shadow-md cursor-pointer border border-white/5"
+              className="p-3 w-11 h-11 bg-white/5 hover:bg-white/10 text-white/50 hover:text-white rounded-2xl flex items-center justify-center transition-all shadow-md cursor-pointer border border-white/5 shrink-0"
               title="Record Voice"
             >
               <Mic size={16} />
@@ -638,6 +753,34 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
 
         </div>
       </div>
+
+      {/* Full Image Viewer Popup Modal */}
+      <AnimatePresence>
+        {viewingFullImageUrl && (
+          <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="relative max-w-4xl max-h-[90vh] flex flex-col items-center justify-center"
+            >
+              <button
+                onClick={() => setViewingFullImageUrl(null)}
+                className="absolute -top-12 right-0 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-all cursor-pointer border border-white/10"
+                title="Close preview"
+              >
+                <X size={20} />
+              </button>
+              <img 
+                referrerPolicy="no-referrer" 
+                src={viewingFullImageUrl} 
+                alt="Full resolution view" 
+                className="max-w-full max-h-[80vh] object-contain rounded-2xl shadow-2xl border border-white/10"
+              />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

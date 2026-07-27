@@ -21,7 +21,7 @@ export const MarkdownRenderer = ({ content, className = "", selectable = false }
 
   // Helper to auto-wrap only math expressions within a line to avoid wrapping text
   const autoWrapMath = (text: string): string => {
-    if (!text) return "";
+    if (!text || !text.trim()) return text;
     
     // Protect existing math blocks
     const protectedBlocks: string[] = [];
@@ -30,46 +30,19 @@ export const MarkdownRenderer = ({ content, className = "", selectable = false }
       return `__MATH_BLOCK_${protectedBlocks.length - 1}__`;
     });
 
-    // Comprehensive list of LaTeX math keywords
-    const mathKeywords = [
-      'frac', 'cdot', 'left', 'right', 'times', 'sqrt', 'approx', 'omega', 'alpha', 'beta',
-      'theta', 'delta', 'sigma', 'lambda', 'text', 'math', 'hat', 'vec', 'bar', 'dot', 'ddot',
-      'tilde', 'pi', 'rho', 'mu', 'gamma', 'epsilon', 'phi', 'psi', 'tau', 'eta', 'xi', 'zeta',
-      'leq', 'geq', 'neq', 'pm', 'mp', 'infty', 'sum', 'int', 'prod', 'lim', 'sin', 'cos', 'tan',
-      'log', 'ln', 'exp', 'quad', 'circ', 'deg', 'partial', 'nabla', 'mathrm', 'mathbf', 'mathbb'
-    ];
-
-    // Check if line contains LaTeX math keywords or math structure (^ or _)
-    const hasMathCommand = new RegExp(`\\\\(${mathKeywords.join('|')})\\b`).test(processed);
-    const hasMathStructure = /[\w\)]\^|[\w\)]_/.test(processed);
-
-    if (hasMathCommand || hasMathStructure) {
-      // Check if line is mostly a standalone math expression (common in quiz options like "2\\hat{i} + 3\\hat{j}")
-      const words = processed.match(/[a-zA-Z]{4,}/g) || [];
-      const nonMathWords = words.filter((w: string) => !mathKeywords.includes(w.toLowerCase()));
-      
-      // If <= 2 non-math English words, wrap the trimmed expression cleanly
-      if (nonMathWords.length <= 2) {
-        const trimmed = processed.trim();
-        if (trimmed && trimmed.length >= 2 && !trimmed.startsWith('__MATH_BLOCK_')) {
-          processed = ` $${trimmed}$ `;
-        }
-      } else {
-        // Otherwise wrap individual unclosed math substrings inside the sentence
-        processed = processed.replace(/(?:[0-9a-zA-Z_,\.\(\)\{\}\[\]\+\-\*\/\=\^\s]|\\(?![a-zA-Z]{5,}))*(?:\\(?:frac|cdot|left|right|times|sqrt|pi|rho|sigma|delta|Omega|alpha|beta|theta|mu|lambda|approx|neq|le|ge|hat|vec|bar|dot|ddot|tilde|pm|mp|infty|sum|int|prod|lim|sin|cos|tan|log|ln|exp)[a-zA-Z]*|_[0-9a-zA-Z]+|\^[0-9a-zA-Z]+)(?:[0-9a-zA-Z_,\.\(\)\{\}\[\]\+\-\*\/\=\^\s]|\\(?![a-zA-Z]{5,}))*/g, (match) => {
-          const trimmedMatch = match.trim();
-          if (!trimmedMatch || trimmedMatch.length < 3 || trimmedMatch.startsWith('__MATH_BLOCK_')) return match;
-          if (trimmedMatch.includes('\\') || trimmedMatch.includes('_') || trimmedMatch.includes('^') || trimmedMatch.includes('=')) {
-            return ` $${trimmedMatch}$ `;
-          }
-          return match;
-        });
+    // Only auto-wrap if the text contains explicit LaTeX commands
+    const explicitLatexPattern = /\\(frac|sqrt|hat|vec|bar|dot|ddot|tilde|sum|int|prod|lim|alpha|beta|gamma|delta|sigma|omega|lambda|theta|pi|mu|rho|tau|phi|psi|epsilon|eta|xi|zeta|approx|neq|leq|geq|pm|mp|infty)\b/;
+    
+    if (explicitLatexPattern.test(processed)) {
+      const trimmed = processed.trim();
+      if (trimmed && !trimmed.startsWith('__MATH_BLOCK_')) {
+        processed = ` $${trimmed}$ `;
       }
     }
 
     // Restore protected blocks
     processed = processed.replace(/__MATH_BLOCK_(\d+)__/g, (_, idx) => {
-      return protectedBlocks[parseInt(idx, 10)];
+      return protectedBlocks[parseInt(idx, 10)] || '';
     });
 
     return processed;

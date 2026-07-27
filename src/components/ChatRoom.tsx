@@ -181,7 +181,7 @@ interface ChatRoomProps {
   setToolsSubTab?: (subTab: string) => void;
   setImportedQuizNote?: (note: any) => void;
   setQuizTopic?: (topic: string) => void;
-  generateQuiz?: (customTopic?: string, customCount?: number, customDifficulty?: any) => Promise<void>;
+  generateQuiz?: (customTopic?: string, customCount?: number, customDifficulty?: any) => Promise<any>;
 }
 
 export const ChatRoom: React.FC<ChatRoomProps> = ({ 
@@ -1329,6 +1329,38 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     setSelectedChat({ id: docRef.id, ...chatData } as Chat);
   };
 
+  const handleSendOmniImage = async (file: File, caption: string) => {
+    if (!selectedChat) return;
+    setIsUploading(true);
+    try {
+      const url = await uploadToCloudinary(file);
+      const msgData: any = {
+        senderId: user.uid,
+        senderHandle: userHandle,
+        senderName: user.displayName || userHandle,
+        text: caption || 'Sent an image',
+        timestamp: serverTimestamp(),
+        type: 'image',
+        mediaUrl: url,
+        encrypted: true,
+        seenBy: [user.uid]
+      };
+      await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData);
+      await updateDoc(doc(db, 'chats', selectedChat.id), {
+        lastMessage: `📸 ${caption || 'Image'}`,
+        lastMessageSender: user.displayName || userHandle,
+        updatedAt: serverTimestamp()
+      });
+      if (selectedChat.id.startsWith('omni_') || caption.toLowerCase().includes('@omni')) {
+        onTagOmni(caption || 'Analyze this image', selectedChat.id, [{ url, type: 'image', name: file.name }]);
+      }
+    } catch (err) {
+      console.error("Failed to send Omni image:", err);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.[0] || !selectedChat) return;
     const file = e.target.files[0];
@@ -2243,6 +2275,8 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
               onStartVoiceRecord={startRecording}
               onStopVoiceRecord={stopRecording}
               onFileUpload={handleFileUpload}
+              uploadToCloudinary={uploadToCloudinary}
+              onSendImageMessage={handleSendOmniImage}
               onClose={() => setSelectedChat(null)}
               user={user}
               userHandle={userHandle}
