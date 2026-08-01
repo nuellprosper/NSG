@@ -3,7 +3,8 @@ import {
   Paperclip, Mic, Send, StopCircle, ArrowLeft, 
   Sparkles, Copy, User, BookOpen, FileText, X,
   Plus, Image as ImageIcon, ArrowDown, Loader2, Maximize2,
-  Menu, ChevronDown, SquarePen, MoreHorizontal, ArrowUp, ArrowRight
+  Menu, ChevronDown, SquarePen, MoreHorizontal, ArrowUp, ArrowRight,
+  Pin, Trash2, Edit3, Check, MoreVertical, MessageSquare
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
@@ -12,7 +13,15 @@ import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { Message } from '../types/chat';
 
-// Embedded Typewriter and copyable Markdown element
+export interface OmniChatSession {
+  id: string;
+  title: string;
+  timestamp: Date | string;
+  isPinned?: boolean;
+  messages: Message[];
+}
+
+// Embedded Typewriter and copyable Markdown element with rich text hierarchy
 interface TypewriterTextProps {
   text: string;
   msgId: string;
@@ -40,7 +49,7 @@ const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniRepl
     setIsTyping(true);
     let index = 0;
     const interval = setInterval(() => {
-      index += 5; // Flow smooth rendering character increments
+      index += 6;
       if (index >= text.length) {
         setDisplayedText(text);
         setIsTyping(false);
@@ -60,21 +69,41 @@ const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniRepl
   const cleanMarkdownText = displayedText.replace(quizReadyRegex, '').trim();
 
   return (
-    <div className="relative">
+    <div className="relative w-full">
       <ReactMarkdown 
         remarkPlugins={[remarkMath]} 
         rehypePlugins={[rehypeKatex]}
         components={{
+          h1({ children }) {
+            return <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight mt-4 mb-2 border-b border-white/10 pb-1 font-display">{children}</h1>;
+          },
+          h2({ children }) {
+            return <h2 className="text-lg sm:text-xl font-extrabold text-white tracking-tight mt-3 mb-1.5 font-display">{children}</h2>;
+          },
+          h3({ children }) {
+            return <h3 className="text-base sm:text-lg font-bold text-red-400 tracking-tight mt-2.5 mb-1 font-display">{children}</h3>;
+          },
+          strong({ children }) {
+            return <strong className="font-extrabold text-white bg-red-500/10 px-1 py-0.5 rounded border border-red-500/20">{children}</strong>;
+          },
+          p({ children }) {
+            return <p className="my-2 leading-relaxed text-slate-100 text-sm sm:text-base font-normal">{children}</p>;
+          },
+          li({ children }) {
+            return <li className="my-1 leading-relaxed text-sm sm:text-base font-normal text-slate-200">{children}</li>;
+          },
           code({ className, children, ...props }: any) {
             const match = /language-(\w+)/.exec(className || '');
             const codeVal = String(children).replace(/\n$/, '');
             return className && match ? (
-              <div className="relative group/code my-3 rounded-xl overflow-hidden border border-white/10 bg-[#090810] font-mono">
+              <div className="relative group/code my-3 rounded-xl overflow-hidden border border-white/10 bg-[#090810] font-mono w-full">
                 <div className="px-4 py-2 bg-white/5 border-b border-white/5 flex items-center justify-between text-white/50 text-[9px] font-bold uppercase tracking-widest">
                   <span>{match[1]}</span>
                   <button 
                     onClick={() => {
                       navigator.clipboard.writeText(codeVal);
+                      const evt = new CustomEvent('show_global_notify', { detail: 'Code block copied!' });
+                      window.dispatchEvent(evt);
                     }}
                     className="px-2 py-1 hover:bg-white/10 rounded text-red-400 transition-colors active:scale-95 text-[9px] font-bold uppercase"
                     title="Copy Code"
@@ -99,7 +128,7 @@ const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniRepl
       )}
 
       {quizMatch && (
-        <div className="mt-4 p-4 rounded-2xl bg-[#1A162B] border border-red-500/30 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="mt-4 p-4 rounded-2xl bg-[#1A162B] border border-red-500/30 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 w-full">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 to-red-600 flex items-center justify-center text-white shadow-md shrink-0">
               <Sparkles size={18} className="text-amber-300 animate-pulse" />
@@ -126,7 +155,34 @@ const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniRepl
   );
 };
 
-// User Message Item with Read More / Show Less truncation
+// Press and Hold hook (0.5s trigger)
+const useLongPress = (onLongPress: () => void, ms = 500) => {
+  const timerRef = useRef<any>(null);
+
+  const start = () => {
+    timerRef.current = setTimeout(() => {
+      onLongPress();
+    }, ms);
+  };
+
+  const clear = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  return {
+    onTouchStart: start,
+    onTouchEnd: clear,
+    onTouchMove: clear,
+    onMouseDown: start,
+    onMouseUp: clear,
+    onMouseLeave: clear,
+  };
+};
+
+// User Message Item with Read More / Show Less truncation and Copy on Hold
 const UserMessageItem: React.FC<{ 
   msg: Message; 
   user: any; 
@@ -134,26 +190,38 @@ const UserMessageItem: React.FC<{
   onZoomImage?: (url: string) => void; 
 }> = ({ msg, onZoomImage }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showCopyPopup, setShowCopyPopup] = useState(false);
   const text = msg.text || '';
   const isLong = text.length > 220;
   const displayText = isLong && !isExpanded ? text.substring(0, 220) + '...' : text;
 
+  const longPressProps = useLongPress(() => {
+    setShowCopyPopup(true);
+  }, 500);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(text);
+    setShowCopyPopup(false);
+    const evt = new CustomEvent('show_global_notify', { detail: 'Message copied to clipboard!' });
+    window.dispatchEvent(evt);
+  };
+
   return (
-    <div className="w-full py-2.5 px-4 sm:px-8 flex justify-end font-sans">
-      <div className="max-w-[88%] sm:max-w-[75%] bg-[#1E1A2E]/90 border border-white/10 rounded-[22px] px-5 py-3.5 shadow-md text-left">
+    <div className="w-full py-2.5 px-3 sm:px-6 flex justify-end font-sans relative">
+      <div className="max-w-[88%] sm:max-w-[75%] bg-[#1E1A2E]/90 border border-white/10 rounded-[22px] px-4 py-3 shadow-md text-left relative group select-text hover:border-white/20 transition-all">
         {msg.mediaUrl && (
           <div className="mb-2.5">
             <div 
               onClick={() => onZoomImage?.(msg.mediaUrl)}
-              className="relative group max-w-[220px] h-36 rounded-xl overflow-hidden border border-white/15 bg-black/40 cursor-pointer shadow-lg hover:border-red-500/50 transition-all"
+              className="relative group/img max-w-[220px] h-36 rounded-xl overflow-hidden border border-white/15 bg-black/40 cursor-pointer shadow-lg hover:border-red-500/50 transition-all"
             >
               <img 
                 referrerPolicy="no-referrer" 
                 src={msg.mediaUrl} 
                 alt="Attachment preview" 
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" 
+                className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-300" 
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-80 group-hover:opacity-100 transition-opacity flex items-end p-2">
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-80 group-hover/img:opacity-100 transition-opacity flex items-end p-2">
                 <span className="text-[8.5px] font-black uppercase text-white tracking-wider flex items-center gap-1 drop-shadow-md">
                   <Maximize2 size={10} className="text-red-400" /> Tap to view
                 </span>
@@ -166,7 +234,7 @@ const UserMessageItem: React.FC<{
           {displayText}
           {isLong && (
             <button
-              onClick={() => setIsExpanded(!isExpanded)}
+              onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
               className="text-xs font-bold text-red-400 hover:text-red-300 ml-1.5 focus:outline-none cursor-pointer hover:underline"
             >
               {isExpanded ? 'Show less' : 'Read more'}
@@ -203,6 +271,15 @@ interface OmniChatWorkspaceProps {
   setQuizTopic?: (topic: string) => void;
   generateQuiz?: (customTopic?: string, customCount?: number, customDifficulty?: any) => Promise<void>;
   onOpenQuizById?: (quizId: string) => void;
+  
+  // History session handlers
+  chatSessions?: OmniChatSession[];
+  activeSessionId?: string | null;
+  onSelectSession?: (id: string) => void;
+  onNewChat?: () => void;
+  onRenameSession?: (id: string, newTitle: string) => void;
+  onPinSession?: (id: string) => void;
+  onDeleteSession?: (id: string) => void;
 }
 
 export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
@@ -229,7 +306,14 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
   setImportedQuizNote,
   setQuizTopic,
   generateQuiz,
-  onOpenQuizById
+  onOpenQuizById,
+  chatSessions = [],
+  activeSessionId,
+  onSelectSession,
+  onNewChat,
+  onRenameSession,
+  onPinSession,
+  onDeleteSession
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -242,8 +326,16 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
   const [attachedImage, setAttachedImage] = useState<{ file: File; previewUrl: string } | null>(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
+  const [showHistoryDrawer, setShowHistoryDrawer] = useState(false);
 
-  // Maintain list of initially loaded message IDs to avoid re-triggering typewriter effect on old messages
+  // State for session context menu (Rename, Pin, Delete)
+  const [activeMenuSessionId, setActiveMenuSessionId] = useState<string | null>(null);
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [renameTitleInput, setRenameTitleInput] = useState('');
+
+  // Copy popup for Omni responses
+  const [activeOmniCopyMsgId, setActiveOmniCopyMsgId] = useState<string | null>(null);
+
   const initiallyLoadedIdsRef = useRef<Set<string>>(new Set());
   const [initialLoadDone, setInitialLoadDone] = useState(false);
 
@@ -257,7 +349,6 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
     }
   }, [messages, initialLoadDone]);
 
-  // Handle local image attachment before sending
   const handleImagePickerChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -289,7 +380,6 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
     }
   };
 
-  // Scroll logic
   useEffect(() => {
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
@@ -337,9 +427,9 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
       <div className="px-4 py-3 bg-[#0F0E17]/90 backdrop-blur-md border-b border-white/5 flex items-center justify-between shrink-0 z-10">
         <button 
           id="omni_back_nav_btn"
-          onClick={onClose}
-          className="p-2 rounded-xl text-white/60 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
-          title="Back"
+          onClick={() => setShowHistoryDrawer(true)}
+          className="p-2 rounded-xl text-white/70 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+          title="Chat History"
         >
           <Menu size={20} />
         </button>
@@ -355,23 +445,205 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
           </button>
         </div>
 
-        {/* Right Action Icons: New Chat & Options */}
+        {/* Right Action Icons: New Chat & Close */}
         <div className="flex items-center gap-1">
           <button 
-            onClick={onClose}
-            className="p-2 rounded-xl text-white/60 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
-            title="New Chat"
+            onClick={() => {
+              if (onNewChat) onNewChat();
+            }}
+            className="p-2 rounded-xl text-white/70 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+            title="Start New Chat"
           >
             <SquarePen size={18} />
           </button>
           <button 
-            className="p-2 rounded-xl text-white/60 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
-            title="Options"
+            onClick={onClose}
+            className="p-2 rounded-xl text-white/50 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+            title="Close Workspace"
           >
-            <MoreHorizontal size={18} />
+            <X size={18} />
           </button>
         </div>
       </div>
+
+      {/* SLIDING CHAT HISTORY DRAWER */}
+      <AnimatePresence>
+        {showHistoryDrawer && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowHistoryDrawer(false)}
+              className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50"
+            />
+            <motion.div
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '-100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="fixed top-0 left-0 bottom-0 w-80 max-w-[85vw] bg-[#131020] border-r border-white/10 z-50 flex flex-col shadow-2xl p-4 text-left"
+            >
+              <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-[#DC2626]/20 border border-[#DC2626]/40 flex items-center justify-center text-[#DC2626]">
+                    <Sparkles size={16} />
+                  </div>
+                  <h3 className="text-sm font-black uppercase text-white tracking-wider">Omni Chat History</h3>
+                </div>
+                <button 
+                  onClick={() => setShowHistoryDrawer(false)}
+                  className="p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/5"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* New Chat Button inside drawer */}
+              <button
+                onClick={() => {
+                  if (onNewChat) onNewChat();
+                  setShowHistoryDrawer(false);
+                }}
+                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#DC2626] to-red-700 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg hover:opacity-95 active:scale-95 transition-all mb-4"
+              >
+                <Plus size={16} />
+                <span>Start New Omni Chat</span>
+              </button>
+
+              {/* Chat Sessions List */}
+              <div className="flex-1 overflow-y-auto space-y-2 custom-scrollbar pr-1">
+                {chatSessions.length === 0 ? (
+                  <div className="text-center py-12 text-white/30 space-y-2">
+                    <MessageSquare size={32} className="mx-auto text-white/20" />
+                    <p className="text-xs font-bold uppercase">No Saved Chats Yet</p>
+                    <p className="text-[10px] font-normal">Start asking Omni questions to save chat history!</p>
+                  </div>
+                ) : (
+                  chatSessions.map((session) => {
+                    const isActive = session.id === activeSessionId;
+                    const isPinned = Boolean(session.isPinned);
+                    const isRenaming = renamingSessionId === session.id;
+
+                    return (
+                      <div
+                        key={session.id}
+                        className={`relative group p-3 rounded-xl border transition-all ${
+                          isActive 
+                            ? 'bg-[#DC2626]/15 border-[#DC2626]/40 text-white shadow-md' 
+                            : 'bg-white/5 border-white/5 hover:bg-white/10 text-white/80'
+                        }`}
+                      >
+                        {isRenaming ? (
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="text"
+                              value={renameTitleInput}
+                              onChange={(e) => setRenameTitleInput(e.target.value)}
+                              className="flex-1 bg-black/40 border border-white/20 rounded-lg px-2 py-1 text-xs text-white outline-none"
+                              autoFocus
+                            />
+                            <button
+                              onClick={() => {
+                                if (onRenameSession && renameTitleInput.trim()) {
+                                  onRenameSession(session.id, renameTitleInput.trim());
+                                }
+                                setRenamingSessionId(null);
+                              }}
+                              className="p-1 bg-emerald-600 text-white rounded-md text-[9px] font-bold"
+                            >
+                              <Check size={14} />
+                            </button>
+                            <button
+                              onClick={() => setRenamingSessionId(null)}
+                              className="p-1 bg-white/10 text-white/60 rounded-md text-[9px]"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between gap-2">
+                            <div
+                              onClick={() => {
+                                if (onSelectSession) onSelectSession(session.id);
+                                setShowHistoryDrawer(false);
+                              }}
+                              className="flex-1 min-w-0 cursor-pointer"
+                            >
+                              <div className="flex items-center gap-1.5">
+                                {isPinned && <Pin size={12} className="text-yellow-400 shrink-0" />}
+                                <h4 className="text-xs font-bold truncate text-white">
+                                  {session.title || 'Omni Chat Session'}
+                                </h4>
+                              </div>
+                              <p className="text-[9px] text-white/40 mt-0.5 truncate">
+                                {typeof session.timestamp === 'string' ? session.timestamp : 'Recent session'}
+                              </p>
+                            </div>
+
+                            {/* Three dots option trigger */}
+                            <div className="relative shrink-0">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setActiveMenuSessionId(activeMenuSessionId === session.id ? null : session.id);
+                                }}
+                                className="p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-colors"
+                              >
+                                <MoreVertical size={14} />
+                              </button>
+
+                              {/* Action Menu (Rename, Pin, Delete) */}
+                              {activeMenuSessionId === session.id && (
+                                <div className="absolute right-0 top-8 z-50 bg-[#1E1B2E] border border-white/15 rounded-xl p-1.5 shadow-2xl min-w-[120px] flex flex-col gap-1 text-left">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setActiveMenuSessionId(null);
+                                      setRenamingSessionId(session.id);
+                                      setRenameTitleInput(session.title);
+                                    }}
+                                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-white/10 text-xs text-white/90 font-medium"
+                                  >
+                                    <Edit3 size={13} className="text-blue-400" /> Rename
+                                  </button>
+
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setActiveMenuSessionId(null);
+                                      if (onPinSession) onPinSession(session.id);
+                                    }}
+                                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-white/10 text-xs text-white/90 font-medium"
+                                  >
+                                    <Pin size={13} className={isPinned ? 'text-yellow-400' : 'text-white/40'} /> 
+                                    {isPinned ? 'Unpin' : 'Pin'}
+                                  </button>
+
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setActiveMenuSessionId(null);
+                                      if (onDeleteSession) onDeleteSession(session.id);
+                                    }}
+                                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-red-500/20 text-xs text-red-400 font-medium"
+                                  >
+                                    <Trash2 size={13} /> Delete
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Main scrolling viewport */}
       <div 
@@ -440,20 +712,38 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
               } else {
                 const idKey = msg.id || `msg_hash_${msg.text?.length || 0}_${(msg.text || '').substring(0, 30)}`;
                 const isNewResponse = initialLoadDone && !initiallyLoadedIdsRef.current.has(idKey);
+                const isCopyActive = activeOmniCopyMsgId === (msg.id || String(index));
+
                 return (
-                  <div key={msg.id || index} className="w-full py-4 px-4 sm:px-8 flex gap-3 text-left font-sans">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-purple-600 via-rose-600 to-red-600 shrink-0 flex items-center justify-center text-white shadow-md font-black text-xs">
-                      O
+                  <div 
+                    key={msg.id || index} 
+                    className="w-full py-4 px-3 sm:px-6 flex flex-col text-left font-sans border-b border-white/[0.03] relative group"
+                  >
+                    {/* Omni Response text container */}
+                    <div className="w-full min-w-0 select-text">
+                      <TypewriterText 
+                        text={msg.text} 
+                        msgId={msg.id} 
+                        isOmniReply={index === messages.length - 1 && isNewResponse} 
+                        onOpenQuizById={onOpenQuizById}
+                      />
                     </div>
-                    <div className="flex-1 min-w-0 pt-0.5">
-                      <div className="text-[14px] leading-relaxed text-slate-100 font-normal prose prose-invert max-w-none">
-                        <TypewriterText 
-                          text={msg.text} 
-                          msgId={msg.id} 
-                          isOmniReply={index === messages.length - 1 && isNewResponse} 
-                          onOpenQuizById={onOpenQuizById}
-                        />
-                      </div>
+
+                    {/* Permanent clean action bar under each Omni response: Copy button only */}
+                    <div className="mt-2.5 flex items-center justify-start gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(msg.text);
+                          const evt = new CustomEvent('show_global_notify', { detail: 'Copied!' });
+                          window.dispatchEvent(evt);
+                        }}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 hover:text-white text-[10px] font-bold uppercase tracking-wider transition-all border border-white/5 active:scale-95 cursor-pointer"
+                        title="Copy response"
+                      >
+                        <Copy size={12} />
+                        <span>Copy</span>
+                      </button>
                     </div>
                   </div>
                 );
@@ -461,16 +751,12 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
             })}
 
             {isThinking && (
-              <div className="w-full py-4 px-4 sm:px-8 flex gap-3 text-left">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-purple-600 via-rose-600 to-red-600 shrink-0 flex items-center justify-center text-white shadow-md font-black text-xs animate-spin">
-                  O
-                </div>
-                <div className="flex-1 pt-1">
-                  <div className="flex gap-1.5 items-center py-1">
-                    <span className="w-2 h-2 bg-red-500 rounded-full animate-bounce [animation-delay:-0.3s]" />
-                    <span className="w-2 h-2 bg-red-500 rounded-full animate-bounce [animation-delay:-0.15s]" />
-                    <span className="w-2 h-2 bg-red-500 rounded-full animate-bounce" />
-                  </div>
+              <div className="w-full py-4 px-3 sm:px-6 flex flex-col text-left">
+                <div className="flex gap-1.5 items-center py-2">
+                  <span className="w-2.5 h-2.5 bg-[#DC2626] rounded-full animate-bounce [animation-delay:-0.3s]" />
+                  <span className="w-2.5 h-2.5 bg-[#DC2626] rounded-full animate-bounce [animation-delay:-0.15s]" />
+                  <span className="w-2.5 h-2.5 bg-[#DC2626] rounded-full animate-bounce" />
+                  <span className="text-xs font-bold text-white/40 ml-2 uppercase tracking-wider">Omni is thinking...</span>
                 </div>
               </div>
             )}
@@ -776,7 +1062,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
               }}
               className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
                 (inputText.trim() || attachedImage)
-                  ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg cursor-pointer active:scale-95'
+                  ? 'bg-[#DC2626] hover:bg-red-500 text-white shadow-lg cursor-pointer active:scale-95'
                   : 'bg-white/10 text-white/30 cursor-not-allowed'
               }`}
               title="Send"
@@ -817,3 +1103,4 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
     </div>
   );
 };
+

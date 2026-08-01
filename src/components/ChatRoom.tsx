@@ -241,6 +241,90 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   // --- DYNAMIC CONTACT HEADERS TRACKING ---
   const [memberProfiles, setMemberProfiles] = useState<Record<string, { displayName: string, username?: string, photoURL: string | null, lastSeen?: any }>>({});
 
+  // --- OMNI CHAT SESSIONS & HISTORY PERSISTENCE ---
+  const [omniSessions, setOmniSessions] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem(`nsg_omni_sessions_${user?.uid || 'guest'}`);
+      return saved ? JSON.parse(saved) : [
+        {
+          id: 'omni_main',
+          title: 'General Omni Chat',
+          timestamp: 'Today',
+          isPinned: true,
+          messages: []
+        }
+      ];
+    } catch (e) {
+      return [{ id: 'omni_main', title: 'General Omni Chat', timestamp: 'Today', isPinned: true, messages: [] }];
+    }
+  });
+
+  const saveOmniSessionsToStorage = (updatedSessions: any[]) => {
+    setOmniSessions(updatedSessions);
+    try {
+      localStorage.setItem(`nsg_omni_sessions_${user?.uid || 'guest'}`, JSON.stringify(updatedSessions));
+    } catch (e) {}
+  };
+
+  const handleNewOmniChat = () => {
+    const newId = `omni_${Date.now()}`;
+    const newSession = {
+      id: newId,
+      title: 'New Omni Chat',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      isPinned: false,
+      messages: []
+    };
+    const updated = [newSession, ...omniSessions];
+    saveOmniSessionsToStorage(updated);
+    setSelectedChat({
+      id: newId,
+      name: 'Omni AI Assistant',
+      isOmni: true,
+      unreadBy: [],
+      members: [user?.uid || 'guest']
+    } as any);
+    setMessages([]);
+  };
+
+  const handleSelectOmniSession = (sessionId: string) => {
+    const session = omniSessions.find(s => s.id === sessionId);
+    if (session) {
+      setSelectedChat({
+        id: session.id,
+        name: session.title || 'Omni AI Assistant',
+        isOmni: true,
+        unreadBy: [],
+        members: [user?.uid || 'guest']
+      } as any);
+      setMessages(session.messages || []);
+    }
+  };
+
+  const handleRenameOmniSession = (sessionId: string, newTitle: string) => {
+    const updated = omniSessions.map(s => s.id === sessionId ? { ...s, title: newTitle } : s);
+    saveOmniSessionsToStorage(updated);
+  };
+
+  const handlePinOmniSession = (sessionId: string) => {
+    const updated = omniSessions.map(s => s.id === sessionId ? { ...s, isPinned: !s.isPinned } : s);
+    // Sort pinned to top
+    updated.sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0));
+    saveOmniSessionsToStorage(updated);
+  };
+
+  const handleDeleteOmniSession = (sessionId: string) => {
+    const updated = omniSessions.filter(s => s.id !== sessionId);
+    saveOmniSessionsToStorage(updated);
+    if (selectedChat?.id === sessionId) {
+      if (updated.length > 0) {
+        handleSelectOmniSession(updated[0].id);
+      } else {
+        handleNewOmniChat();
+      }
+    }
+  };
+
   // --- OMNI NEW ADDITIONS STATES ---
   const [isOmniThinking, setIsOmniThinking] = useState(false);
   const [showOmniThreads, setShowOmniThreads] = useState(false);
@@ -2297,6 +2381,13 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
               setQuizTopic={setQuizTopic}
               generateQuiz={generateQuiz}
               onOpenQuizById={onOpenQuizById}
+              chatSessions={omniSessions}
+              activeSessionId={selectedChat?.id}
+              onSelectSession={handleSelectOmniSession}
+              onNewChat={handleNewOmniChat}
+              onRenameSession={handleRenameOmniSession}
+              onPinSession={handlePinOmniSession}
+              onDeleteSession={handleDeleteOmniSession}
             />
           ) : (
             <PeerChatWorkspace

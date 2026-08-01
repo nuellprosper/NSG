@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   Brain, Sparkles, XCircle, CheckCircle2, Cpu, Zap, ShieldCheck, User, RefreshCcw 
 } from 'lucide-react';
+import { PremiumPage } from './PremiumPage';
 
 // --- Prop Interfaces ---
 
@@ -507,209 +508,43 @@ export const AIChallengeModal: React.FC<AIChallengeModalProps> = ({
   );
 };
 
-// --- 🌟 PREMIUM ONBOARDING (MODAL STYLE) ---
+// --- 🌟 PREMIUM ONBOARDING (REMOVED / DISABLED) ---
 
-export const PremiumOnboarding: React.FC<PremiumOnboardingProps> = ({
-  showPremiumTrial,
-  setShowPremiumTrial,
-  user,
-  theme,
-  initializeMonthly,
-  initializeYearly,
-  handleSubscriptionSuccess,
-  setUserNotification
-}) => {
-  return (
-    <AnimatePresence>
-      {showPremiumTrial && user && (
-        <motion.div 
-          initial={{ opacity: 0 }} 
-          animate={{ opacity: 1 }} 
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md"
-        >
-          <motion.div 
-            initial={{ scale: 0.9, y: 20 }}
-            animate={{ scale: 1, y: 0 }}
-            exit={{ scale: 0.9, y: 20 }}
-            className={`${theme === 'dark' ? 'bg-[#13111C] border-white/10' : 'bg-white border-slate-200'} border p-6 sm:p-8 rounded-[2.5rem] max-w-md w-full shadow-2xl relative overflow-hidden shadow-yellow-500/10`}
-          >
-            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-yellow-500 to-transparent" />
-            <button onClick={() => setShowPremiumTrial(false)} className="absolute top-4 right-4 text-white/44 hover:text-yellow-500 transition-colors bg-transparent border-none outline-none cursor-pointer"><XCircle size={24} /></button>
-            
-            <div className="text-center mb-8">
-              <div className="w-16 h-16 bg-yellow-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <Sparkles size={32} className="text-yellow-500" />
-              </div>
-              <h2 className="text-2xl font-black tracking-tighter uppercase italic text-white leading-none">Unlock <span className="text-yellow-500">Premium</span></h2>
-              <p className="text-xs text-white/40 mt-2">Elevate your study experience with Omni</p>
-            </div>
-
-            <div className="space-y-3 mb-8 text-left">
-              <div className="flex items-center gap-3 text-sm text-white/70 bg-white/5 p-3 rounded-xl border border-white/5">
-                <div className="p-2 bg-yellow-500/20 rounded-lg"><Cpu size={16} className="text-yellow-500" /></div>
-                <span>Gemini 3.1 Pro Access</span>
-              </div>
-              <div className="flex items-center gap-3 text-sm text-white/70 bg-white/5 p-3 rounded-xl border border-white/5">
-                <div className="p-2 bg-yellow-500/20 rounded-lg"><Zap size={16} className="text-yellow-500" /></div>
-                <span>Unlimited Transcriptions</span>
-              </div>
-              <div className="flex items-center gap-3 text-sm text-white/70 bg-white/5 p-3 rounded-xl border border-white/5">
-                <div className="p-2 bg-yellow-500/20 rounded-lg"><ShieldCheck size={16} className="text-yellow-500" /></div>
-                <span>Priority Support & Features</span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <button 
-                onClick={() => initializeMonthly({ onSuccess: (response: any) => handleSubscriptionSuccess('monthly', response.reference), onClose: () => setUserNotification("Payment cancelled.") })}
-                className={`${theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-zinc-100 border-zinc-200'} border p-4 rounded-2xl hover:border-yellow-500/50 transition-all text-center group`}
-              >
-                <p className={`text-[10px] font-black ${theme === 'dark' ? 'text-white/40' : 'text-zinc-400'} uppercase mb-1`}>Monthly</p>
-                <p className={`text-xl font-black ${theme === 'dark' ? 'text-white' : 'text-zinc-900'}`}>N300</p>
-                <p className="text-[8px] font-bold text-yellow-500 uppercase mt-1">Basic Access</p>
-              </button>
-              <button 
-                onClick={() => initializeYearly({ onSuccess: (response: any) => handleSubscriptionSuccess('yearly', response.reference), onClose: () => setUserNotification("Payment cancelled.") })}
-                className="bg-yellow-500 text-black p-4 rounded-2xl hover:bg-yellow-400 transition-all text-center group shadow-xl shadow-yellow-500/20"
-              >
-                <p className="text-[10px] font-black text-black/40 uppercase mb-1">Yearly</p>
-                <p className="text-xl font-black text-black">N3,600</p>
-                <p className="text-[8px] font-bold text-black/60 uppercase mt-1">Best Value</p>
-              </button>
-            </div>
-
-            <button 
-              onClick={() => setShowPremiumTrial(false)}
-              className="w-full mt-6 text-[9px] font-black uppercase tracking-[0.2em] text-zinc-500 hover:text-white transition-all text-center"
-            >
-              Continue with Free Tier
-            </button>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
+export const PremiumOnboarding: React.FC<PremiumOnboardingProps> = () => {
+  return null;
 };
 
-// --- PREMIUM HARD WALL PAYWALL TRIGGER OR CELEBRATION MODAL ---
+// --- PREMIUM UNIFIED MODAL ---
 
 export const PremiumModal: React.FC<PremiumModalProps> = ({
   showPremiumModal,
   setShowPremiumModal,
-  user,
-  theme,
   isPremium,
+  setUserNotification,
   initializeMonthly,
   initializeYearly,
-  handleSubscriptionSuccess,
-  setUserNotification
+  handleSubscriptionSuccess
 }) => {
   return (
     <AnimatePresence>
-      {showPremiumModal && user && (
+      {showPremiumModal && (
         <motion.div 
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+          initial={{ opacity: 0 }} 
+          animate={{ opacity: 1 }} 
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[250] flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md overflow-y-auto"
         >
-          <motion.div 
-            initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }}
-            className={`${theme === 'dark' ? 'bg-[#13111C]' : 'bg-white'} border ${theme === 'dark' ? 'border-yellow-500/20 shadow-[0_0_50px_rgba(234,179,8,0.15)]' : 'border-slate-200'} p-6 sm:p-8 rounded-[2.5rem] max-w-md w-full shadow-2xl relative overflow-hidden`}
-          >
-            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-yellow-500 to-transparent" />
-            <button onClick={() => setShowPremiumModal(false)} className={`absolute top-4 right-4 ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'} hover:text-yellow-500 transition-colors bg-transparent border-none outline-none cursor-pointer`}><XCircle size={24} /></button>
-            
-            {isPremium ? (
-              // CELEBRATIVE PREMIUM VIEW FOR SUBSCRIBED USERS
-              <div className="text-center">
-                <div className="w-20 h-20 bg-gradient-to-br from-yellow-400 to-amber-600 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-xl shadow-yellow-500/20 animate-bounce">
-                  <Sparkles size={38} className="text-black" />
-                </div>
-                <h2 className={`text-2xl font-black tracking-tighter uppercase italic ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>You are Premium!</h2>
-                <span className="inline-block bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest mt-2">
-                  ✦ active subscriber ✦
-                </span>
-                <p className={`text-xs ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'} mt-3 max-w-xs mx-auto`}>
-                  Thank you for supporting NSG. Enjoy unlimited power:
-                </p>
-
-                <div className="space-y-3.5 my-8 text-left bg-white/5 p-5 rounded-2xl border border-white/5">
-                  <div className="flex items-center gap-3 text-sm text-yellow-500">
-                    <CheckCircle2 size={18} className="text-yellow-500 flex-shrink-0" />
-                    <span className="font-bold">No Ads & Unlimited Study Tokens</span>
-                  </div>
-                  <div className="flex items-center gap-3 text-sm text-yellow-500">
-                    <CheckCircle2 size={18} className="text-yellow-500 flex-shrink-0" />
-                    <span className="font-bold">Unlimited Hosting of CBT Exams</span>
-                  </div>
-                  <div className="flex items-center gap-3 text-sm text-yellow-500">
-                    <CheckCircle2 size={18} className="text-yellow-500 flex-shrink-0" />
-                    <span className="font-bold">Advanced AI Image Generation Unlocked</span>
-                  </div>
-                  <div className="flex items-center gap-3 text-sm text-yellow-500">
-                    <CheckCircle2 size={18} className="text-yellow-500 flex-shrink-0" />
-                    <span className="font-bold">High-Priority Server Summarization</span>
-                  </div>
-                </div>
-
-                <button 
-                  onClick={() => setShowPremiumModal(false)}
-                  className="w-full bg-yellow-500 text-black py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-yellow-400 transition-all shadow-lg shadow-yellow-500/20"
-                >
-                  Keep Evolving
-                </button>
-              </div>
-            ) : (
-              // STANDARD PAYWALL VIEW FOR FREE USERS
-              <>
-                <div className="text-center mb-8">
-                  <div className="w-16 h-16 bg-yellow-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                    <Sparkles size={32} className="text-yellow-500" />
-                  </div>
-                  <h2 className={`text-2xl font-black tracking-tighter uppercase italic ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Upgrade to Premium</h2>
-                  <p className={`text-xs ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'} mt-1`}>Unlock all features and remove limitations</p>
-                </div>
-
-                <div className="space-y-4 mb-8 text-left">
-                  <div className="flex items-center gap-3 text-sm text-white/70">
-                    <CheckCircle2 size={18} className="text-green-500" />
-                    <span>No Ads & Unlimited Tokens</span>
-                  </div>
-                  <div className="flex items-center gap-3 text-sm text-white/70">
-                    <CheckCircle2 size={18} className="text-green-500" />
-                    <span>Access to all CBT Exams</span>
-                  </div>
-                  <div className="flex items-center gap-3 text-sm text-white/70">
-                    <CheckCircle2 size={18} className="text-green-500" />
-                    <span>Advanced AI Image Generation</span>
-                  </div>
-                  <div className="flex items-center gap-3 text-sm text-white/70">
-                    <CheckCircle2 size={18} className="text-green-500" />
-                    <span>Priority Support</span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <button 
-                    onClick={() => initializeMonthly({ onSuccess: (response: any) => handleSubscriptionSuccess('monthly', response.reference), onClose: () => setUserNotification("Payment cancelled.") })}
-                    className={`${theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-zinc-100 border-zinc-200'} border p-4 rounded-2xl hover:border-yellow-500/50 transition-all text-center group`}
-                  >
-                    <p className={`text-[10px] font-black ${theme === 'dark' ? 'text-white/40' : 'text-zinc-400'} uppercase mb-1`}>Monthly</p>
-                    <p className={`text-xl font-black ${theme === 'dark' ? 'text-white' : 'text-zinc-900'}`}>N300</p>
-                    <p className="text-[8px] font-bold text-yellow-500 uppercase mt-1">Save 0%</p>
-                  </button>
-                  <button 
-                    onClick={() => initializeYearly({ onSuccess: (response: any) => handleSubscriptionSuccess('yearly', response.reference), onClose: () => setUserNotification("Payment cancelled.") })}
-                    className="bg-yellow-500 text-black p-4 rounded-2xl hover:bg-yellow-400 transition-all text-center group"
-                  >
-                    <p className="text-[10px] font-black text-black/40 uppercase mb-1">Yearly</p>
-                    <p className="text-xl font-black text-black">N3,600</p>
-                    <p className="text-[8px] font-bold text-black/60 uppercase mt-1">Best Value</p>
-                  </button>
-                </div>
-              </>
-            )}
-          </motion.div>
+          <div className="w-full max-w-lg my-auto">
+            <PremiumPage
+              isPremium={isPremium}
+              onClose={() => setShowPremiumModal(false)}
+              setUserNotification={setUserNotification}
+              setIsPremium={() => {}}
+              initializeMonthly={initializeMonthly}
+              initializeYearly={initializeYearly}
+              handleSubscriptionSuccess={handleSubscriptionSuccess}
+            />
+          </div>
         </motion.div>
       )}
     </AnimatePresence>

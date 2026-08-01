@@ -729,7 +729,7 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, setUse
                 >
                   <div className="flex items-center gap-2 mb-1">
                     <History size={10} className="text-[#DC2626]" />
-                    <span className="text-[8px] font-black uppercase text-white/40 truncate">{item.date}</span>
+                    <span className="text-[8px] font-black uppercase text-white/40 truncate">{typeof item.date === 'string' ? item.date : (item.date?.toDate ? item.date.toDate().toLocaleDateString() : 'Recent')}</span>
                   </div>
                   <p className="text-[10px] font-bold text-white/80 line-clamp-1 group-hover:text-white transition-colors">{item.title}</p>
                 </button>
