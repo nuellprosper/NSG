@@ -133,6 +133,29 @@ export const getScholarLeagueInfo = (points: number) => {
   return { text: "Bronze League", emoji: "🥉", textColor: "text-orange-400", bgClass: "bg-orange-500/10" };
 };
 
+export const formatSafeDate = (val: any, fallback = 'Recent'): string => {
+  if (!val) return fallback;
+  if (typeof val === 'string') return val;
+  if (typeof val === 'number') return new Date(val).toLocaleDateString();
+  if (typeof val === 'object') {
+    if (typeof val.toDate === 'function') {
+      try {
+        return val.toDate().toLocaleDateString();
+      } catch (e) {
+        return fallback;
+      }
+    }
+    if (val.seconds !== undefined) {
+      try {
+        return new Date(val.seconds * 1000).toLocaleDateString();
+      } catch (e) {
+        return fallback;
+      }
+    }
+  }
+  return fallback;
+};
+
 export const getApiKey = () => {
   const key = (typeof process !== 'undefined' && process.env ? process.env.GEMINI_API_KEY : '') ||
               (import.meta.env ? (import.meta.env.VITE_GEMINI_API_KEY || (import.meta.env as any).GEMINI_API_KEY) : '');

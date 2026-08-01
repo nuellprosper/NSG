@@ -36,6 +36,44 @@ googleProvider.setCustomParameters({
   prompt: 'select_account'
 });
 
+// Local Memory & localStorage Cache for Firestore reads to avoid Quota Exhaustion
+const memoryCache = new Map<string, { data: any; timestamp: number }>();
+const DEFAULT_CACHE_TTL_MS = 300000; // 5 minutes cache TTL
+
+export function getLocalCache(key: string, ttlMs: number = DEFAULT_CACHE_TTL_MS): any | null {
+  const cached = memoryCache.get(key);
+  if (cached && (Date.now() - cached.timestamp < ttlMs)) {
+    return cached.data;
+  }
+  if (typeof window !== 'undefined') {
+    try {
+      const stored = localStorage.getItem(`nsg_fs_cache_${key}`);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Date.now() - parsed.timestamp < ttlMs) {
+          memoryCache.set(key, parsed);
+          return parsed.data;
+        }
+      }
+    } catch (e) {
+      // Ignore cache storage errors
+    }
+  }
+  return null;
+}
+
+export function setLocalCache(key: string, data: any) {
+  const entry = { data, timestamp: Date.now() };
+  memoryCache.set(key, entry);
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(`nsg_fs_cache_${key}`, JSON.stringify(entry));
+    } catch (e) {
+      // Ignore quota error on localStorage
+    }
+  }
+}
+
 // Error handling for Firestore operations
 export enum FirestoreOperation {
   CREATE = 'create',

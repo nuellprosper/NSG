@@ -662,7 +662,7 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
 
 
   const toolItems = useMemo(() => [
-    { id: 'record', title: 'Record Lecture', icon: Mic, color: 'from-red-600 to-red-400', desc: 'AI-Powered Recording' },
+    { id: 'record', title: 'Transcribe Audio', icon: FileAudio, color: 'from-red-600 to-red-400', desc: 'Audio Transcription & Notes' },
     { id: 'quiz', title: 'Smart Quiz', icon: Zap, color: 'from-yellow-500 to-amber-400', desc: 'Test Your Knowledge' },
     { id: 'exam', title: 'CBT Exam', icon: ShieldCheck, color: 'from-orange-600 to-orange-400', desc: 'Professional Testing' },
     { id: 'faculty', title: 'Faculty Specials', icon: GraduationCap, color: 'from-blue-600 to-indigo-400', desc: 'Department Specific' },
@@ -777,32 +777,28 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="md:col-span-2 space-y-6">
               <div className={`${theme === 'dark' ? 'bg-[#13111C]/60 border-white/5' : 'bg-white border-slate-200'} border p-6 sm:p-10 rounded-[2.5rem] relative flex flex-col items-center text-center justify-center min-h-[350px] overflow-hidden`}>
-                <div className="absolute top-4 left-4 flex gap-2">
-                  <div className={`px-2.5 py-1 ${isRecording ? 'bg-red-500/10 border-red-500/20 text-red-500' : 'bg-white/5 border-white/5 text-white/40'} border rounded-full text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5`}>
-                    <div className={`w-1.5 h-1.5 rounded-full bg-red-500 ${isRecording ? 'animate-ping' : ''}`} />
-                    {isRecording ? 'RECORDING' : 'IDLE ENGINE'}
-                  </div>
-                </div>
-
-                <div className="space-y-8 my-auto relative z-10 w-full max-w-md">
-                  <div className="flex flex-col items-center justify-center">
-                    <button 
-                      onClick={handleToggleRecording} 
-                      disabled={isProcessingFinal}
-                      className={`w-28 h-28 rounded-full ${isRecording ? 'bg-red-600 hover:bg-red-700 shadow-[0_0_35px_rgba(220,38,38,0.4)]' : 'bg-white/5 hover:bg-white/10 border border-white/10'} flex items-center justify-center transition-all duration-500 transform hover:scale-105 active:scale-95 disabled:opacity-50`}
-                    >
-                      {isRecording ? <Square size={36} className="text-white fill-white" /> : <Mic size={40} className="text-red-500" />}
-                    </button>
-                    {isRecording && (
-                      <div className="mt-4 font-mono text-3xl font-black text-white tracking-widest">{FormatTime(recordingTime)}</div>
-                    )}
+                <div className="space-y-6 my-auto relative z-10 w-full max-w-md flex flex-col items-center justify-center">
+                  <div className="w-20 h-20 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-500 mb-1 shadow-lg shadow-red-500/5">
+                    <FileAudio size={40} />
                   </div>
 
-                  {!isRecording && !isProcessingFinal && (
+                  {!isProcessingFinal && (
                     <div className="space-y-2">
-                      <h3 className="font-extrabold text-lg text-white">Capture the Room</h3>
-                      <p className="text-xs text-white/40 max-w-sm mx-auto leading-relaxed">Let Omni analyze live lectures, slide notes, and photos to craft beautiful summaries to study.</p>
+                      <h3 className="font-extrabold text-xl text-white">Transcribe Recorded Audio</h3>
+                      <p className="text-xs text-white/50 max-w-sm mx-auto leading-relaxed">Upload your pre-recorded lecture audio to automatically transcribe speech into structured study notes and AI summaries.</p>
                     </div>
+                  )}
+
+                  {!isProcessingFinal && (
+                    <button 
+                      type="button"
+                      onClick={() => document.getElementById('record-page-audio-upload')?.click()}
+                      className="px-8 py-4 bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black text-xs rounded-2xl shadow-xl shadow-[#DC2626]/20 transition-all uppercase tracking-wider flex items-center gap-2.5 cursor-pointer active:scale-95"
+                    >
+                      <Upload size={18} />
+                      <span>Upload Recorded Audio</span>
+                      <span className="text-[9px] px-2 py-0.5 rounded bg-black/20 font-mono">{isPremium ? '4HR MAX' : '30MIN MAX'}</span>
+                    </button>
                   )}
 
                   {isProcessingFinal && (
