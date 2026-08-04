@@ -6,7 +6,7 @@ import {
   Smile, Paperclip, UserPlus, RefreshCw, StopCircle,
   Copy, X, Brain, Info, Calendar, MapPin, User, GraduationCap, Trash2,
   Reply, BellRing, PhoneOff, VideoOff, Volume2, VolumeX, MicOff, GraduationCap as SchoolIcon,
-  Play, Pause, History, Camera, FileText, Trash, BookOpen, Award
+  Play, Pause, History, Camera, FileText, Trash, BookOpen, Award, Zap
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
@@ -77,6 +77,46 @@ const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniRepl
         remarkPlugins={[remarkMath]} 
         rehypePlugins={[rehypeKatex]}
         components={{
+          a({ node, href, children, ...props }: any) {
+            const text = String(children || '');
+            const lowerText = text.toLowerCase();
+            const lowerHref = (href || '').toLowerCase();
+            if (
+              lowerText.includes('quiz') || 
+              lowerText.includes('generate') || 
+              lowerHref.includes('quiz') ||
+              lowerHref.includes('generate_quiz')
+            ) {
+              return (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const topicFromText = text.replace(/generate|quiz|start|take|link|here|assessment|practice|click/gi, '').trim();
+                    const topic = topicFromText || 'Practice Quiz';
+                    const evt = new CustomEvent('trigger_quiz_gen', { detail: { topic, count: 5 } });
+                    window.dispatchEvent(evt);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#DC2626] hover:bg-red-600 text-white font-black text-xs rounded-xl shadow-lg cursor-pointer my-1 transition-all active:scale-95 border border-white/10"
+                >
+                  <Zap size={13} className="fill-white" />
+                  <span>{text || 'Generate Quiz'}</span>
+                </button>
+              );
+            }
+            return (
+              <a 
+                href={href} 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                className="text-red-400 underline hover:text-red-300 font-medium transition-colors" 
+                {...props}
+              >
+                {children}
+              </a>
+            );
+          },
           code({ className, children, ...props }: any) {
             const match = /language-(\w+)/.exec(className || '');
             const codeVal = String(children).replace(/\n$/, '');

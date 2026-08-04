@@ -4,7 +4,7 @@ import {
   Sparkles, Copy, User, BookOpen, FileText, X,
   Plus, Image as ImageIcon, ArrowDown, Loader2, Maximize2,
   Menu, ChevronDown, SquarePen, MoreHorizontal, ArrowUp, ArrowRight,
-  Pin, Trash2, Edit3, Check, MoreVertical, MessageSquare
+  Pin, Trash2, Edit3, Check, MoreVertical, MessageSquare, Zap, Trophy
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
@@ -28,9 +28,10 @@ interface TypewriterTextProps {
   isOmniReply: boolean;
   onFinish?: () => void;
   onOpenQuizById?: (quizId: string) => void;
+  generateQuiz?: (customTopic?: string, customCount?: number, customDifficulty?: any, forceNew?: boolean) => Promise<any>;
 }
 
-const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniReply, onFinish, onOpenQuizById }) => {
+const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniReply, onFinish, onOpenQuizById, generateQuiz }) => {
   const [displayedText, setDisplayedText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   
@@ -65,8 +66,15 @@ const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniRepl
   }, [text, msgId, isOmniReply, onFinish]);
 
   const quizReadyRegex = /\[\[QUIZ_READY:\s*([^,\]]+),\s*([^,\]]+),\s*(\d+)\s*\]\]/i;
+  const quizGenRegex = /\[\[GENERATE_QUIZ:\s*([^,\]]+),\s*(\d+)\s*\]\]/i;
+  
   const quizMatch = displayedText.match(quizReadyRegex);
-  const cleanMarkdownText = displayedText.replace(quizReadyRegex, '').trim();
+  const quizGenMatch = displayedText.match(quizGenRegex);
+
+  const cleanMarkdownText = displayedText
+    .replace(quizReadyRegex, '')
+    .replace(quizGenRegex, '')
+    .trim();
 
   return (
     <div className="relative w-full">
@@ -74,6 +82,33 @@ const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniRepl
         remarkPlugins={[remarkMath]} 
         rehypePlugins={[rehypeKatex]}
         components={{
+          a({ node, href, children, ...props }: any) {
+            const text = String(children || '');
+            const lowerText = text.toLowerCase();
+            const lowerHref = (href || '').toLowerCase();
+            if (lowerText.includes('quiz') || lowerText.includes('generate') || lowerHref.includes('quiz')) {
+              return (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    const cleanTopic = text.replace(/generate|quiz|start|take|link|here/gi, '').trim() || 'Study Quiz';
+                    if (generateQuiz) {
+                      generateQuiz(cleanTopic, 5, 'Medium', true);
+                    } else {
+                      const evt = new CustomEvent('trigger_quiz_gen', { detail: { topic: cleanTopic, count: 5 } });
+                      window.dispatchEvent(evt);
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#DC2626] hover:bg-red-600 text-white font-bold text-xs rounded-lg shadow cursor-pointer my-1 transition-all"
+                >
+                  <Zap size={12} className="fill-white" />
+                  <span>{text || 'Generate Quiz'}</span>
+                </button>
+              );
+            }
+            return <a href={href} target="_blank" rel="noopener noreferrer" className="text-purple-400 underline hover:text-purple-300" {...props}>{children}</a>;
+          },
           h1({ children }) {
             return <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight mt-4 mb-2 border-b border-white/10 pb-1 font-display">{children}</h1>;
           },
@@ -147,6 +182,34 @@ const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniRepl
             className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-purple-600 via-rose-600 to-red-600 hover:opacity-95 text-white font-bold text-xs rounded-xl shadow-lg flex items-center justify-center gap-2 cursor-pointer transition-all hover:scale-[1.02] active:scale-95 shrink-0"
           >
             <span>Open & Take Quiz Now</span>
+            <ArrowRight size={14} />
+          </button>
+        </div>
+      )}
+
+      {quizGenMatch && !quizMatch && (
+        <div className="mt-4 p-4 rounded-2xl bg-[#1A162B] border border-red-500/30 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 w-full">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-rose-600 to-red-600 flex items-center justify-center text-white shadow-md shrink-0">
+              <Trophy size={18} className="text-amber-300" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-white">{quizGenMatch[1]?.trim() || "Practice Quiz"}</p>
+              <p className="text-[10px] text-white/60 font-medium">{quizGenMatch[2] || 5} Questions Set by Omni</p>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              if (generateQuiz) {
+                generateQuiz(quizGenMatch[1]?.trim() || "Practice Quiz", parseInt(quizGenMatch[2], 10) || 5, 'Medium', true);
+              } else {
+                const evt = new CustomEvent('trigger_quiz_gen', { detail: { topic: quizGenMatch[1]?.trim(), count: parseInt(quizGenMatch[2], 10) || 5 } });
+                window.dispatchEvent(evt);
+              }
+            }}
+            className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-purple-600 via-rose-600 to-red-600 hover:opacity-95 text-white font-bold text-xs rounded-xl shadow-lg flex items-center justify-center gap-2 cursor-pointer transition-all hover:scale-[1.02] active:scale-95 shrink-0"
+          >
+            <span>⚡ Start & Generate Quiz</span>
             <ArrowRight size={14} />
           </button>
         </div>
@@ -269,7 +332,7 @@ interface OmniChatWorkspaceProps {
   setToolsSubTab?: (subTab: string) => void;
   setImportedQuizNote?: (note: any) => void;
   setQuizTopic?: (topic: string) => void;
-  generateQuiz?: (customTopic?: string, customCount?: number, customDifficulty?: any) => Promise<void>;
+  generateQuiz?: (customTopic?: string, customCount?: number, customDifficulty?: any, forceNew?: boolean) => Promise<any>;
   onOpenQuizById?: (quizId: string) => void;
   
   // History session handlers
@@ -726,6 +789,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                         msgId={msg.id} 
                         isOmniReply={index === messages.length - 1 && isNewResponse} 
                         onOpenQuizById={onOpenQuizById}
+                        generateQuiz={generateQuiz}
                       />
                     </div>
 

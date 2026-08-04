@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
+import { Zap } from 'lucide-react';
 
 export const MarkdownRenderer = ({ content, className = "", selectable = false }: { content: string, className?: string, selectable?: boolean }) => {
   // Pre-process content to ensure LaTeX is correctly formatted for remark-math
@@ -63,6 +64,46 @@ export const MarkdownRenderer = ({ content, className = "", selectable = false }
         remarkPlugins={[remarkGfm, remarkMath]} 
         rehypePlugins={[rehypeKatex]}
         components={{
+          a({ node, href, children, ...props }: any) {
+            const text = String(children || '');
+            const lowerText = text.toLowerCase();
+            const lowerHref = (href || '').toLowerCase();
+            if (
+              lowerText.includes('quiz') || 
+              lowerText.includes('generate') || 
+              lowerHref.includes('quiz') ||
+              lowerHref.includes('generate_quiz')
+            ) {
+              return (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const topicFromText = text.replace(/generate|quiz|start|take|link|here|assessment|practice|click/gi, '').trim();
+                    const topic = topicFromText || 'Practice Quiz';
+                    const evt = new CustomEvent('trigger_quiz_gen', { detail: { topic, count: 5 } });
+                    window.dispatchEvent(evt);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#DC2626] hover:bg-red-600 text-white font-black text-xs rounded-xl shadow-lg cursor-pointer my-1 transition-all active:scale-95 border border-white/10"
+                >
+                  <Zap size={13} className="fill-white" />
+                  <span>{text || 'Generate Quiz'}</span>
+                </button>
+              );
+            }
+            return (
+              <a 
+                href={href} 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                className="text-red-400 underline hover:text-red-300 font-medium transition-colors" 
+                {...props}
+              >
+                {children}
+              </a>
+            );
+          },
           h1: ({node, ...props}) => <h1 className="text-base font-black uppercase tracking-tight text-white mb-2 mt-4 border-b border-white/10 pb-1" {...props} />,
           h2: ({node, ...props}) => <h2 className="text-sm font-black uppercase tracking-tight text-white/95 mb-1.5 mt-3" {...props} />,
           h3: ({node, ...props}) => <h3 className="text-xs font-bold uppercase tracking-tight text-white/90 mb-1 mt-2" {...props} />,

@@ -237,6 +237,8 @@ export const PremiumPage: React.FC<PremiumPageProps> = ({
               >
                 <div className="space-y-2.5 pt-3 text-left">
                   {[
+                    { title: "Generate Up to 50 Questions per Quiz", desc: "Unlock 50-question comprehensive mock quizzes (free users limited to 20 questions)." },
+                    { title: "Unlimited Quizzes per Day", desc: "Generate unlimited AI quizzes daily (free users limited to 3 quizzes per day)." },
                     { title: "Transcribe Lecture Audios", desc: "Transcribe uploaded lecture audios with instant AI summaries & key notes." },
                     { title: "Unlimited Omni Access", desc: "Unlimited AI chats, instant problem solver & lecture material breakdown." },
                     { title: "CBT Exam Simulations & Hosting", desc: "Host exams for up to 100+ students with live score leaderboards & analytics." },
