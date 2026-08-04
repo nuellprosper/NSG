@@ -315,50 +315,61 @@ export function sanitizeData(data: any): any {
   return data;
 }
 
+let hasWarnedQuota = false;
+
 export function handleFirestoreError(error: unknown, operationType: FirestoreOperation, path: string | null, shouldThrow: boolean = false) {
   const errorMessage = error instanceof Error ? error.message : String(error);
-  const isQuotaExceeded = errorMessage.toLowerCase().includes('quota') || errorMessage.includes('8') || errorMessage.includes('Resource exhausted');
+  const isQuotaExceeded = errorMessage.toLowerCase().includes('quota') || 
+                          errorMessage.includes('8') || 
+                          errorMessage.toLowerCase().includes('resource exhausted') || 
+                          errorMessage.toLowerCase().includes('resource_exhausted');
+
+  if (isQuotaExceeded) {
+    if (!hasWarnedQuota) {
+      hasWarnedQuota = true;
+      console.warn('Firestore Quota Limit reached. Operating in local cache & offline mode.');
+    }
+    if (shouldThrow) {
+      console.warn(`Firestore operation '${operationType}' deferred due to quota limits.`);
+    }
+    return;
+  }
 
   const errInfo: FirestoreErrorInfo = {
     error: errorMessage,
     operationType,
     path,
-    isQuotaExceeded,
+    isQuotaExceeded: false,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
       emailVerified: auth.currentUser?.emailVerified,
       isAnonymous: auth.currentUser?.isAnonymous,
       tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData.map(provider => ({
+      providerInfo: auth.currentUser?.providerData?.map(provider => ({
         providerId: provider.providerId,
         displayName: provider.displayName,
         email: provider.email,
         photoUrl: provider.photoURL
       })) || []
     },
-  }
-  
-  if (isQuotaExceeded) {
-    console.error('CRITICAL: Firestore Quota Exceeded. The app will have limited functionality until the quota resets.');
-  }
+  };
 
   let safeErrInfo: any;
   try {
     const jsonStr = circularSafeStringify(errInfo);
     safeErrInfo = JSON.parse(jsonStr);
   } catch (e) {
-    console.error("Failed to safely stringify error info:", e);
     safeErrInfo = {
       error: errorMessage,
       operationType,
       path,
-      isQuotaExceeded,
+      isQuotaExceeded: false,
       authInfo: { userId: auth.currentUser?.uid }
     };
   }
 
-  console.error('Firestore Error: ', safeErrInfo);
+  console.warn('Firestore Operation Notice: ', safeErrInfo);
 
   if (shouldThrow) {
     throw new Error(circularSafeStringify(safeErrInfo));

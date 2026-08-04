@@ -13,7 +13,8 @@ import {
   ArrowLeft, RefreshCcw, Camera, Award, ShieldCheck, BookOpen, FileText, Zap, Info, AlertTriangle, Loader2,
   Share2, Trophy, Search, Check, X, ArrowLeft as ChevronLeft, GraduationCap, Users, User, Clock as ClockIcon,
   Activity, Video, Copy, PlusCircle, Plus, Italic, List, XCircle, CheckCircle2, MessageSquare,
-  Undo2, Redo2, Save, CornerDownRight, Menu, ExternalLink, Percent, Bookmark, AlertCircle, Book, HelpCircle, Calculator
+  Undo2, Redo2, Save, CornerDownRight, Menu, ExternalLink, Percent, Bookmark, AlertCircle, Book, HelpCircle, Calculator,
+  Shirt, MoreVertical, CheckSquare, ListTodo, Compass, Wand2, Palette, Type
 } from 'lucide-react';
 
 const WhatsAppIcon = ({ size = 24, className = "" }: { size?: number, className?: string }) => (
@@ -145,6 +146,52 @@ const MarkdownRenderer = ({ content, className = "", selectable = false }: { con
         remarkPlugins={[remarkGfm, remarkMath]} 
         rehypePlugins={[rehypeKatex]}
         components={{
+          a({ node, href, children, ...props }: any) {
+            const text = String(children || '');
+            const lowerText = text.toLowerCase();
+            const lowerHref = (href || '').toLowerCase();
+            if (
+              lowerText.includes('quiz') || 
+              lowerText.includes('generate') || 
+              lowerHref.includes('quiz') ||
+              lowerHref.includes('generate_quiz')
+            ) {
+              return (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const topicFromText = text.replace(/generate|quiz|start|take|link|here|assessment|practice|click/gi, '').trim();
+                    const topic = topicFromText || 'Practice Quiz';
+                    const evt = new CustomEvent('trigger_quiz_gen', { detail: { topic, count: 5 } });
+                    window.dispatchEvent(evt);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#DC2626] hover:bg-red-600 text-white font-black text-xs rounded-xl shadow-lg cursor-pointer my-1 transition-all active:scale-95 border border-white/10"
+                >
+                  <Zap size={13} className="fill-white" />
+                  <span>{text || 'Generate Quiz'}</span>
+                </button>
+              );
+            }
+            const isAttachment = href && (href.startsWith('http') || href.startsWith('data:') || href.includes('cloudinary') || href.includes('upload'));
+            if (isAttachment) {
+              return (
+                <DocumentAttachmentPreview href={href} name={children ? String(children) : 'Attached Document'} />
+              );
+            }
+            return (
+              <a 
+                href={href} 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                className="text-red-400 underline hover:text-red-300 font-medium transition-colors" 
+                {...props}
+              >
+                {children}
+              </a>
+            );
+          },
           h1: ({node, ...props}) => <h1 className="text-base font-black uppercase tracking-tight text-white mb-2 mt-4 border-b border-white/10 pb-1" {...props} />,
           h2: ({node, ...props}) => <h2 className="text-sm font-black uppercase tracking-tight text-white/95 mb-1.5 mt-3" {...props} />,
           h3: ({node, ...props}) => <h3 className="text-xs font-bold uppercase tracking-tight text-white/90 mb-1 mt-2" {...props} />,
@@ -183,15 +230,6 @@ const MarkdownRenderer = ({ content, className = "", selectable = false }: { con
             return (
               <ImageAttachmentPreview src={src || ''} alt={alt || ''} />
             );
-          },
-          a: ({node, href, children, ...props}: any) => {
-            const isAttachment = href && (href.startsWith('http') || href.startsWith('data:') || href.includes('cloudinary') || href.includes('upload'));
-            if (isAttachment) {
-              return (
-                <DocumentAttachmentPreview href={href} name={children ? String(children) : 'Attached Document'} />
-              );
-            }
-            return <a href={href} className="text-red-400 font-bold hover:underline" target="_blank" rel="noopener noreferrer" {...props}>{children}</a>;
           }
         }}
       >
@@ -220,6 +258,7 @@ export const ToolsPage = (props: any) => {
   const [configQuizDifficulty, setConfigQuizDifficulty] = React.useState<"Easy" | "Medium" | "Hard" | "Professional">('Medium');
   const [isScrolledUp, setIsScrolledUp] = React.useState(false);
   const [showOmniQuizModal, setShowOmniQuizModal] = React.useState(false);
+  const [resultFilter, setResultFilter] = React.useState<'all' | 'correct' | 'incorrect'>('all');
   const {
     theme,
     user,
@@ -310,6 +349,9 @@ export const ToolsPage = (props: any) => {
     setQuizQuestionCount,
     quizDifficulty,
     setQuizDifficulty,
+    quizAnswerType = 'multiple_choice',
+    setQuizAnswerType,
+    dailyQuizUsedCount = 0,
     quizImages,
     setQuizImages,
     isUploadingQuizImages = false,
@@ -355,6 +397,7 @@ export const ToolsPage = (props: any) => {
     setCurrentQuestionIndex,
     shareQuiz,
     userQuizAnswers,
+    setUserQuizAnswers = props.setUserQuizAnswers,
     selectedOption,
     setSelectedOption,
     isAnswered,
@@ -407,6 +450,9 @@ export const ToolsPage = (props: any) => {
     audioTranscribingPopup,
     setAudioTranscribingPopup
   } = props;
+
+  const [quizCreationMethod, setQuizCreationMethod] = useState<'omni' | 'pdf' | 'image' | null>(null);
+  const [reviewFilter, setReviewFilter] = useState<'all' | 'correct' | 'incorrect'>('all');
 
   React.useEffect(() => {
     if (selectedNote) {
@@ -484,6 +530,9 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
   }, []);
 
   // Custom states inside Tools
+  const [noteTheme, setNoteTheme] = useState<'dark' | 'light'>(theme === 'light' ? 'light' : 'dark');
+  const [showNoteMenu, setShowNoteMenu] = useState(false);
+  const [showAaFormattingMenu, setShowAaFormattingMenu] = useState(false);
   const [showNoteInsertMenu, setShowNoteInsertMenu] = useState(false);
   const [activeNotebookTab, setActiveNotebookTab] = useState<'write' | 'sources'>('write');
   const [noteToDelete, setNoteToDelete] = useState<any | null>(null);
@@ -678,7 +727,13 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
   ], []);
 
   return (
-    <motion.div key="tools" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-6">
+    <motion.div 
+      key="tools" 
+      initial={{ opacity: 0, y: 10 }} 
+      animate={{ opacity: 1, y: 0 }} 
+      exit={{ opacity: 0 }} 
+      className={toolsSubTab === 'notebook' ? "w-full h-full flex-1 flex flex-col min-h-0 overflow-hidden" : "space-y-6"}
+    >
       {toolsSubTab === 'menu' && (
         <div className="space-y-6">
           <div className="flex items-center justify-between px-2">
@@ -931,7 +986,7 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
       )}
 
       {toolsSubTab === 'notebook' && (
-        <motion.div key="notebook" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={selectedNote ? "w-full flex-1 flex flex-col min-h-[calc(100vh-65px)] bg-[#0B0E17]" : "space-y-6 px-4 py-4"}>
+        <motion.div key="notebook" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={selectedNote ? "w-full flex-1 flex flex-col h-full min-h-0 overflow-hidden" : "w-full flex-1 flex flex-col h-full min-h-0 overflow-y-auto px-4 py-4 space-y-6 custom-scrollbar"}>
           {!selectedNote && (
             <div className="flex items-center justify-between px-2 sticky top-0 z-40 bg-transparent py-2">
               <button onClick={() => { setSelectedNote(null); handleToolsBack(); }} className="text-white/40 hover:text-[#DC2626] transition-all flex items-center gap-1.5 text-xs font-black uppercase cursor-pointer">
@@ -1167,217 +1222,268 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                 </div>
               </div>
             ) : (
-              // INTEGRATED SEAMLESS ACTIVE NOTE WORKSPACE
-              <div className="flex-1 flex flex-col w-full h-full min-h-[calc(100vh-65px)] bg-[#0B0E17]">
-                {/* STATIONARY TOP HEADER BAR (Integrated with Main Shell) */}
-                <div className="sticky top-0 z-40 bg-[#0F1424]/90 backdrop-blur-md border-b border-white/10 px-4 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-3 shrink-0 shadow-md">
-                  <div className="flex items-center gap-3 flex-1 min-w-[200px]">
+              // INTEGRATED SEAMLESS ACTIVE NOTE WORKSPACE (READ & EDIT MODES)
+              <div className={`flex-1 flex flex-col w-full h-full min-h-0 overflow-hidden relative transition-colors duration-200 ${noteTheme === 'light' ? 'bg-[#F6F4FA] text-[#1D1235]' : 'bg-[#0B0818] text-white'}`}>
+                {/* STATIONARY TOP HEADER BAR */}
+                <div className={`sticky top-0 z-40 px-4 sm:px-6 py-2.5 flex items-center justify-between gap-3 shrink-0 backdrop-blur-md border-b transition-colors ${
+                  noteTheme === 'light' 
+                    ? 'bg-[#EFEAF7]/95 border-[#D8CEEB] text-[#1D1235]' 
+                    : 'bg-[#120D24]/95 border-white/10 text-white'
+                }`}>
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
                     <button 
                       onClick={() => {
                         setSelectedNote(null);
                       }} 
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 text-white/70 hover:text-white font-bold text-xs rounded-xl cursor-pointer transition-all border border-white/10"
+                      className={`p-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer text-xs font-bold ${
+                        noteTheme === 'light' ? 'hover:bg-purple-200/60 text-purple-950' : 'hover:bg-white/10 text-white/80'
+                      }`}
+                      title="Back to Notes list"
                     >
-                      <ArrowLeft size={16} />
-                      <span>Back</span>
+                      <ArrowLeft size={18} />
+                      <span className="hidden sm:inline">Notes</span>
                     </button>
 
-                    <input 
-                      value={selectedNote.title || ''} 
-                      onChange={(e) => setSelectedNote({...selectedNote, title: e.target.value})}
-                      readOnly={selectedNote?.sharedAccessType === 'readonly'}
-                      className="bg-transparent border-none text-base sm:text-lg font-black text-white outline-none flex-1 placeholder:text-white/20 px-2 truncate focus:ring-1 focus:ring-white/20 rounded-lg transition-all"
-                      placeholder="Note Title..."
-                    />
+                    {notePreviewMode ? (
+                      <h2 className="text-base sm:text-lg font-black truncate px-2 max-w-[200px] sm:max-w-md">
+                        {selectedNote.title || 'Notes'}
+                      </h2>
+                    ) : (
+                      <input 
+                        value={selectedNote.title || ''} 
+                        onChange={(e) => setSelectedNote({...selectedNote, title: e.target.value})}
+                        readOnly={selectedNote?.sharedAccessType === 'readonly'}
+                        className={`bg-transparent border-none text-base sm:text-lg font-black outline-none flex-1 px-2 truncate focus:ring-1 rounded-lg transition-all ${
+                          noteTheme === 'light' ? 'text-[#1D1235] placeholder:text-purple-900/40 focus:ring-purple-400' : 'text-white placeholder:text-white/30 focus:ring-white/20'
+                        }`}
+                        placeholder="Note Title..."
+                      />
+                    )}
                   </div>
 
-                  {/* ACTION BUTTONS GROUP */}
-                  <div className="flex flex-wrap items-center gap-2 shrink-0">
-                    {/* Create Podcast button */}
-                    <button 
-                      onClick={() => {
-                        setIsPodcastActive(true);
-                        setIsTeacherMode(false);
-                        if (podcastDialogue.length === 0 && selectedNote?.content) {
-                          generatePodcastDiscussion(selectedNote.content);
-                        }
-                      }}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        setIsPodcastActive(true);
-                        setIsTeacherMode(false);
-                        if (podcastDialogue.length === 0 && selectedNote?.content) {
-                          generatePodcastDiscussion(selectedNote.content);
-                        }
-                      }}
-                      className="px-3.5 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:opacity-90 text-white font-bold text-xs rounded-xl transition-all shadow-md flex items-center gap-1.5 shrink-0 cursor-pointer"
-                      title="Create Podcast by Omni & Zeal"
-                    >
-                      <Mic size={14} />
-                      <span>Create Podcast</span>
-                    </button>
+                  {/* HEADER ACTION BUTTONS GROUP */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {notePreviewMode ? (
+                      /* READ MODE TOP HEADER BUTTONS (Image 1 style) */
+                      <>
+                        {/* Share Button */}
+                        <button 
+                          onClick={() => {
+                            if (navigator.clipboard && selectedNote?.content) {
+                              navigator.clipboard.writeText(`${selectedNote.title || 'Note'}\n\n${selectedNote.content}`);
+                              if (setUserNotification) setUserNotification("Note content copied to clipboard!");
+                            }
+                          }}
+                          className={`p-2 rounded-xl transition-all cursor-pointer ${
+                            noteTheme === 'light' ? 'hover:bg-purple-200/60 text-purple-900' : 'hover:bg-white/10 text-white/80'
+                          }`}
+                          title="Share Note"
+                        >
+                          <Share2 size={18} />
+                        </button>
 
-                    {/* + Attachment button */}
-                    <div className="relative">
-                      <button 
-                        onClick={() => setShowNoteInsertMenu(!showNoteInsertMenu)} 
-                        className="p-2 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white rounded-xl transition-all border border-white/10 flex items-center justify-center cursor-pointer" 
-                        title="Insert Attachment"
-                      >
-                        <Plus size={16} />
-                      </button>
+                        {/* Theme / Shirt Toggle Button */}
+                        <button 
+                          onClick={() => setNoteTheme(prev => prev === 'dark' ? 'light' : 'dark')}
+                          className={`p-2 rounded-xl transition-all cursor-pointer ${
+                            noteTheme === 'light' ? 'bg-purple-200/80 text-purple-950 hover:bg-purple-300/80' : 'bg-white/10 text-white hover:bg-white/20'
+                          }`}
+                          title={`Switch to ${noteTheme === 'dark' ? 'Light Theme' : 'Dark Theme'}`}
+                        >
+                          <Shirt size={18} />
+                        </button>
 
-                      <AnimatePresence>
-                        {showNoteInsertMenu && (
-                          <>
-                            <div className="fixed inset-0 z-40" onClick={() => setShowNoteInsertMenu(false)} />
-                            <motion.div 
-                              initial={{ opacity: 0, y: 10 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: 10 }}
-                              className="absolute right-0 mt-2 w-44 bg-[#181525] border border-white/10 rounded-2xl p-2 shadow-2xl z-50 flex flex-col gap-1"
-                            >
-                              <label className="flex items-center gap-2.5 p-2 bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer">
-                                <ImageIcon size={14} className="text-blue-400" />
-                                <span className="text-[10px] font-bold text-white uppercase">Image</span>
-                                <input type="file" className="hidden" accept="image/*" onChange={(e) => { uploadNoteFile(e, 'image'); setShowNoteInsertMenu(false); }} />
-                              </label>
-                              <label className="flex items-center gap-2.5 p-2 bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer">
-                                <Mic size={14} className="text-green-400" />
-                                <span className="text-[10px] font-bold text-white uppercase">Audio</span>
-                                <input type="file" className="hidden" accept="audio/*" onChange={(e) => { uploadNoteFile(e, 'audio'); setShowNoteInsertMenu(false); }} />
-                              </label>
-                              <label className="flex items-center gap-2.5 p-2 bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer">
-                                <FileText size={14} className="text-yellow-400" />
-                                <span className="text-[10px] font-bold text-white uppercase">Document</span>
-                                <input type="file" className="hidden" accept=".pdf,.doc,.docx,.txt" onChange={(e) => { uploadNoteFile(e, 'doc'); setShowNoteInsertMenu(false); }} />
-                              </label>
-                            </motion.div>
-                          </>
-                        )}
-                      </AnimatePresence>
-                    </div>
-
-                    {/* Audio transcribe button */}
-                    <label className="p-2 bg-white/5 hover:bg-white/10 text-red-500 hover:text-red-400 rounded-xl transition-all border border-white/10 flex items-center justify-center cursor-pointer" title="Upload Audio for Transcription">
-                      <Mic size={16} />
-                      <input type="file" accept="audio/*" className="hidden" onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          if (props.handleUploadAudioRecordPage) {
-                            props.handleUploadAudioRecordPage(file);
-                          } else if (uploadNoteFile) {
-                            uploadNoteFile(e, 'audio');
-                          }
-                        }
-                      }} />
-                    </label>
-
-                    {/* Set Quiz button */}
-                    <div className="relative flex flex-col items-end">
-                      <button 
-                        onClick={() => {
-                          setShowQuizConfigPopup(true);
-                        }} 
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          setShowSetQuizHelp(!showSetQuizHelp);
-                        }}
-                        className="px-3.5 py-1.5 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white font-bold text-xs rounded-xl transition-all border border-white/10 cursor-pointer"
-                        title="Set Quiz (Right-click/Long press for info)"
-                      >
-                        Set Quiz
-                      </button>
-                      {showSetQuizHelp && (
-                        <span className="absolute top-full right-0 mt-1 text-[9px] text-white/70 italic bg-[#181525] border border-white/10 px-2.5 py-1 rounded-xl shadow-xl z-50 whitespace-nowrap">
-                          tap this button to set quiz on the content of this note
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Save button */}
-                    <button 
-                      onClick={() => {
-                        if (saveNote) saveNote(selectedNote.content || '', selectedNote.title || 'Untitled Note', selectedNote.id);
-                        if (setUserNotification) setUserNotification("Note saved successfully!");
-                      }} 
-                      className="p-2 bg-white/5 hover:bg-white/10 text-emerald-400 hover:text-emerald-300 rounded-xl transition-all border border-white/10 flex items-center justify-center cursor-pointer" 
-                      title="Save Note"
-                    >
-                      <Save size={16} />
-                    </button>
-                  </div>
-                </div>
-
-                {/* MODE TOGGLE & FORMATTING SUB-HEADER */}
-                <div className="px-4 sm:px-6 py-2 border-b border-white/5 bg-[#0A0D18]/80 flex items-center justify-between gap-2 shrink-0">
-                  <div className="flex gap-1 bg-white/5 p-1 rounded-xl">
-                    <button 
-                      onClick={() => {
-                        setActiveNotebookTab('write');
-                        if (setNotePreviewMode) setNotePreviewMode(false);
-                      }} 
-                      className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase transition-all cursor-pointer ${!notePreviewMode ? 'bg-[#DC2626] text-white shadow' : 'text-white/50 hover:text-white'}`}
-                    >
-                      Write Mode
-                    </button>
-                    <button 
-                      onClick={() => {
-                        setActiveNotebookTab('sources');
-                        if (setNotePreviewMode) setNotePreviewMode(true);
-                      }} 
-                      className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase transition-all cursor-pointer ${notePreviewMode ? 'bg-[#DC2626] text-white shadow' : 'text-white/50 hover:text-white'}`}
-                    >
-                      Read Mode
-                    </button>
-                  </div>
-
-                  {!notePreviewMode && (
-                    <div className="flex items-center gap-1">
-                      <button onMouseDown={(e) => { e.preventDefault(); if (undoNote) undoNote(); }} disabled={!noteHistory || noteHistory.length === 0} className="p-1.5 bg-white/5 hover:bg-white/10 disabled:opacity-30 rounded-lg text-white/60 hover:text-white transition-all cursor-pointer" title="Undo"><Undo2 size={14} /></button>
-                      <button onMouseDown={(e) => { e.preventDefault(); if (redoNote) redoNote(); }} disabled={!redoStack || redoStack.length === 0} className="p-1.5 bg-white/5 hover:bg-white/10 disabled:opacity-30 rounded-lg text-white/60 hover:text-white transition-all cursor-pointer" title="Redo"><Redo2 size={14} /></button>
-                      <button onMouseDown={(e) => { e.preventDefault(); insertText('**', '**'); }} className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-all cursor-pointer" title="Bold"><Bold size={14} /></button>
-                      <button onMouseDown={(e) => { e.preventDefault(); insertText('*', '*'); }} className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-all cursor-pointer" title="Italic"><Italic size={14} /></button>
-                      <button onMouseDown={(e) => { e.preventDefault(); insertText('\n- '); }} className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-all cursor-pointer" title="List"><List size={14} /></button>
-                    </div>
-                  )}
-                </div>
-
-                {/* TEACHER MODE PANEL (IF ACTIVE) */}
-                {isTeacherMode && (
-                  <div className="px-4 py-3 bg-[#0E0B16] border-b border-white/10">
-                    <div className="flex items-center gap-3 mb-2">
-                      <div className="w-8 h-8 bg-purple-500/10 rounded-xl flex items-center justify-center animate-pulse"><Award className="text-purple-400" size={16} /></div>
-                      <div>
-                        <h4 className="text-xs font-black text-white uppercase tracking-wider">Interactive Lecture</h4>
-                        <p className="text-[8px] text-purple-400 font-bold uppercase tracking-widest font-mono">Teacher Active</p>
-                      </div>
-                    </div>
-                    <div className="space-y-2 max-h-[160px] overflow-y-auto custom-scrollbar p-1">
-                      {podcastDialogue.length === 0 ? (
-                        <div className="text-center py-4 opacity-30 space-y-1">
-                          <RefreshCcw size={18} className="animate-spin mx-auto text-purple-500" />
-                          <p className="text-[8px] font-black uppercase text-white tracking-widest">Constructing Classroom Guide...</p>
-                        </div>
-                      ) : (
-                        podcastDialogue.map((line: any, idx: number) => (
-                          <motion.div 
-                            key={idx}
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            className={`p-2.5 rounded-xl border ${line.speaker === 'Teacher' ? 'bg-purple-500/5 border-purple-500/10 text-purple-200' : 'bg-white/5 border-white/5 text-white/80'}`}
+                        {/* 3-Dots Menu */}
+                        <div className="relative">
+                          <button 
+                            onClick={() => setShowNoteMenu(!showNoteMenu)}
+                            className={`p-2 rounded-xl transition-all cursor-pointer ${
+                              noteTheme === 'light' ? 'hover:bg-purple-200/60 text-purple-900' : 'hover:bg-white/10 text-white/80'
+                            }`}
+                            title="Note Options"
                           >
-                            <p className="text-[8px] font-black uppercase tracking-wider mb-0.5 text-white/40">{line.speaker}</p>
-                            <p className="text-xs leading-relaxed">{line.text}</p>
-                          </motion.div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                )}
+                            <MoreVertical size={18} />
+                          </button>
 
-                {/* INDEPENDENT NOTE WRITING CANVAS */}
-                <div className="flex-1 flex flex-col relative min-h-0 bg-[#0C0F1A]">
+                          <AnimatePresence>
+                            {showNoteMenu && (
+                              <>
+                                <div className="fixed inset-0 z-40" onClick={() => setShowNoteMenu(false)} />
+                                <motion.div 
+                                  initial={{ opacity: 0, scale: 0.95, y: 5 }}
+                                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                                  exit={{ opacity: 0, scale: 0.95, y: 5 }}
+                                  className={`absolute right-0 mt-2 w-52 rounded-2xl p-2 shadow-2xl z-50 border flex flex-col gap-1 ${
+                                    noteTheme === 'light' ? 'bg-white border-purple-200 text-purple-950' : 'bg-[#181329] border-white/10 text-white'
+                                  }`}
+                                >
+                                  <button 
+                                    onClick={() => {
+                                      setShowNoteMenu(false);
+                                      if (setNotePreviewMode) setNotePreviewMode(false);
+                                    }}
+                                    className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-purple-500/10 text-xs font-bold transition-all text-left cursor-pointer"
+                                  >
+                                    <Edit2 size={14} className="text-purple-400" />
+                                    <span>Switch to Edit Mode</span>
+                                  </button>
+                                  <button 
+                                    onClick={() => {
+                                      setShowNoteMenu(false);
+                                      setIsPodcastActive(true);
+                                      setIsTeacherMode(false);
+                                      if (podcastDialogue.length === 0 && selectedNote?.content) {
+                                        generatePodcastDiscussion(selectedNote.content);
+                                      }
+                                    }}
+                                    className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-purple-500/10 text-xs font-bold transition-all text-left cursor-pointer"
+                                  >
+                                    <Mic size={14} className="text-indigo-400" />
+                                    <span>Create Podcast</span>
+                                  </button>
+                                  <button 
+                                    onClick={() => {
+                                      setShowNoteMenu(false);
+                                      setShowQuizConfigPopup(true);
+                                    }}
+                                    className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-purple-500/10 text-xs font-bold transition-all text-left cursor-pointer"
+                                  >
+                                    <Zap size={14} className="text-yellow-400" />
+                                    <span>Set Quiz on Note</span>
+                                  </button>
+                                  <button 
+                                    onClick={() => {
+                                      setShowNoteMenu(false);
+                                      const element = document.createElement("a");
+                                      const file = new Blob([`${selectedNote.title}\n\n${selectedNote.content}`], {type: 'text/plain'});
+                                      element.href = URL.createObjectURL(file);
+                                      element.download = `${selectedNote.title || 'note'}.txt`;
+                                      document.body.appendChild(element);
+                                      element.click();
+                                      document.body.removeChild(element);
+                                    }}
+                                    className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-purple-500/10 text-xs font-bold transition-all text-left cursor-pointer"
+                                  >
+                                    <Download size={14} className="text-green-400" />
+                                    <span>Export as TXT</span>
+                                  </button>
+                                  {deleteNote && (
+                                    <button 
+                                      onClick={() => {
+                                        setShowNoteMenu(false);
+                                        if (selectedNote?.id) {
+                                          deleteNote(selectedNote.id);
+                                          setSelectedNote(null);
+                                        }
+                                      }}
+                                      className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-red-500/10 text-red-400 text-xs font-bold transition-all text-left cursor-pointer"
+                                    >
+                                      <Trash2 size={14} />
+                                      <span>Delete Note</span>
+                                    </button>
+                                  )}
+                                </motion.div>
+                              </>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      </>
+                    ) : (
+                      /* EDIT MODE TOP HEADER BUTTONS (Image 2 & 3 style) */
+                      <>
+                        {/* Undo */}
+                        <button 
+                          onMouseDown={(e) => { e.preventDefault(); if (undoNote) undoNote(); }} 
+                          disabled={!noteHistory || noteHistory.length === 0} 
+                          className={`p-2 rounded-xl transition-all cursor-pointer disabled:opacity-30 ${
+                            noteTheme === 'light' ? 'hover:bg-purple-200/60 text-purple-900' : 'hover:bg-white/10 text-white/80'
+                          }`} 
+                          title="Undo"
+                        >
+                          <Undo2 size={18} />
+                        </button>
+
+                        {/* Redo */}
+                        <button 
+                          onMouseDown={(e) => { e.preventDefault(); if (redoNote) redoNote(); }} 
+                          disabled={!redoStack || redoStack.length === 0} 
+                          className={`p-2 rounded-xl transition-all cursor-pointer disabled:opacity-30 ${
+                            noteTheme === 'light' ? 'hover:bg-purple-200/60 text-purple-900' : 'hover:bg-white/10 text-white/80'
+                          }`} 
+                          title="Redo"
+                        >
+                          <Redo2 size={18} />
+                        </button>
+
+                        {/* 3-Dots Menu */}
+                        <div className="relative">
+                          <button 
+                            onClick={() => setShowNoteMenu(!showNoteMenu)}
+                            className={`p-2 rounded-xl transition-all cursor-pointer ${
+                              noteTheme === 'light' ? 'hover:bg-purple-200/60 text-purple-900' : 'hover:bg-white/10 text-white/80'
+                            }`}
+                            title="Note Options"
+                          >
+                            <MoreVertical size={18} />
+                          </button>
+
+                          <AnimatePresence>
+                            {showNoteMenu && (
+                              <>
+                                <div className="fixed inset-0 z-40" onClick={() => setShowNoteMenu(false)} />
+                                <motion.div 
+                                  initial={{ opacity: 0, scale: 0.95, y: 5 }}
+                                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                                  exit={{ opacity: 0, scale: 0.95, y: 5 }}
+                                  className={`absolute right-0 mt-2 w-52 rounded-2xl p-2 shadow-2xl z-50 border flex flex-col gap-1 ${
+                                    noteTheme === 'light' ? 'bg-white border-purple-200 text-purple-950' : 'bg-[#181329] border-white/10 text-white'
+                                  }`}
+                                >
+                                  <button 
+                                    onClick={() => {
+                                      setShowNoteMenu(false);
+                                      if (setNotePreviewMode) setNotePreviewMode(true);
+                                    }}
+                                    className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-purple-500/10 text-xs font-bold transition-all text-left cursor-pointer"
+                                  >
+                                    <BookOpen size={14} className="text-purple-400" />
+                                    <span>Switch to Read Mode</span>
+                                  </button>
+                                  <button 
+                                    onClick={() => {
+                                      setShowNoteMenu(false);
+                                      setNoteTheme(prev => prev === 'dark' ? 'light' : 'dark');
+                                    }}
+                                    className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-purple-500/10 text-xs font-bold transition-all text-left cursor-pointer"
+                                  >
+                                    <Shirt size={14} className="text-indigo-400" />
+                                    <span>Toggle Theme ({noteTheme === 'dark' ? 'Light' : 'Dark'})</span>
+                                  </button>
+                                </motion.div>
+                              </>
+                            )}
+                          </AnimatePresence>
+                        </div>
+
+                        {/* Checkmark button (Done / Save Editing) */}
+                        <button 
+                          onClick={() => {
+                            if (saveNote) saveNote(selectedNote.content || '', selectedNote.title || 'Untitled Note', selectedNote.id);
+                            if (setNotePreviewMode) setNotePreviewMode(true);
+                            if (setUserNotification) setUserNotification("Saved & Switched to Read Mode!");
+                          }} 
+                          className="p-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl shadow-lg transition-all flex items-center justify-center cursor-pointer active:scale-95 ml-1" 
+                          title="Done Editing & Save"
+                        >
+                          <Check size={20} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* MAIN SCROLLABLE CONTENT AREA */}
+                <div className="flex-1 flex flex-col relative min-h-0 h-full overflow-hidden">
                   <div 
                     ref={scrollContainerRef}
                     onScroll={(e) => {
@@ -1386,37 +1492,69 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                       const isUp = el.scrollTop < el.scrollHeight - el.clientHeight - 80;
                       setIsScrolledUp(isUp);
                     }}
-                    className="flex-1 overflow-y-auto px-4 sm:px-12 md:px-20 lg:px-28 py-8 custom-scrollbar relative"
+                    className="flex-1 overflow-y-auto min-h-0 h-full px-4 sm:px-12 md:px-20 lg:px-28 py-6 custom-scrollbar relative overscroll-contain touch-pan-y"
                     style={{
-                      backgroundImage: 'linear-gradient(to bottom, transparent 27px, rgba(255, 255, 255, 0.03) 27px)',
-                      backgroundSize: '100% 28px',
-                      lineHeight: '28px',
+                      WebkitOverflowScrolling: 'touch',
                     }}
                   >
                     {(selectedNote.isTranscribing || (props.isAudioTranscribing && selectedNote.id === props.activeAudioNoteId)) && (
-                      <div className="mb-6 flex items-center gap-2.5 px-4 py-2.5 bg-[#DC2626]/15 border border-[#DC2626]/30 rounded-xl w-fit">
+                      <div className="mb-6 flex items-center gap-2.5 px-4 py-2.5 bg-red-500/15 border border-red-500/30 rounded-xl w-fit">
                         <span className="relative flex h-2.5 w-2.5">
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#DC2626]"></span>
+                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
                         </span>
-                        <span className="text-[10px] font-black text-[#DC2626] uppercase tracking-wider flex items-center gap-1.5">
-                          <RefreshCcw size={12} className="animate-spin" /> IN PROGRESS: Actively transcribing & writing study note...
+                        <span className="text-[10px] font-black text-red-500 uppercase tracking-wider flex items-center gap-1.5">
+                          <RefreshCcw size={12} className="animate-spin" /> Transcribing Audio &amp; Writing Note...
                         </span>
                       </div>
                     )}
 
                     {notePreviewMode ? (
-                      <div className="space-y-6 relative z-10 select-text pb-20">
-                        <div className="markdown-body prose prose-invert max-w-none text-white/85 text-sm sm:text-base leading-[28px]">
-                          <MarkdownRenderer selectable={true} content={selectedNote.content || "_No source content yet._"} />
+                      /* READ MODE VIEW (Matching Image 1) */
+                      <div className="space-y-6 relative z-10 select-text pb-36 min-h-full">
+                        <div className="border-b border-purple-500/20 pb-4 mb-4">
+                          <h1 className={`text-2xl sm:text-3xl font-black tracking-tight ${noteTheme === 'light' ? 'text-[#1D1235]' : 'text-white'}`}>
+                            {selectedNote.title || 'Untitled Note'}
+                          </h1>
+                          <p className={`text-[10px] font-mono mt-1 uppercase tracking-widest flex items-center gap-2 ${noteTheme === 'light' ? 'text-purple-900/50' : 'text-white/40'}`}>
+                            <span className="text-emerald-500 font-bold">Read Mode</span>
+                            <span>•</span>
+                            <span>{selectedNote.createdAt ? new Date(selectedNote.createdAt).toLocaleDateString() : 'Just now'}</span>
+                          </p>
                         </div>
+
+                        <div className={`prose max-w-none text-sm sm:text-base leading-[28px] font-sans ${noteTheme === 'light' ? 'prose-slate text-[#1D1235]' : 'prose-invert text-white/90'}`}>
+                          <MarkdownRenderer selectable={true} content={selectedNote.content || "_No content. Tap edit button or toolbar below to start writing._"} />
+                        </div>
+
+                        {selectedNote.attachments && selectedNote.attachments.length > 0 && (
+                          <div className="mt-8 border-t border-purple-500/20 pt-4 space-y-3">
+                            <p className={`text-[10px] font-bold tracking-widest uppercase ${noteTheme === 'light' ? 'text-purple-900/60' : 'text-white/60'}`}>
+                              Attachments ({selectedNote.attachments.length})
+                            </p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                              {selectedNote.attachments.map((att: any, attIdx: number) => (
+                                <div key={attIdx} className={`border rounded-2xl p-3 flex items-center justify-between ${noteTheme === 'light' ? 'bg-purple-100/50 border-purple-200 text-purple-950' : 'bg-white/5 border-white/10 text-white'}`}>
+                                  <div className="flex items-center gap-3 overflow-hidden">
+                                    <FileText size={18} className="text-purple-400 shrink-0" />
+                                    <p className="text-xs font-bold truncate">{att.name || 'attachment'}</p>
+                                  </div>
+                                  <a href={att.url} target="_blank" rel="noopener noreferrer" className="p-1.5 hover:bg-purple-500/10 rounded-lg">
+                                    <ExternalLink size={14} />
+                                  </a>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ) : (
-                      <div className="flex-1 relative z-10 pb-20">
+                      /* EDIT MODE VIEW (Matching Image 2 & 3) */
+                      <div className="flex-1 relative z-10 pb-36 min-h-full flex flex-col">
                         <textarea
                           id="note-main-textarea"
                           style={{ 
-                            height: `${Math.max(500, (selectedNote.content || '').split('\n').length * 28 + 120)}px`,
+                            minHeight: '65vh',
                             lineHeight: '28px'
                           }}
                           value={selectedNote.content || ''}
@@ -1428,46 +1566,16 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                           onBlur={(e) => {
                             lastFocusedBlock.current = { id: 'main', start: e.target.selectionStart, end: e.target.selectionEnd };
                           }}
-                          className="w-full bg-transparent border-none text-white/90 text-sm sm:text-base leading-[28px] outline-none resize-none font-mono placeholder:text-white/20 p-0 focus:outline-none min-h-[65vh]"
-                          placeholder="Start writing or typing your notes..."
+                          className={`w-full bg-transparent border-none text-sm sm:text-base leading-[28px] outline-none resize-none font-sans p-0 focus:outline-none flex-1 ${
+                            noteTheme === 'light' ? 'text-[#1D1235] placeholder:text-purple-900/30' : 'text-white/90 placeholder:text-white/20'
+                          }`}
+                          placeholder="Type your notes here..."
                         />
-
-                        {selectedNote.attachments && selectedNote.attachments.length > 0 && (
-                          <div className="mt-12 border-t border-white/10 pt-6 space-y-3 relative z-20">
-                            <p className="text-[10px] font-bold tracking-widest text-white/60 uppercase">Attachments ({selectedNote.attachments.length})</p>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                              {selectedNote.attachments.map((att: any, attIdx: number) => {
-                                const isImg = att.type?.startsWith('image/') || att.name?.toLowerCase().endsWith('.png') || att.name?.toLowerCase().endsWith('.jpg') || att.name?.toLowerCase().endsWith('.jpeg');
-                                return (
-                                  <div key={attIdx} className="bg-white/5 border border-white/10 rounded-2xl p-3 flex items-center justify-between">
-                                    <div className="flex items-center gap-3 overflow-hidden">
-                                      {isImg ? (
-                                        <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0 bg-black/40 border border-white/10">
-                                          <img src={att.url} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                                        </div>
-                                      ) : (
-                                        <div className="w-10 h-10 bg-yellow-500/10 rounded-xl flex items-center justify-center shrink-0">
-                                          <FileText size={18} className="text-yellow-400" />
-                                        </div>
-                                      )}
-                                      <div className="overflow-hidden">
-                                        <p className="text-[10px] font-bold text-white/80 truncate">{att.name || 'attachment'}</p>
-                                      </div>
-                                    </div>
-                                    <a href={att.url} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-white/80">
-                                      <ExternalLink size={12} />
-                                    </a>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
                       </div>
                     )}
                   </div>
 
-                  {/* Dedicated Scroll Down Floating Button */}
+                  {/* Scroll Down Floating Button */}
                   {isScrolledUp && (
                     <button
                       onClick={() => {
@@ -1476,20 +1584,157 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                         }
                         setIsScrolledUp(false);
                       }}
-                      className="absolute bottom-12 right-8 p-3 bg-red-600 hover:bg-red-700 text-white rounded-full shadow-2xl z-30 transition-all flex items-center justify-center animate-bounce cursor-pointer"
-                      title="Scroll to Latest Line"
+                      className="absolute bottom-20 right-6 p-3 bg-purple-600 hover:bg-purple-500 text-white rounded-full shadow-2xl z-40 transition-all flex items-center justify-center animate-bounce cursor-pointer"
+                      title="Scroll to Bottom"
                     >
                       <ChevronDown size={18} />
                     </button>
                   )}
+                </div>
 
-                  {/* SEAMLESS FOOTER STATUS BAR */}
+                {/* READ MODE BOTTOM DOCKED TOOLBAR (Matching Image 1) */}
+                {notePreviewMode ? (
+                  <div className="absolute bottom-4 left-0 right-0 z-30 flex justify-center px-4 pointer-events-none">
+                    <div className={`pointer-events-auto flex items-center justify-around gap-4 sm:gap-6 px-6 py-3.5 rounded-full shadow-[0_8px_32px_rgba(0,0,0,0.4)] backdrop-blur-xl border ${
+                      noteTheme === 'light'
+                        ? 'bg-[#E5DFFA]/95 border-purple-300 text-purple-950'
+                        : 'bg-[#18122B]/95 border-purple-500/30 text-white'
+                    }`}>
+                      {/* 1. AI Sparkles / Generator */}
+                      <button 
+                        onClick={() => {
+                          if (setNotePreviewMode) setNotePreviewMode(false);
+                          insertText('**AI Summary:** ', '');
+                        }}
+                        className="p-2.5 rounded-2xl hover:bg-purple-500/20 transition-all cursor-pointer hover:scale-110 active:scale-95"
+                        title="AI Assistant"
+                      >
+                        <Sparkles size={22} className="text-purple-400" />
+                      </button>
+
+                      {/* 2. Camera / Image Attachment */}
+                      <label className="p-2.5 rounded-2xl hover:bg-purple-500/20 transition-all cursor-pointer hover:scale-110 active:scale-95">
+                        <Camera size={22} className="text-indigo-400" />
+                        <input type="file" className="hidden" accept="image/*" onChange={(e) => uploadNoteFile(e, 'image')} />
+                      </label>
+
+                      {/* 3. Mic / Voice */}
+                      <label className="p-2.5 rounded-2xl hover:bg-purple-500/20 transition-all cursor-pointer hover:scale-110 active:scale-95">
+                        <Mic size={22} className="text-red-400" />
+                        <input type="file" className="hidden" accept="audio/*" onChange={(e) => uploadNoteFile(e, 'audio')} />
+                      </label>
+
+                      {/* 4. Canvas / Drawing */}
+                      <button 
+                        onClick={() => {
+                          if (setNotePreviewMode) setNotePreviewMode(false);
+                          insertText('\n> [Drawing/Canvas Area]\n', '');
+                        }}
+                        className="p-2.5 rounded-2xl hover:bg-purple-500/20 transition-all cursor-pointer hover:scale-110 active:scale-95"
+                        title="Canvas / Compass"
+                      >
+                        <Compass size={22} className="text-blue-400" />
+                      </button>
+
+                      {/* 5. Checklist / Tasks */}
+                      <button 
+                        onClick={() => {
+                          if (setNotePreviewMode) setNotePreviewMode(false);
+                          insertText('\n- [ ] ', '');
+                        }}
+                        className="p-2.5 rounded-2xl hover:bg-purple-500/20 transition-all cursor-pointer hover:scale-110 active:scale-95"
+                        title="Add Checklist"
+                      >
+                        <CheckSquare size={22} className="text-emerald-400" />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  /* EDIT MODE BOTTOM TOOLBAR (Matching Image 2 & 3) */
+                  <div className={`sticky bottom-0 z-30 px-4 py-3 border-t flex items-center justify-around gap-2 shrink-0 backdrop-blur-md ${
+                    noteTheme === 'light'
+                      ? 'bg-[#EFEAF7]/95 border-[#D8CEEB] text-[#1D1235]'
+                      : 'bg-[#120D24]/95 border-white/10 text-white'
+                  }`}>
+                    {/* 1. AI Sparkles */}
+                    <button 
+                      onClick={() => insertText('**AI Note:** ', '')}
+                      className="p-2 rounded-xl hover:bg-purple-500/20 transition-all cursor-pointer"
+                      title="AI Prompt"
+                    >
+                      <Sparkles size={18} className="text-purple-400" />
+                    </button>
+
+                    {/* 2. Aa Formatting Menu */}
+                    <div className="relative">
+                      <button 
+                        onClick={() => setShowAaFormattingMenu(!showAaFormattingMenu)}
+                        className="p-2 rounded-xl hover:bg-purple-500/20 transition-all cursor-pointer font-bold text-xs"
+                        title="Text Style (Aa)"
+                      >
+                        Aa
+                      </button>
+                      <AnimatePresence>
+                        {showAaFormattingMenu && (
+                          <>
+                            <div className="fixed inset-0 z-40" onClick={() => setShowAaFormattingMenu(false)} />
+                            <motion.div 
+                              initial={{ opacity: 0, y: -10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: -10 }}
+                              className={`absolute bottom-full mb-2 left-1/2 -translate-x-1/2 p-2 rounded-2xl shadow-2xl border flex items-center gap-1 z-50 ${
+                                noteTheme === 'light' ? 'bg-white border-purple-200 text-purple-950' : 'bg-[#1B162C] border-white/10 text-white'
+                              }`}
+                            >
+                              <button onClick={() => { insertText('# ', ''); setShowAaFormattingMenu(false); }} className="px-2 py-1 text-xs font-black hover:bg-purple-500/20 rounded-lg">H1</button>
+                              <button onClick={() => { insertText('## ', ''); setShowAaFormattingMenu(false); }} className="px-2 py-1 text-xs font-black hover:bg-purple-500/20 rounded-lg">H2</button>
+                              <button onClick={() => { insertText('**', '**'); setShowAaFormattingMenu(false); }} className="p-1.5 hover:bg-purple-500/20 rounded-lg"><Bold size={14} /></button>
+                              <button onClick={() => { insertText('*', '*'); setShowAaFormattingMenu(false); }} className="p-1.5 hover:bg-purple-500/20 rounded-lg"><Italic size={14} /></button>
+                              <button onClick={() => { insertText('\n- ', ''); setShowAaFormattingMenu(false); }} className="p-1.5 hover:bg-purple-500/20 rounded-lg"><List size={14} /></button>
+                            </motion.div>
+                          </>
+                        )}
+                      </AnimatePresence>
+                    </div>
+
+                    {/* 3. Camera */}
+                    <label className="p-2 rounded-xl hover:bg-purple-500/20 transition-all cursor-pointer">
+                      <Camera size={18} className="text-indigo-400" />
+                      <input type="file" className="hidden" accept="image/*" onChange={(e) => uploadNoteFile(e, 'image')} />
+                    </label>
+
+                    {/* 4. Mic */}
+                    <label className="p-2 rounded-xl hover:bg-purple-500/20 transition-all cursor-pointer">
+                      <Mic size={18} className="text-red-400" />
+                      <input type="file" className="hidden" accept="audio/*" onChange={(e) => uploadNoteFile(e, 'audio')} />
+                    </label>
+
+                    {/* 5. Compass / Canvas */}
+                    <button 
+                      onClick={() => insertText('\n> [Canvas]\n', '')}
+                      className="p-2 rounded-xl hover:bg-purple-500/20 transition-all cursor-pointer"
+                      title="Canvas"
+                    >
+                      <Compass size={18} className="text-blue-400" />
+                    </button>
+
+                    {/* 6. Checklist */}
+                    <button 
+                      onClick={() => insertText('\n- [ ] ', '')}
+                      className="p-2 rounded-xl hover:bg-purple-500/20 transition-all cursor-pointer"
+                      title="Checklist"
+                    >
+                      <CheckSquare size={18} className="text-emerald-400" />
+                    </button>
+                  </div>
+                )}
+
+                {/* SEAMLESS FOOTER STATUS BAR */}
                   <div className="px-4 sm:px-6 py-2.5 border-t border-white/10 bg-[#060810] flex items-center justify-between shrink-0 text-xs text-white/40 font-mono select-none">
                     <span>Notebook Workspace</span>
                     <span>{selectedNote.content ? selectedNote.content.split(' ').filter(Boolean).length : 0} words</span>
                   </div>
                 </div>
-              </div>
             )
           ) : (
             <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 custom-scrollbar bg-[#13111C]">
@@ -1617,155 +1862,219 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
       )}
 
       {toolsSubTab === 'quiz' && (
-        <motion.div key="quiz" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
-          <div className="flex items-center justify-between px-2">
+        <motion.div key="quiz" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
+          {/* Top Bar Navigation */}
+          <div className="flex items-center justify-between px-1">
             <button 
               onClick={() => {
-                if (quizState === 'active' || quizState === 'finished' || quizState === 'review') {
+                if (quizCreationMethod !== null) {
+                  setQuizCreationMethod(null);
+                } else if (quizState === 'active' || quizState === 'finished' || quizState === 'review') {
                   setQuizState('idle');
                 } else {
                   handleToolsBack();
                 }
               }} 
-              className="text-white/40 hover:text-[#DC2626] transition-colors flex items-center gap-1.5 text-xs font-black uppercase"
+              className={`p-2 rounded-xl transition-colors flex items-center justify-center ${
+                theme === 'dark' ? 'text-purple-300 hover:text-amber-400 hover:bg-white/5' : 'text-purple-900 hover:text-purple-950 hover:bg-black/5'
+              }`}
             >
-              <ArrowLeft size={14} /> Back to {quizState === 'idle' ? 'Tools' : 'Lobby'}
+              <ChevronLeft size={22} />
             </button>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => {
-                  try {
-                    localStorage.removeItem('nsg_current_quiz_progress');
-                    setQuizState('idle');
-                    if (setQuizTopic) setQuizTopic('');
-                    if (setQuizImages) setQuizImages([]);
-                    if (setImportedQuizNote) setImportedQuizNote(null);
-                    if (props.setQuizQuestions) props.setQuizQuestions([]);
-                    if (props.setUserQuizAnswers) props.setUserQuizAnswers([]);
-                    if (props.setQuizScore) props.setQuizScore(0);
-                    if (props.setCurrentQuestionIndex) props.setCurrentQuestionIndex(0);
-                    if (props.setIsGeneratingQuiz) props.setIsGeneratingQuiz(false);
-                    if (setUserNotification) setUserNotification("Quiz session reset.");
-                  } catch (e) {}
-                }}
-                className="text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-white/50 hover:text-white transition-all border border-white/10"
-              >
-                Reset Session
-              </button>
-              <div className="flex items-center gap-2">
-                <span className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-white/20' : 'text-slate-400'}`}>Quiz Engine</span>
-                <Zap size={20} className="text-[#DC2626]" />
-              </div>
-            </div>
+
+            <h2 className={`font-black text-lg tracking-wide ${theme === 'dark' ? 'text-white' : 'text-purple-950'}`}>
+              Create
+            </h2>
+
+            <button
+              onClick={() => {
+                try {
+                  localStorage.removeItem('nsg_current_quiz_progress');
+                  setQuizState('idle');
+                  setQuizCreationMethod(null);
+                  if (setQuizTopic) setQuizTopic('');
+                  if (setQuizImages) setQuizImages([]);
+                  if (setImportedQuizNote) setImportedQuizNote(null);
+                  if (props.setQuizQuestions) props.setQuizQuestions([]);
+                  if (props.setUserQuizAnswers) props.setUserQuizAnswers([]);
+                  if (props.setQuizScore) props.setQuizScore(0);
+                  if (props.setCurrentQuestionIndex) props.setCurrentQuestionIndex(0);
+                  if (props.setIsGeneratingQuiz) props.setIsGeneratingQuiz(false);
+                  if (setUserNotification) setUserNotification("Quiz session reset.");
+                } catch (e) {}
+              }}
+              className={`text-[9px] font-black uppercase tracking-wider px-2.5 py-1.5 rounded-lg transition-all border ${
+                theme === 'dark' 
+                  ? 'bg-purple-950/40 hover:bg-purple-900/60 text-purple-200 border-purple-500/20' 
+                  : 'bg-purple-50 hover:bg-purple-100 text-purple-800 border-purple-200'
+              }`}
+            >
+              Reset
+            </button>
           </div>
 
           {(quizState === 'idle' || !quizState || (quizState === 'active' && (!quizQuestions || !Array.isArray(quizQuestions) || quizQuestions.length === 0))) && (
-            <div className={`${theme === 'dark' ? 'bg-[#13111C] border-white/10' : 'bg-white border-slate-200'} p-8 rounded-3xl border space-y-6 shadow-sm`}>
-              <div className="text-center space-y-2 mb-4">
-                <div className="w-12 h-12 bg-[#DC2626]/10 rounded-2xl flex items-center justify-center mx-auto mb-2"><Sparkles size={24} className="text-[#DC2626]" /></div>
-                <h3 className="font-bold text-lg text-white">Generate Interactive Quiz</h3>
-                <p className="text-xs text-white/40">Test your knowledge with AI-generated questions.</p>
-              </div>
-              
-              <div className="space-y-4">
-                {!user ? (
-                  <div className="text-center space-y-4 py-6">
-                    <p className="text-sm text-white/60">You must be logged in to generate quizzes.</p>
-                    <button onClick={() => setShowAuthModal(true)} className="w-full bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black py-4 rounded-2xl text-sm shadow-xl shadow-[#DC2626]/20 transition-all">
-                      LOGIN TO PROCEED
-                    </button>
+            <div className="space-y-6 pt-4 pb-8 transition-all">
+              {!user ? (
+                <div className="text-center space-y-4 py-12">
+                  <p className={`text-sm ${theme === 'dark' ? 'text-purple-200/70' : 'text-slate-600'}`}>You must be logged in to generate quizzes.</p>
+                  <button 
+                    onClick={() => setShowAuthModal(true)} 
+                    className="w-full bg-[#7E22CE] hover:bg-[#6B21A8] text-white font-black py-4 rounded-2xl text-sm shadow-xl shadow-purple-600/30 transition-all cursor-pointer"
+                  >
+                    LOGIN TO PROCEED
+                  </button>
+                </div>
+              ) : quizCreationMethod === null ? (
+                /* LANDING VIEW WITH EMPTY TOP & BOTTOM CONTENT (EXACT MATCH TO IMAGES 1 & 8) */
+                <div className="min-h-[480px] flex flex-col justify-between pt-12 sm:pt-20 pb-4">
+                  <div className="flex-1" />
+
+                  <div className="space-y-6">
+                    <div className="space-y-2">
+                      <p className={`text-sm font-semibold ${theme === 'dark' ? 'text-purple-300/60' : 'text-slate-500'}`}>
+                        Welcome!
+                      </p>
+                      <h1 className={`text-3xl sm:text-4xl font-extrabold leading-tight tracking-tight ${
+                        theme === 'dark' ? 'text-white' : 'text-slate-900'
+                      }`}>
+                        Let's get started!<br />
+                        Pick a way to create<br />
+                        your quiz.
+                      </h1>
+                    </div>
+
+                    <div className="space-y-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setQuizCreationMethod('omni')}
+                        className={`w-full py-4 px-6 rounded-2xl font-bold text-base flex items-center justify-center gap-3 transition-all cursor-pointer border ${
+                          theme === 'dark'
+                            ? 'bg-[#1D1636] border-purple-500/30 text-white hover:bg-[#261E45]'
+                            : 'bg-[#EAE5FE] border-purple-200 text-slate-900 hover:bg-[#E0D8FD] shadow-xs'
+                        }`}
+                      >
+                        <Sparkles className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                        <span>Create with AI</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setQuizCreationMethod('pdf')}
+                        className={`w-full py-4 px-6 rounded-2xl font-bold text-base flex items-center justify-center gap-3 transition-all cursor-pointer border ${
+                          theme === 'dark'
+                            ? 'bg-[#1D1636] border-purple-500/30 text-white hover:bg-[#261E45]'
+                            : 'bg-[#EAE5FE] border-purple-200 text-slate-900 hover:bg-[#E0D8FD] shadow-xs'
+                        }`}
+                      >
+                        <FileText className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                        <span>Upload a PDF</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setQuizCreationMethod('image')}
+                        className={`w-full py-4 px-6 rounded-2xl font-bold text-base flex items-center justify-center gap-3 transition-all cursor-pointer border ${
+                          theme === 'dark'
+                            ? 'bg-[#1D1636] border-purple-500/30 text-white hover:bg-[#261E45]'
+                            : 'bg-[#EAE5FE] border-purple-200 text-slate-900 hover:bg-[#E0D8FD] shadow-xs'
+                        }`}
+                      >
+                        <Camera className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                        <span>Scan a Document</span>
+                      </button>
+                    </div>
                   </div>
-                ) : (
-                  <>
-                    {importedQuizNote && (
-                      <div className="p-4 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-[#DC2626]/20 flex items-center justify-center text-[#DC2626]">
-                            <FileText size={20} />
-                          </div>
-                          <div>
-                            <p className="text-[10px] font-black text-white/40 uppercase tracking-widest">Imported Note Source</p>
-                            <p className="text-sm font-bold text-white">{importedQuizNote.title || 'Untitled Note'}</p>
-                          </div>
+                </div>
+              ) : (
+                /* SUB-PAGE FORM VIEW */
+                <div className="space-y-6">
+                  <div className="space-y-1">
+                    <h3 className={`font-black text-2xl sm:text-3xl ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                      {quizCreationMethod === 'omni' && "Describe the topic."}
+                      {quizCreationMethod === 'pdf' && "Upload a document."}
+                      {quizCreationMethod === 'image' && "Upload image."}
+                    </h3>
+                    <p className={`text-sm font-medium ${theme === 'dark' ? 'text-purple-300/70' : 'text-slate-500'}`}>
+                      We'll generate the questions.
+                    </p>
+                  </div>
+
+                  {importedQuizNote && (
+                    <div className={`p-3.5 rounded-2xl border flex items-center justify-between ${
+                      theme === 'dark' ? 'bg-purple-950/40 border-purple-500/30' : 'bg-white border-purple-200'
+                    }`}>
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-purple-400">
+                          <FileText size={18} />
                         </div>
-                        <button 
-                          onClick={() => setImportedQuizNote(null)}
-                          className="text-xs text-white/40 hover:text-white px-2.5 py-1 bg-white/5 rounded-lg transition-all"
-                        >
-                          Clear Note
-                        </button>
-                      </div>
-                    )}
-
-                    <div>
-                      <div className="flex items-center justify-between mb-2 ml-1">
-                        <p className="text-[10px] font-black text-white/30 uppercase">Topic or Analysis Context</p>
-                        <div className="flex items-center gap-1.5">
-                          {/* Image Upload Button */}
-                          <label className={`cursor-pointer group flex items-center gap-1.5 px-2.5 py-1 bg-[#DC2626]/10 border border-[#DC2626]/20 rounded-lg hover:bg-[#DC2626]/20 transition-all ${isUploadingQuizImages ? 'opacity-80 pointer-events-none' : ''}`}>
-                            {isUploadingQuizImages ? (
-                              <Loader2 size={11} className="text-[#DC2626] animate-spin" />
-                            ) : (
-                              <Camera size={11} className="text-[#DC2626]" />
-                            )}
-                            <span className="text-[8px] font-black text-[#DC2626] uppercase">
-                              {isUploadingQuizImages ? 'Uploading Photo...' : `Snap/Photos (${quizImages.length}/${isPremium ? 20 : 7})`}
-                            </span>
-                            <input type="file" className="hidden" accept="image/*" multiple onChange={handleQuizImageUpload} disabled={isUploadingQuizImages} />
-                          </label>
-
-                          {/* Plus PDF/Document Upload Button */}
-                          <label className={`cursor-pointer group flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/10 border border-amber-500/20 rounded-lg hover:bg-amber-500/20 transition-all ${isUploadingQuizDocs ? 'opacity-80 pointer-events-none' : ''}`}>
-                            {isUploadingQuizDocs ? (
-                              <Loader2 size={11} className="text-amber-400 animate-spin" />
-                            ) : (
-                              <>
-                                <Plus size={11} className="text-amber-400" />
-                                <FileText size={11} className="text-amber-400" />
-                              </>
-                            )}
-                            <span className="text-[8px] font-black text-amber-400 uppercase">
-                              {isUploadingQuizDocs ? 'Uploading Doc...' : 'PDF / Doc'}
-                            </span>
-                            <input type="file" className="hidden" accept=".pdf,.doc,.docx,.txt,.md" multiple onChange={handleQuizDocumentUpload} disabled={isUploadingQuizDocs} />
-                          </label>
+                        <div>
+                          <p className={`text-[9px] font-bold uppercase tracking-wider ${theme === 'dark' ? 'text-purple-300/50' : 'text-purple-700/60'}`}>Active Study Note</p>
+                          <p className={`text-xs font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{importedQuizNote.title || 'Untitled Note'}</p>
                         </div>
                       </div>
-                      <div className="relative">
-                        <textarea 
-                          value={quizTopic} 
-                          onChange={(e) => setQuizTopic(e.target.value)} 
-                          placeholder="Describe the topic or ask AI to analyze the images/documents below..." 
-                          className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm outline-none focus:border-[#DC2626]/50 transition-all text-white min-h-[100px] resize-none"
-                        />
-                        <div className="absolute bottom-3 right-3 flex items-center gap-2">
-                          <p className={`text-[8px] font-black uppercase ${quizTopic.split(/\s+/).filter(Boolean).length > (importedQuizNote ? 5000 : (isPremium ? 20000 : 300)) ? 'text-red-500' : 'text-white/20'}`}>
-                            {quizTopic.split(/\s+/).filter(Boolean).length} / {importedQuizNote ? 5000 : (isPremium ? 20000 : 300)} Words
-                          </p>
-                        </div>
+                      <button 
+                        onClick={() => setImportedQuizNote(null)}
+                        className={`text-xs font-bold px-2.5 py-1 rounded-lg transition-all border ${
+                          theme === 'dark' ? 'bg-white/5 border-white/10 text-white/60 hover:text-white' : 'bg-purple-50 border-purple-200 text-slate-600'
+                        }`}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Input Box according to creation method */}
+                  {quizCreationMethod === 'omni' && (
+                    <div className="relative">
+                      <textarea
+                        value={quizTopic}
+                        onChange={(e) => setQuizTopic(e.target.value)}
+                        placeholder="English vocabulary for beginners"
+                        className={`w-full rounded-2xl px-5 py-4 text-sm outline-none transition-all min-h-[140px] resize-none border ${
+                          theme === 'dark'
+                            ? 'bg-[#1D1636] border-purple-500/30 text-white placeholder-purple-300/30 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20'
+                            : 'bg-white border-purple-200 text-slate-900 placeholder-slate-400 focus:border-purple-600 focus:ring-2 focus:ring-purple-500/20 shadow-sm'
+                        }`}
+                      />
+                      <div className="absolute bottom-3 right-3">
+                        <p className={`text-[10px] font-bold ${
+                          quizTopic.split(/\s+/).filter(Boolean).length > (isPremium ? 20000 : 300)
+                            ? 'text-rose-500'
+                            : (theme === 'dark' ? 'text-purple-300/40' : 'text-slate-400')
+                        }`}>
+                          {quizTopic.split(/\s+/).filter(Boolean).length}/300
+                        </p>
                       </div>
+                    </div>
+                  )}
 
-                      {(quizImages.length > 0 || (quizDocuments && quizDocuments.length > 0)) && (
-                        <div className="flex flex-wrap gap-2 mt-3">
-                          {quizImages.map((img: any) => (
-                            <div key={img.id} className="relative group w-16 h-16 rounded-xl overflow-hidden border border-white/10 shrink-0">
-                              <img src={img.preview} className="w-full h-full object-cover" />
-                              <button onClick={() => removeQuizImage(img.id)} className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center">
-                                <Trash2 size={12} className="text-white" />
-                              </button>
-                            </div>
-                          ))}
+                  {quizCreationMethod === 'pdf' && (
+                    <div className="space-y-3">
+                      <label className={`cursor-pointer group block border-2 border-dashed rounded-2xl p-6 text-center transition-all ${
+                        theme === 'dark'
+                          ? 'bg-[#1D1636]/60 border-purple-500/40 hover:border-purple-400'
+                          : 'bg-white border-purple-200 hover:border-purple-500 shadow-sm'
+                      }`}>
+                        <FileText size={32} className="mx-auto mb-2 text-purple-600 dark:text-purple-400" />
+                        <p className={`text-sm font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                          {isUploadingQuizDocs ? 'Uploading PDF...' : 'Upload PDF or Document'}
+                        </p>
+                        <p className={`text-xs ${theme === 'dark' ? 'text-purple-300/50' : 'text-slate-400'}`}>
+                          Supports PDF, DOC, TXT files
+                        </p>
+                        <input type="file" className="hidden" accept=".pdf,.doc,.docx,.txt,.md" multiple onChange={handleQuizDocumentUpload} disabled={isUploadingQuizDocs} />
+                      </label>
 
-                          {quizDocuments?.map((docItem: any) => (
-                            <div key={docItem.id} className="relative group bg-white/5 border border-amber-500/30 rounded-xl p-2 flex items-center gap-2.5 max-w-[210px] shrink-0">
-                              <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center shrink-0 text-amber-400">
-                                <FileText size={16} />
-                              </div>
-                              <div className="overflow-hidden flex-1">
-                                <p className="text-[10px] font-bold text-white truncate">{docItem.name}</p>
-                                <p className="text-[8px] text-amber-400/80 font-semibold uppercase">PDF/Doc Loaded</p>
-                              </div>
-                              <button onClick={() => removeQuizDocument && removeQuizDocument(docItem.id)} className="p-1 hover:bg-white/10 rounded-lg text-white/40 hover:text-red-400 transition-all">
+                      {quizDocuments && quizDocuments.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {quizDocuments.map((docItem: any) => (
+                            <div key={docItem.id} className={`border rounded-xl p-2.5 flex items-center gap-2.5 ${
+                              theme === 'dark' ? 'bg-purple-950/40 border-purple-500/40 text-white' : 'bg-purple-50 border-purple-200 text-slate-900'
+                            }`}>
+                              <FileText size={16} className="text-purple-600" />
+                              <span className="text-xs font-bold truncate max-w-[160px]">{docItem.name}</span>
+                              <button onClick={() => removeQuizDocument && removeQuizDocument(docItem.id)} className="p-1 text-rose-500">
                                 <Trash2 size={12} />
                               </button>
                             </div>
@@ -1773,531 +2082,740 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                         </div>
                       )}
 
-                      {importedQuizNote?.attachments && importedQuizNote.attachments.length > 0 && (
-                        <div className="mt-3 space-y-2">
-                          <p className="text-[9px] font-black text-white/40 uppercase tracking-wider">Attached Note Documents & Files ({importedQuizNote.attachments.length})</p>
-                          <div className="flex flex-wrap gap-2">
-                            {importedQuizNote.attachments.map((att: any, attIdx: number) => {
-                              const isImg = att.type?.startsWith('image/') || att.name?.toLowerCase().endsWith('.png') || att.name?.toLowerCase().endsWith('.jpg');
-                              return (
-                                <div key={attIdx} className="bg-white/5 border border-white/10 rounded-xl p-2.5 flex items-center gap-2.5 max-w-[220px]">
-                                  {isImg ? (
-                                    <div className="w-8 h-8 rounded-lg overflow-hidden shrink-0 bg-black/40 border border-white/10">
-                                      <img src={att.url} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                                    </div>
-                                  ) : (
-                                    <div className="w-8 h-8 rounded-lg bg-[#DC2626]/10 flex items-center justify-center shrink-0 text-[#DC2626]">
-                                      <FileText size={16} />
-                                    </div>
-                                  )}
-                                  <div className="overflow-hidden">
-                                    <p className="text-[10px] font-bold text-white truncate">{att.name || 'attachment'}</p>
-                                    <p className="text-[8px] text-white/40 uppercase">{isImg ? 'Image' : 'Document'}</p>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
+                      <textarea
+                        value={quizTopic}
+                        onChange={(e) => setQuizTopic(e.target.value)}
+                        placeholder="Optional: Add specific instructions or focus areas for the PDF..."
+                        className={`w-full rounded-2xl px-5 py-3 text-sm outline-none transition-all min-h-[90px] resize-none border ${
+                          theme === 'dark'
+                            ? 'bg-[#1D1636] border-purple-500/30 text-white placeholder-purple-300/30'
+                            : 'bg-white border-purple-200 text-slate-900 placeholder-slate-400 shadow-sm'
+                        }`}
+                      />
+                    </div>
+                  )}
+
+                  {quizCreationMethod === 'image' && (
+                    <div className="space-y-3">
+                      <label className={`cursor-pointer group block border-2 border-dashed rounded-2xl p-6 text-center transition-all ${
+                        theme === 'dark'
+                          ? 'bg-[#1D1636]/60 border-purple-500/40 hover:border-purple-400'
+                          : 'bg-white border-purple-200 hover:border-purple-500 shadow-sm'
+                      }`}>
+                        <Camera size={32} className="mx-auto mb-2 text-purple-600 dark:text-purple-400" />
+                        <p className={`text-sm font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                          {isUploadingQuizImages ? 'Uploading Image...' : 'Upload Image or Photo'}
+                        </p>
+                        <p className={`text-xs ${theme === 'dark' ? 'text-purple-300/50' : 'text-slate-400'}`}>
+                          Supports PNG, JPG, WebP
+                        </p>
+                        <input type="file" className="hidden" accept="image/*" multiple onChange={handleQuizImageUpload} disabled={isUploadingQuizImages} />
+                      </label>
+
+                      {quizImages && quizImages.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {quizImages.map((img: any) => (
+                            <div key={img.id} className="relative group w-16 h-16 rounded-xl overflow-hidden border border-purple-500/30 shrink-0">
+                              <img src={img.preview} className="w-full h-full object-cover" />
+                              <button onClick={() => removeQuizImage(img.id)} className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center">
+                                <Trash2 size={14} className="text-white" />
+                              </button>
+                            </div>
+                          ))}
                         </div>
                       )}
-                    </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-[10px] font-black text-white/30 uppercase mb-2 ml-1">Questions</p>
-                        <div className="flex flex-wrap gap-2 items-center">
-                          {[15, 25, 50].map(count => (
-                            <button key={count} onClick={() => setQuizQuestionCount(count)} className={`px-3 py-2 rounded-xl text-[10px] font-bold border transition-all ${quizQuestionCount === count ? 'bg-[#DC2626] border-[#DC2626] text-white' : 'bg-white/5 border-white/10 text-white/40'}`}>
-                              {count}
-                            </button>
-                          ))}
-                          <div className="flex items-center gap-1.5 ml-1">
-                            <p className="text-[8px] font-bold text-white/20 uppercase">Custom:</p>
-                            <input 
-                              type="number" 
-                              min="1"
-                              max="200"
-                              value={![15, 25, 50].includes(quizQuestionCount) ? quizQuestionCount : ''} 
-                              onChange={(e) => {
-                                const val = parseInt(e.target.value);
-                                if(!isNaN(val)) setQuizQuestionCount(val);
-                                else if (e.target.value === '') setQuizQuestionCount(0);
-                              }}
-                              onBlur={(e) => {
-                                if(!e.target.value || parseInt(e.target.value) <= 0) setQuizQuestionCount(25);
-                              }}
-                              className={`w-14 px-2 py-1.5 rounded-xl bg-white/5 border text-white text-[10px] font-bold outline-none transition-all ${![15, 25, 50].includes(quizQuestionCount) && quizQuestionCount !== 0 ? 'border-[#DC2626] bg-[#DC2626]/10' : 'border-white/10'}`}
-                              placeholder="No."
-                            />
+                      <textarea
+                        value={quizTopic}
+                        onChange={(e) => setQuizTopic(e.target.value)}
+                        placeholder="Optional: Describe what to focus on in the image..."
+                        className={`w-full rounded-2xl px-5 py-3 text-sm outline-none transition-all min-h-[90px] resize-none border ${
+                          theme === 'dark'
+                            ? 'bg-[#1D1636] border-purple-500/30 text-white placeholder-purple-300/30'
+                            : 'bg-white border-purple-200 text-slate-900 placeholder-slate-400 shadow-sm'
+                        }`}
+                      />
+                    </div>
+                  )}
+
+                  {/* Number of Questions Selector */}
+                  <div className="space-y-2">
+                    <p className={`text-sm font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                      Number of Questions
+                    </p>
+                    <div className="flex items-center gap-2.5 overflow-x-auto pb-1">
+                      {[10, 20, 30, 50].map(count => {
+                        const isSelected = quizQuestionCount === count;
+                        return (
+                          <button
+                            key={count}
+                            type="button"
+                            onClick={() => {
+                              if (count > 20 && !isPremium && currentUserData?.role !== 'admin' && !currentUserData?.bypassAllPayments) {
+                                if (setUserNotification) setUserNotification("Generating up to 50 questions is a Premium feature! Upgrade to unlock up to 50 questions.");
+                                if (setActiveTab) setActiveTab('premium');
+                                return;
+                              }
+                              setQuizQuestionCount(count);
+                            }}
+                            className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all cursor-pointer ${
+                              isSelected
+                                ? (theme === 'dark'
+                                    ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30 border border-purple-400'
+                                    : 'bg-white text-slate-900 border border-purple-200 shadow-sm')
+                                : (theme === 'dark'
+                                    ? 'text-purple-300/60 hover:text-white'
+                                    : 'text-slate-500 hover:text-slate-900')
+                            }`}
+                          >
+                            {count}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {(isPremium || currentUserData?.role === 'admin' || currentUserData?.bypassAllPayments) && (
+                      <div className="pt-2 flex items-center gap-3">
+                        <span className="text-xs font-bold text-purple-300">Custom Count:</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="50"
+                          value={quizQuestionCount}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value, 10);
+                            if (!isNaN(val) && val > 0 && val <= 50) setQuizQuestionCount(val);
+                          }}
+                          className="w-20 px-3 py-1.5 rounded-xl bg-[#1D1636] border border-purple-500/30 text-white text-xs font-bold outline-none focus:border-purple-400"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Difficulty Level Selector */}
+                  <div className="space-y-2">
+                    <p className={`text-sm font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                      Difficulty Level
+                    </p>
+                    <div className="flex items-center gap-2.5 overflow-x-auto pb-1">
+                      {[
+                        { label: 'Easy', val: 'Easy' },
+                        { label: 'Moderate', val: 'Medium' },
+                        { label: 'High', val: 'Hard' }
+                      ].map(item => {
+                        const isSelected = quizDifficulty === item.val || (item.val === 'Medium' && quizDifficulty === 'Moderate');
+                        return (
+                          <button
+                            key={item.label}
+                            type="button"
+                            onClick={() => setQuizDifficulty(item.val as any)}
+                            className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all cursor-pointer ${
+                              isSelected
+                                ? (theme === 'dark'
+                                    ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30 border border-purple-400'
+                                    : 'bg-white text-slate-900 border border-purple-200 shadow-sm')
+                                : (theme === 'dark'
+                                    ? 'text-purple-300/60 hover:text-white'
+                                    : 'text-slate-500 hover:text-slate-900')
+                            }`}
+                          >
+                            {item.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Answer Type Selector (Single Choice Radio behavior) */}
+                  <div className="space-y-2">
+                    <p className={`text-sm font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                      Answer Type
+                    </p>
+                    <div className={`rounded-2xl border p-2 space-y-1 ${
+                      theme === 'dark'
+                        ? 'bg-[#191130] border-purple-500/20'
+                        : 'bg-[#F3F0FF] border-purple-100'
+                    }`}>
+                      {[
+                        { key: 'true_false', label: 'True/False' },
+                        { key: 'multiple_choice', label: 'Multiple Choice' },
+                        { key: 'single_choice', label: 'Single Choice' }
+                      ].map(type => {
+                        const isSelected = (quizAnswerType || 'multiple_choice') === type.key;
+                        return (
+                          <div
+                            key={type.key}
+                            onClick={() => setQuizAnswerType && setQuizAnswerType(type.key as any)}
+                            className={`flex items-center justify-between p-3.5 rounded-xl cursor-pointer transition-all ${
+                              isSelected
+                                ? (theme === 'dark' ? 'bg-purple-900/40' : 'bg-white/80 shadow-xs')
+                                : 'hover:bg-white/40 dark:hover:bg-purple-900/20'
+                            }`}
+                          >
+                            <span className={`text-sm font-semibold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                              {type.label}
+                            </span>
+                            <div className={`w-5 h-5 rounded-md flex items-center justify-center transition-all ${
+                              isSelected
+                                ? 'bg-[#7C3AED] dark:bg-purple-600 text-white'
+                                : 'border-2 border-purple-300 dark:border-purple-600/60'
+                            }`}>
+                              {isSelected && <Check size={14} className="stroke-[3]" />}
+                            </div>
                           </div>
-                        </div>
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-black text-white/30 uppercase mb-2 ml-1">Difficulty</p>
-                        <div className="flex flex-wrap gap-2">
-                          {['Easy', 'Medium', 'Hard', 'Professional'].map(level => (
-                            <button key={level} onClick={() => setQuizDifficulty(level as any)} className={`px-3 py-2 rounded-xl text-[10px] font-bold border transition-all ${quizDifficulty === level ? 'bg-[#DC2626] border-[#DC2626] text-white' : 'bg-white/5 border-white/10 text-white/40'}`}>
-                              {level}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
+                        );
+                      })}
                     </div>
-                  </>
-                )}
-              </div>
+                  </div>
 
-              <button onClick={generateQuiz} disabled={isGeneratingQuiz} className="w-full bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black py-4 rounded-2xl text-sm shadow-xl shadow-[#DC2626]/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50">
-                {isGeneratingQuiz ? <><RefreshCcw size={18} className="animate-spin" /> GENERATING...</> : <><Zap size={18} /> START ASSESSMENT</>}
-              </button>
+                  {/* Action Button */}
+                  <button 
+                    onClick={() => generateQuiz(quizTopic, quizQuestionCount, quizDifficulty, true, quizAnswerType)} 
+                    disabled={isGeneratingQuiz} 
+                    className="w-full bg-[#7E22CE] hover:bg-[#6B21A8] text-white font-black py-4 rounded-2xl text-base shadow-xl shadow-purple-600/30 transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer active:scale-98"
+                  >
+                    {isGeneratingQuiz ? (
+                      <><RefreshCcw size={18} className="animate-spin text-purple-200" /> Generating quiz...</>
+                    ) : (
+                      <>Create quiz</>
+                    )}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
-          {quizState === 'active' && quizQuestions && quizQuestions.length > 0 && (() => {
-            const quizSubjectsPool = Array.from(new Set(quizQuestions.map((q: any) => (q.subject || quizTopic || "General Section").trim()))).filter(Boolean) as string[];
-            const currentQuizQuestion = quizQuestions[currentQuestionIndex || 0] || quizQuestions[0];
-            const realPoolIndex = currentQuizQuestion ? quizQuestions.indexOf(currentQuizQuestion) : (currentQuestionIndex || 0);
-            const activeQuizSub = (currentQuizQuestion?.subject || localStudentSubject || quizSubjectsPool[0] || "General Section").trim();
-            const filteredQuizQuestions = quizQuestions.filter((q: any) => {
-              const qSub = (q.subject || quizTopic || "General Section").trim();
-              return qSub.toLowerCase() === activeQuizSub.toLowerCase();
-            });
-            const gridQuestions = quizSubjectsPool.length > 1 ? filteredQuizQuestions : quizQuestions;
+          {/* GENERATING LOADING SCREEN */}
+          {isGeneratingQuiz && (
+            <div className="flex flex-col items-center justify-center min-h-[450px] py-16 space-y-5 text-center">
+              <div className="relative flex items-center justify-center">
+                <div className="w-16 h-20 sm:w-20 sm:h-24 rounded-2xl bg-white border border-purple-200/80 shadow-2xl flex items-center justify-center animate-pulse">
+                  <div className="relative">
+                    <Sparkles size={32} className="text-amber-400 fill-amber-300 animate-spin-slow" />
+                    <Sparkles size={16} className="text-sky-400 fill-sky-300 absolute -top-1 -right-2 animate-bounce" />
+                  </div>
+                </div>
+              </div>
+              <p className={`text-base sm:text-lg font-bold tracking-tight ${theme === 'dark' ? 'text-purple-100' : 'text-slate-800'}`}>
+                Creating your quiz...
+              </p>
+            </div>
+          )}
 
-            const gridBtnSize = gridQuestions.length > 40 ? 'w-4.5 h-4.5 text-[8px]' : gridQuestions.length > 20 ? 'w-5 h-5 text-[9px]' : 'w-6 h-6 text-[10px]';
+          {/* QUIZ PREVIEW VIEW */}
+          {!isGeneratingQuiz && quizState === 'preview' && quizQuestions && quizQuestions.length > 0 && (
+            <div className="space-y-6 pb-24">
+              {/* Quiz Header Info */}
+              <div className="p-5 rounded-3xl bg-[#120D24] border border-purple-500/20 space-y-3 shadow-xl">
+                <div className="flex items-center justify-between">
+                  <span className="px-3 py-1 rounded-full bg-purple-500/20 border border-purple-500/30 text-purple-300 text-[10px] font-extrabold uppercase tracking-widest">
+                    Quiz Preview
+                  </span>
+                  <span className="text-xs font-mono font-bold text-purple-300/80">
+                    0 of {quizQuestions.length} Answered
+                  </span>
+                </div>
+                <h2 className="text-xl font-black text-white leading-tight">
+                  {quizTopic || "Generated Quiz"}
+                </h2>
+                <div className="flex items-center gap-4 text-xs font-bold text-white/60 pt-1">
+                  <span>Difficulty: <strong className="text-purple-300">{quizDifficulty}</strong></span>
+                  <span>Total Questions: <strong className="text-purple-300">{quizQuestions.length}</strong></span>
+                </div>
+              </div>
+
+              {/* Questions Preview List */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-black text-white uppercase tracking-wider px-1">Questions Breakdown</h3>
+                {quizQuestions.map((q: any, qIdx: number) => (
+                  <div key={qIdx} className="p-4 sm:p-5 rounded-2xl bg-[#0F0B1E] border border-white/10 space-y-3">
+                    <div className="flex items-start gap-2">
+                      <span className="w-6 h-6 rounded-lg bg-purple-600/30 border border-purple-500/40 text-purple-300 font-extrabold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                        {qIdx + 1}
+                      </span>
+                      <p className="text-sm sm:text-base font-bold text-white leading-relaxed flex-1">
+                        {q.question}
+                      </p>
+                    </div>
+
+                    <div className="space-y-2 pl-8">
+                      {(q.options || []).map((opt: string, optIdx: number) => (
+                        <div key={optIdx} className="p-3 rounded-xl bg-white/5 border border-white/10 flex items-center gap-3">
+                          <span className="w-5 h-5 rounded-md bg-white/10 text-white text-[10px] font-black flex items-center justify-center shrink-0">
+                            {String.fromCharCode(65 + optIdx)}
+                          </span>
+                          <span className="text-xs sm:text-sm font-semibold text-white/90">
+                            {opt}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Fixed Bottom Bar: Take Quiz & Share */}
+              <div className="fixed bottom-0 left-0 right-0 z-50 p-4 bg-[#0B0813]/90 backdrop-blur-xl border-t border-white/10 max-w-md sm:max-w-xl mx-auto flex items-center gap-3">
+                <button
+                  onClick={() => setQuizState('active')}
+                  className="flex-1 py-3.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black rounded-2xl text-sm shadow-lg shadow-purple-600/30 transition-all uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <span>Take Quiz</span>
+                  <ChevronRight size={16} />
+                </button>
+                <button
+                  onClick={shareQuiz}
+                  className="px-5 py-3.5 bg-white/10 hover:bg-white/20 text-white font-black rounded-2xl text-sm transition-all border border-white/15 uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Share2 size={16} />
+                  <span>Share</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ACTIVE QUIZ VIEW (EDGE-TO-EDGE VERTICAL SCROLL WITH INSTANT HEADER BAR & DASHES) */}
+          {!isGeneratingQuiz && quizState === 'active' && quizQuestions && quizQuestions.length > 0 && (() => {
+            let correctCount = 0;
+            let incorrectCount = 0;
+            let answeredCount = 0;
+
+            quizQuestions.forEach((q: any, idx: number) => {
+              const uAns = userQuizAnswers[idx];
+              if (uAns !== undefined) {
+                answeredCount++;
+                if (uAns === q.correctAnswer) correctCount++;
+                else incorrectCount++;
+              }
+            });
 
             return (
-            <div className="flex flex-col h-[calc(100vh-130px)] max-h-[850px] justify-between space-y-2 overflow-hidden">
-              {/* CONSTANTLY VISIBLE COMPACT GRADIENT HEADING BAR */}
-              <div className="sticky top-0 z-30 shrink-0 bg-gradient-to-r from-red-600 via-purple-700 to-blue-700 text-white p-2 sm:p-2.5 rounded-xl shadow-md border border-white/20 space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5">
+              <div className="space-y-4 pb-20">
+                {/* TOP HEADER & DASHED PROGRESS BAR MATCHING EXACT DESIGN */}
+                <div className="sticky top-0 z-40 p-3 bg-[#0B0813]/95 backdrop-blur-md border-b border-white/10 space-y-2 -mx-4 px-4 sm:-mx-6 sm:px-6">
+                  {/* TOP ROW: BACK ICON & SHARE ICON */}
+                  <div className="flex items-center justify-between">
                     <button
-                      onClick={() => setShowQuizCalculator(true)}
-                      className="w-7.5 h-7.5 rounded-lg bg-black/30 hover:bg-black/50 border border-white/30 flex items-center justify-center text-white shadow-inner shrink-0 transition-all"
-                      title="Calculator"
+                      onClick={() => setQuizState('idle')}
+                      className="p-1.5 -ml-1 text-white/80 hover:text-white transition-colors cursor-pointer"
+                      title="Exit Quiz"
                     >
-                      <Calculator size={15} />
-                    </button>
-                    <button
-                      onClick={() => toggleSpeakQuestion(currentQuizQuestion?.question || '', currentQuizQuestion?.options || [])}
-                      className={`w-7.5 h-7.5 rounded-lg border flex items-center justify-center shrink-0 transition-all ${isSpeakingQuestion ? 'bg-amber-500 border-amber-400 text-white animate-pulse' : 'bg-black/30 border-white/30 text-white hover:bg-black/50'}`}
-                      title="Read Aloud"
-                    >
-                      <Volume2 size={15} />
+                      <ChevronLeft size={22} />
                     </button>
                     <button
                       onClick={shareQuiz}
-                      className="h-7.5 px-2.5 rounded-lg bg-black/30 hover:bg-black/50 border border-white/30 flex items-center justify-center gap-1.5 text-white shadow-inner shrink-0 transition-all text-[9px] font-black uppercase tracking-wider"
+                      className="p-1.5 -mr-1 text-white/80 hover:text-white transition-colors cursor-pointer"
                       title="Share Quiz"
                     >
-                      <Share2 size={14} />
-                      <span className="hidden sm:inline">Share</span>
+                      <Share2 size={20} />
                     </button>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <span className="text-[9px] font-black uppercase tracking-widest bg-black/30 px-2.5 py-1 rounded-lg border border-white/20 text-white font-mono">
-                      PROGRESS: {realPoolIndex + 1}/{quizQuestions.length}
-                    </span>
-                    <button
-                      onClick={() => setQuizState('idle')}
-                      className="px-2.5 py-1 bg-black/30 hover:bg-black/50 rounded-lg text-[9px] font-black uppercase tracking-widest border border-white/20 text-white transition-all shrink-0"
-                    >
-                      Back to Lobby
-                    </button>
+                  {/* SECOND ROW: SEGMENTED DASH BAR & STATS PILLS */}
+                  <div className="flex items-center justify-between gap-2 pt-1 flex-wrap sm:flex-nowrap">
+                    {/* SEGMENTED DASH PROGRESS BAR */}
+                    <div className="flex items-center gap-1.5 flex-1 min-w-[120px] overflow-x-auto no-scrollbar py-1">
+                      {quizQuestions.map((q: any, idx: number) => {
+                        const uAns = userQuizAnswers[idx];
+                        const isAns = uAns !== undefined;
+                        const isCorrect = isAns && uAns === q.correctAnswer;
+                        const isWrong = isAns && !isCorrect;
+                        const isCurrent = currentQuestionIndex === idx;
+
+                        let dashBg = "bg-white/20";
+                        let borderStyle = "";
+
+                        if (isCorrect) {
+                          dashBg = "bg-blue-600";
+                        } else if (isWrong) {
+                          dashBg = "bg-red-600";
+                        } else if (isAns) {
+                          dashBg = "bg-purple-500";
+                        } else if (isCurrent) {
+                          dashBg = "bg-white/40";
+                          borderStyle = "ring-2 ring-white/90";
+                        }
+
+                        return (
+                          <button
+                            key={idx}
+                            onClick={() => {
+                              setCurrentQuestionIndex(idx);
+                              const el = document.getElementById(`quiz-question-${idx}`);
+                              if (el) el.scrollIntoView({ behavior: 'instant', block: 'center' });
+                            }}
+                            className={`h-2 min-w-[14px] flex-1 max-w-[32px] rounded-full transition-all shrink-0 cursor-pointer ${dashBg} ${borderStyle}`}
+                            title={`Question ${idx + 1}`}
+                          />
+                        );
+                      })}
+                    </div>
+
+                    {/* LIVE STATS: QUESTION COUNTER, FAILED PILL, CORRECT PILL */}
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs sm:text-sm font-semibold text-slate-200/90 font-mono">
+                        {currentQuestionIndex + 1} / {quizQuestions.length}
+                      </span>
+
+                      {/* Failed Count Tag (Dark Red Pill) */}
+                      <div className="px-2.5 py-1 rounded-full bg-[#4A0000] border border-red-800/40 text-red-300 text-xs font-black flex items-center gap-1 shadow-sm">
+                        <span className="text-red-400 text-xs font-black">✕</span>
+                        <span>{incorrectCount}</span>
+                      </div>
+
+                      {/* Passed / Correct Count Tag (Dark Blue Pill) */}
+                      <div className="px-2.5 py-1 rounded-full bg-[#0D184A] border border-blue-800/40 text-blue-300 text-xs font-black flex items-center gap-1 shadow-sm">
+                        <span className="text-blue-400 text-xs font-black">✓</span>
+                        <span>{correctCount}</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                {/* Subject / Sections Bar if more than 1 section */}
-                {quizSubjectsPool.length > 1 && (
-                  <div className="flex items-center gap-1 overflow-x-auto pb-1 pt-0.5 no-scrollbar border-t border-white/15">
-                    <span className="text-[8px] font-black text-white/60 uppercase tracking-wider px-1 shrink-0">Sections:</span>
-                    {quizSubjectsPool.map((sub: string) => {
-                      const isSelectedSub = sub.toLowerCase() === activeQuizSub.toLowerCase();
-                      return (
-                        <button
-                          key={sub}
-                          onClick={() => {
-                            setLocalStudentSubject(sub);
-                            const firstMatch = quizQuestions.findIndex((q: any) => (q.subject || quizTopic || "General Section").trim().toLowerCase() === sub.toLowerCase());
-                            if (firstMatch !== -1) setCurrentQuestionIndex(firstMatch);
-                          }}
-                          className={`px-2.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider transition-all shrink-0 border ${
-                            isSelectedSub
-                              ? 'bg-white text-slate-900 border-white shadow-sm'
-                              : 'bg-black/30 text-white/70 border-white/20 hover:bg-white/20'
-                          }`}
-                        >
-                          {sub}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+                {/* CONTINUOUS VERTICAL SCROLL OF ALL QUESTIONS (EDGE-TO-EDGE) */}
+                <div className="space-y-6 pt-2">
+                  {quizQuestions.map((q: any, qIdx: number) => {
+                    const userAns = userQuizAnswers[qIdx];
+                    const hasAnswered = userAns !== undefined;
 
-                {/* NUMBER OF QUESTIONS ARRANGED IN GRID */}
-                <div className="flex flex-wrap items-center gap-1 max-h-14 sm:max-h-16 overflow-y-auto custom-scrollbar pt-1 border-t border-white/15">
-                  {gridQuestions.map((q: any, idx: number) => {
-                    const realIdx = quizQuestions.indexOf(q);
-                    const isAns = userQuizAnswers[realIdx] !== undefined;
-                    const isCur = realIdx === realPoolIndex;
                     return (
-                      <button
-                        key={idx}
-                        onClick={() => {
-                          setCurrentQuestionIndex(realIdx);
-                          setSelectedOption(userQuizAnswers[realIdx] !== undefined ? userQuizAnswers[realIdx] : null);
-                          setIsAnswered(userQuizAnswers[realIdx] !== undefined);
-                        }}
-                        className={`${gridBtnSize} rounded-md font-black border flex items-center justify-center transition-all shrink-0 ${
-                          isCur
-                            ? 'bg-white text-slate-900 border-white shadow-md scale-110 z-10'
-                            : isAns
-                            ? 'bg-green-500 text-white border-green-400'
-                            : 'bg-black/30 text-white/70 border-white/20 hover:bg-white/20'
-                        }`}
+                      <div
+                        id={`quiz-question-${qIdx}`}
+                        key={qIdx}
+                        className="py-4 border-b border-white/10 space-y-3"
                       >
-                        {realIdx + 1}
-                      </button>
+                        <div className="flex items-start gap-2.5">
+                          <span className="px-2.5 py-1 rounded-lg bg-purple-600 text-white font-black text-xs shrink-0">
+                            Q{qIdx + 1}
+                          </span>
+                          <div className="flex-1">
+                            <MarkdownRenderer
+                              content={q.question}
+                              className="text-base sm:text-lg font-bold text-white leading-relaxed"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Options */}
+                        <div className="space-y-2.5 pt-1">
+                          {(q.options || []).map((opt: string, optIdx: number) => {
+                            const isSelected = userAns === optIdx;
+                            const isCorrectOpt = optIdx === q.correctAnswer;
+
+                            let optStyle = "bg-white/5 border-white/10 text-white hover:bg-white/10";
+                            let badgeStyle = "bg-white/10 text-white border-white/20";
+
+                            if (hasAnswered) {
+                              if (isCorrectOpt) {
+                                optStyle = "bg-emerald-500/20 border-emerald-500 text-emerald-200 font-bold";
+                                badgeStyle = "bg-emerald-500 text-white border-emerald-400";
+                              } else if (isSelected) {
+                                optStyle = "bg-red-500/20 border-red-500 text-red-200 font-bold";
+                                badgeStyle = "bg-red-500 text-white border-red-400";
+                              }
+                            } else if (isSelected) {
+                              optStyle = "bg-purple-600/30 border-purple-500 text-white font-bold";
+                              badgeStyle = "bg-purple-600 text-white border-purple-400";
+                            }
+
+                            return (
+                              <button
+                                key={optIdx}
+                                onClick={() => {
+                                  if (userQuizAnswers[qIdx] !== undefined) return;
+                                  if (handleOptionSelect) {
+                                    handleOptionSelect(optIdx, qIdx);
+                                  } else if (setUserQuizAnswers) {
+                                    setUserQuizAnswers((prev: any) => {
+                                      const newAns = [...(prev || [])];
+                                      newAns[qIdx] = optIdx;
+                                      return newAns;
+                                    });
+                                  }
+                                  setCurrentQuestionIndex(qIdx);
+                                  setSelectedOption(optIdx);
+                                  setIsAnswered(true);
+                                }}
+                                disabled={hasAnswered}
+                                className={`w-full text-left p-3.5 sm:p-4 rounded-2xl border transition-all flex items-center gap-3 cursor-pointer ${optStyle}`}
+                              >
+                                <span className={`w-7 h-7 rounded-xl flex items-center justify-center text-xs font-black border shrink-0 transition-all ${badgeStyle}`}>
+                                  {hasAnswered && isCorrectOpt ? <Check size={14} /> : hasAnswered && isSelected ? <X size={14} /> : String.fromCharCode(65 + optIdx)}
+                                </span>
+                                <div className="flex-1">
+                                  <MarkdownRenderer
+                                    content={opt}
+                                    className="text-sm font-semibold text-white"
+                                  />
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {/* Explanation Review */}
+                        {hasAnswered && q.explanation && (
+                          <motion.div
+                            initial={{ opacity: 0, y: 5 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="p-3.5 rounded-2xl bg-purple-950/40 border border-purple-500/30 space-y-1 mt-2"
+                          >
+                            <div className="flex items-center gap-1.5 text-purple-300 text-[10px] font-black uppercase tracking-widest">
+                              <Info size={12} /> Review Explanation
+                            </div>
+                            <MarkdownRenderer
+                              content={q.explanation}
+                              className="text-xs text-white/90 font-medium leading-relaxed"
+                            />
+                          </motion.div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
-              </div>
 
-              {/* CONSTANTLY VISIBLE QUESTIONS AND OPTIONS CONTAINER WITH FIXED BOTTOM BAR */}
-              {currentQuizQuestion && (
-              <div className={`flex-1 flex flex-col justify-between overflow-hidden ${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-3.5 sm:p-5 rounded-2xl border shadow-sm`}>
-                <div className="space-y-3 sm:space-y-4 overflow-y-auto custom-scrollbar pr-1 flex-1">
-                  <div className="flex items-center justify-between border-b border-white/10 pb-2 shrink-0">
-                    <span className="text-xs font-black uppercase tracking-widest text-[#DC2626]">
-                      Question {realPoolIndex + 1} of {quizQuestions.length}
-                    </span>
-                    <span className="text-[10px] font-black uppercase text-white/40">
-                      {currentQuizQuestion.subject || quizTopic || "General Section"}
-                    </span>
-                  </div>
-
-                  <div className="shrink-0">
-                    <MarkdownRenderer 
-                      content={currentQuizQuestion.question}
-                      className="text-base sm:text-lg font-bold leading-relaxed text-white"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    {(currentQuizQuestion.options || []).map((option: string, idx: number) => {
-                      const isCorrect = idx === currentQuizQuestion.correctAnswer;
-                      const isSelected = selectedOption === idx;
-                      const hasAnswered = userQuizAnswers[realPoolIndex] !== undefined;
-                      
-                      let variantClasses = 'bg-white/5 border-white/10 text-white/80 hover:bg-white/10';
-                      let badgeClasses = 'border-white/20 text-white/40 bg-white/5';
-                      
-                      if (hasAnswered) {
-                        if (isCorrect) {
-                          variantClasses = 'border-green-500 bg-green-500/10 text-green-400 font-bold';
-                          badgeClasses = 'border-green-500 bg-green-500 text-white';
-                        } else if (isSelected) {
-                          variantClasses = 'border-red-500 bg-red-500/10 text-red-400 font-bold';
-                          badgeClasses = 'border-red-500 bg-red-500 text-white';
-                        }
-                      } else if (isSelected) {
-                        variantClasses = 'border-blue-500 bg-blue-500/10 text-blue-300 font-bold';
-                        badgeClasses = 'border-blue-500 bg-blue-500 text-white';
-                      }
-
-                      return (
-                        <button 
-                          key={idx} 
-                          onClick={() => {
-                            if (userQuizAnswers[realPoolIndex] !== undefined) return;
-                            setSelectedOption(idx);
-                            setIsAnswered(true);
-                            if (handleOptionSelect) handleOptionSelect(idx);
-                          }} 
-                          disabled={hasAnswered}
-                          className={`w-full text-left p-3 sm:p-3.5 rounded-xl border transition-all flex items-center gap-3 ${variantClasses}`}
-                        >
-                          <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-black border shrink-0 transition-all ${badgeClasses}`}>
-                            {hasAnswered && isCorrect ? <Check size={13} /> : hasAnswered && isSelected && !isCorrect ? <X size={13} /> : String.fromCharCode(65 + idx)}
-                          </div>
-                          <div className="flex-1">
-                            <MarkdownRenderer 
-                              content={option}
-                              className="text-xs sm:text-sm font-medium"
-                            />
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {userQuizAnswers[realPoolIndex] !== undefined && currentQuizQuestion.explanation && (
-                    <motion.div 
-                      initial={{ opacity: 0, y: 5 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="p-3.5 bg-white/5 border border-white/10 rounded-xl space-y-1 shrink-0"
-                    >
-                      <div className="flex items-center gap-1.5 text-green-400 text-[10px] font-black uppercase tracking-[0.2em]">
-                        <Info size={13} /> Explanation
-                      </div>
-                      <MarkdownRenderer 
-                        content={currentQuizQuestion.explanation}
-                        className="text-xs text-white/80 leading-relaxed font-medium"
-                      />
-                    </motion.div>
-                  )}
-                </div>
-
-                {/* CONSTANTLY VISIBLE COMPACT FIXED NEXT & PREVIOUS BUTTONS AT BOTTOM */}
-                <div className="pt-2 border-t border-white/10 flex gap-2 shrink-0 bg-inherit sticky bottom-0 z-20">
-                  <button 
-                    onClick={prevQuestion}
-                    disabled={realPoolIndex <= 0}
-                    className="px-3.5 sm:px-4 py-2 bg-white/5 hover:bg-white/10 disabled:opacity-30 border border-white/15 text-white font-black rounded-lg text-[10px] sm:text-[11px] transition-all flex items-center justify-center gap-1.5 uppercase tracking-widest shrink-0"
+                {/* FINISH QUIZ BUTTON */}
+                <div className="pt-6">
+                  <button
+                    onClick={() => {
+                      if (nextQuestion) nextQuestion();
+                      else setQuizState('finished');
+                    }}
+                    className="w-full py-4 bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-600 text-white font-black rounded-2xl text-base shadow-xl shadow-purple-600/30 transition-all uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer active:scale-98"
                   >
-                    <ArrowLeft size={13} /> Back
-                  </button>
-                  <button 
-                    onClick={nextQuestion}
-                    disabled={selectedOption === null}
-                    className="flex-1 py-2 bg-gradient-to-r from-red-600 to-blue-600 hover:opacity-95 text-white font-black rounded-lg text-[10px] sm:text-[11px] shadow-md transition-all flex items-center justify-center gap-1.5 uppercase tracking-widest disabled:opacity-40"
-                  >
-                    <span>{realPoolIndex < quizQuestions.length - 1 ? 'Next Question' : 'Finish Quiz'}</span> <ChevronRight size={13} />
-                  </button>
-                </div>
-              </div>
-              )}
-            </div>
-          );
-          })()}
-
-          {quizState === 'finished' && (() => {
-            const percentage = Math.round((quizScore / (quizQuestions.length || 1)) * 100);
-            
-            let colorTheme = {
-              bg: 'bg-emerald-500/10',
-              text: 'text-emerald-500',
-              border: 'border-emerald-500/20',
-              glow: 'shadow-emerald-500/20',
-              grade: 'A+',
-              phrase: 'Academic Legend! You completely understand this topic! 👑🧠',
-              badgeColor: 'bg-gradient-to-r from-emerald-500 to-green-600',
-            };
-
-            if (percentage >= 80) {
-              colorTheme = {
-                bg: 'bg-emerald-500/10',
-                text: 'text-emerald-500',
-                border: 'border-emerald-500/20',
-                glow: 'shadow-emerald-500/20',
-                grade: 'A',
-                phrase: 'Magnificent performance! Keep striving for perfection! 🏆✨',
-                badgeColor: 'bg-gradient-to-r from-emerald-500 to-green-600',
-              };
-            } else if (percentage >= 60) {
-              colorTheme = {
-                bg: 'bg-amber-500/10',
-                text: 'text-amber-500',
-                border: 'border-amber-500/20',
-                glow: 'shadow-amber-500/20',
-                grade: 'B',
-                phrase: 'Solid work! Just a few gaps left to conquer. 📚💪',
-                badgeColor: 'bg-gradient-to-r from-amber-500 to-yellow-600',
-              };
-            } else if (percentage >= 40) {
-              colorTheme = {
-                bg: 'bg-blue-500/10',
-                text: 'text-blue-500',
-                border: 'border-blue-500/20',
-                glow: 'shadow-blue-500/20',
-                grade: 'C',
-                phrase: 'Passable result. Focus on the wrong answers to grow! 📊💡',
-                badgeColor: 'bg-gradient-to-r from-blue-500 to-indigo-600',
-              };
-            } else {
-              colorTheme = {
-                bg: 'bg-red-500/10',
-                text: 'text-red-500',
-                border: 'border-red-500/20',
-                glow: 'shadow-red-500/20',
-                grade: 'F',
-                phrase: 'You can do better! Revise the notes, study harder, and try again! 💡❌',
-                badgeColor: 'bg-gradient-to-r from-red-500 to-rose-600',
-              };
-            }
-
-            return (
-              <div className={`${theme === 'dark' ? 'bg-[#13111C] border-white/10' : 'bg-white border-slate-200'} p-8 sm:p-10 rounded-3xl border text-center space-y-8 shadow-2xl relative overflow-hidden`}>
-                <div className="absolute top-0 left-0 w-48 h-48 bg-gradient-to-br from-red-500/10 to-blue-500/0 rounded-full blur-3xl pointer-events-none" />
-                <div className="absolute bottom-0 right-0 w-48 h-48 bg-gradient-to-tl from-[#DC2626]/10 to-blue-500/0 rounded-full blur-3xl pointer-events-none" />
-
-                <div className="space-y-4 relative">
-                  <div className="w-24 h-24 bg-gradient-to-tr from-[#DC2626] to-red-500 rounded-full flex items-center justify-center mx-auto shadow-2xl shadow-red-500/30 relative">
-                    <Trophy size={48} className="text-white" />
-                    <motion.div animate={{ scale: [1, 1.25, 1] }} transition={{ repeat: Infinity, duration: 2.5 }} className="absolute inset-0 bg-red-500/20 rounded-full -z-10" />
-                  </div>
-                  <div>
-                    <span className={`px-4 py-1 text-[10px] font-black uppercase tracking-widest text-white rounded-full ${colorTheme.badgeColor} shadow-md`}>
-                      Grade {colorTheme.grade}
-                    </span>
-                    <h3 className={`text-3xl font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'} uppercase tracking-tighter mt-3`}>
-                      Assessment Report
-                    </h3>
-                    <p className={`${theme === 'dark' ? 'text-white/50' : 'text-slate-500'} text-xs font-medium`}>
-                      Generated for {quizTopic || 'General Material'}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className={`p-5 rounded-2xl border ${theme === 'dark' ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-100'} flex flex-col justify-between text-left`}>
-                    <div>
-                      <p className={`text-[10px] font-black ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'} uppercase tracking-wider`}>Overall Proficiency</p>
-                      <h4 className="text-4xl font-black text-[#DC2626] mt-2">{percentage}%</h4>
-                    </div>
-                    <div className="w-full bg-slate-200 dark:bg-white/10 h-2.5 rounded-full overflow-hidden mt-4">
-                      <motion.div 
-                        initial={{ width: 0 }} 
-                        animate={{ width: `${percentage}%` }} 
-                        transition={{ duration: 1 }} 
-                        className="bg-gradient-to-r from-[#DC2626] to-red-400 h-full rounded-full" 
-                      />
-                    </div>
-                  </div>
-
-                  <div className={`p-5 rounded-2xl border ${theme === 'dark' ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-100'} text-left space-y-1`}>
-                    <p className={`text-[10px] font-black ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'} uppercase tracking-wider`}>Correct Answers</p>
-                    <div className="flex items-baseline gap-2 mt-2">
-                      <span className="text-4xl font-black text-emerald-500">{quizScore}</span>
-                      <span className={`text-lg font-bold ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'}`}>/ {quizQuestions.length || 1}</span>
-                    </div>
-                    <p className={`text-[10px] font-medium ${theme === 'dark' ? 'text-white/30' : 'text-slate-400'} pt-1`}>
-                      {quizQuestions.length - quizScore} questions missed
-                    </p>
-                  </div>
-                </div>
-
-                <div className={`p-5 rounded-2xl border ${colorTheme.bg} ${colorTheme.border} text-left flex items-start gap-3 shadow-lg ${colorTheme.glow}`}>
-                  <span className="text-2xl select-none mt-0.5">💡</span>
-                  <div className="space-y-1">
-                    <p className="text-[10px] font-black text-red-500 uppercase tracking-widest">Omni Study Advisor</p>
-                    <p className={`text-xs font-bold leading-relaxed ${theme === 'dark' ? 'text-white/90' : 'text-slate-800'}`}>
-                      {colorTheme.phrase}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <button onClick={shareQuiz} className="w-full bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-white/60 font-bold py-4 rounded-2xl text-xs hover:bg-slate-200 dark:hover:bg-white/10 transition-all flex items-center justify-center gap-2 border border-transparent dark:border-white/5">
-                      <Share2 size={16} /> SHARE LINK
-                    </button>
-                    <button onClick={handleShareResult} className="w-full bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-white/60 font-bold py-4 rounded-2xl text-xs hover:bg-slate-200 dark:hover:bg-white/10 transition-all flex items-center justify-center gap-2 border border-transparent dark:border-white/5">
-                      <Share2 size={16} /> SHARE STATS
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <button onClick={() => setQuizState('review')} className="w-full bg-[#DC2626] text-white font-black py-4 rounded-2xl text-xs sm:text-sm shadow-xl shadow-[#DC2626]/20 hover:bg-[#DC2626]/90 transition-all flex items-center justify-center gap-2 cursor-pointer">
-                      <Search size={18} /> CHECK RESULTS & REVIEW
-                    </button>
-                    <button onClick={() => handleLaunchOmniQuizDiscussion('new')} className="w-full bg-gradient-to-r from-purple-600 via-rose-600 to-red-600 text-white font-black py-4 rounded-2xl text-xs sm:text-sm shadow-xl shadow-purple-600/20 hover:opacity-95 transition-all flex items-center justify-center gap-2 border border-white/20 cursor-pointer">
-                      <Sparkles size={18} className="animate-pulse text-amber-300" /> DISCUSS & LEARN WITH OMNI AI
-                    </button>
-                  </div>
-                  
-                  <button onClick={() => setQuizState('idle')} className="w-full bg-white/5 text-white/40 font-bold py-3 rounded-2xl text-xs hover:bg-white/10 transition-all">
-                    TRY ANOTHER TOPIC
+                    <span>Submit & View Results</span>
+                    <ChevronRight size={18} />
                   </button>
                 </div>
               </div>
             );
           })()}
 
-          {quizState === 'review' && quizQuestions && (
-            <div className="space-y-6">
-              <div className={`flex items-center justify-between ${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-4 rounded-2xl border shadow-sm`}>
-                <button onClick={() => setQuizState('finished')} className="text-white/40 hover:text-[#DC2626] flex items-center gap-1 text-xs font-bold uppercase"><ArrowLeft size={14} /> Back to Results</button>
-                <h3 className="text-sm font-black text-white uppercase tracking-tighter">Detailed Review</h3>
-                <button onClick={() => handleLaunchOmniQuizDiscussion('new')} className="px-3 py-1.5 bg-gradient-to-r from-purple-600 to-red-600 text-white text-[11px] font-black rounded-xl hover:opacity-90 flex items-center gap-1.5 shadow-md border border-white/20 cursor-pointer">
-                  <Sparkles size={13} className="text-amber-300" /> Learn with Omni
-                </button>
-              </div>
+          {quizState === 'finished' && (() => {
+            let correctCount = 0;
+            let incorrectCount = 0;
+            quizQuestions.forEach((q: any, idx: number) => {
+              const uAns = userQuizAnswers[idx];
+              if (uAns !== undefined && uAns === q.correctAnswer) correctCount++;
+              else if (uAns !== undefined && uAns !== q.correctAnswer) incorrectCount++;
+            });
 
-              <div className="space-y-4">
-                {quizQuestions.map((q: any, qIdx: number) => {
-                  const userAns = userQuizAnswers[qIdx];
-                  const isCorrect = userAns === q.correctAnswer;
-                  
-                  return (
-                    <div key={qIdx} className={`${theme === 'dark' ? 'bg-[#0A0F1C] border-white/10' : 'bg-white border-slate-200'} p-6 rounded-3xl border space-y-4 shadow-sm`}>
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1">
-                          <p className="text-[10px] font-black text-[#DC2626] uppercase mb-1">Question {qIdx + 1}</p>
-                          <MarkdownRenderer content={q.question} className="text-sm font-bold text-white leading-tight" />
-                        </div>
-                        <div className={`px-3 py-1 rounded-lg text-[11px] font-black uppercase ${isCorrect ? 'bg-green-500/10 text-green-500' : 'bg-[#DC2626]/10 text-[#DC2626]'}`}>
-                          {isCorrect ? 'Correct' : 'Incorrect'}
-                        </div>
-                      </div>
+            const filteredQuestions = quizQuestions.filter((q: any, idx: number) => {
+              const uAns = userQuizAnswers[idx];
+              const isCorrect = uAns !== undefined && uAns === q.correctAnswer;
+              if (resultFilter === 'correct') return isCorrect;
+              if (resultFilter === 'incorrect') return !isCorrect;
+              return true;
+            });
 
-                      <div className="grid grid-cols-1 gap-2">
-                        {q.options.map((opt: string, oIdx: number) => {
-                          const isUserChoice = userAns === oIdx;
-                          const isCorrectChoice = q.correctAnswer === oIdx;
-                          
-                          let borderClass = 'border-white/5 bg-white/5';
-                          let textClass = 'text-white/60';
-                          let label = '';
-                          
-                          if (isCorrectChoice) {
-                            borderClass = 'border-green-500/50 bg-green-500/10';
-                            textClass = 'text-green-500 font-bold';
-                            label = 'CORRECT ANSWER';
-                          } else if (isUserChoice && !isCorrect) {
-                            borderClass = 'border-[#DC2626]/50 bg-[#DC2626]/10';
-                            textClass = 'text-[#DC2626] font-bold';
-                            label = 'YOUR CHOICE';
-                          } else if (isUserChoice && isCorrect) {
-                            label = 'YOUR CHOICE (CORRECT)';
-                          }
+            return (
+              <div className="space-y-5 pb-24 max-w-2xl mx-auto">
+                {/* TOP HEADER BAR */}
+                <div className="flex items-center justify-between pb-2 border-b border-white/10">
+                  <button
+                    onClick={() => setQuizState('idle')}
+                    className={`p-2 rounded-xl transition-colors flex items-center justify-center cursor-pointer ${
+                      theme === 'dark' ? 'text-white hover:bg-white/10' : 'text-slate-800 hover:bg-slate-100'
+                    }`}
+                  >
+                    <ChevronLeft size={22} />
+                  </button>
+                  <h2 className={`font-black text-lg tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                    Result
+                  </h2>
+                  <button
+                    onClick={shareQuiz}
+                    className={`p-2 rounded-xl transition-colors flex items-center justify-center cursor-pointer ${
+                      theme === 'dark' ? 'text-purple-300 hover:bg-white/10' : 'text-purple-700 hover:bg-purple-50'
+                    }`}
+                  >
+                    <Share2 size={18} />
+                  </button>
+                </div>
 
-                          return (
-                            <div key={oIdx} className={`p-3 rounded-xl border text-xs flex items-center gap-3 ${borderClass} ${textClass}`}>
-                              <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] border ${isCorrectChoice ? 'border-green-500 bg-green-500 text-white' : (isUserChoice ? 'border-[#DC2626] bg-[#DC2626] text-white' : 'border-white/20')}`}>
-                                {String.fromCharCode(65 + oIdx)}
-                              </div>
-                              <div className="flex-1 flex flex-col">
-                                <MarkdownRenderer content={opt} />
-                                {label && <span className="text-[8px] font-black uppercase mt-1 opacity-60">{label}</span>}
-                              </div>
-                              {isCorrectChoice && <Check size={14} />}
-                              {isUserChoice && !isCorrect && <X size={14} />}
-                            </div>
-                          );
-                        })}
-                      </div>
+                {/* FILTER PILLS (ALL, CORRECT, INCORRECT) */}
+                <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+                  <button
+                    onClick={() => setResultFilter('all')}
+                    className={`px-4 py-2 rounded-full text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer border ${
+                      resultFilter === 'all'
+                        ? 'bg-[#7E22CE] text-white border-purple-500 shadow-md shadow-purple-600/30'
+                        : 'bg-white text-slate-700 border-slate-200 dark:bg-[#1A142D] dark:text-purple-200 dark:border-purple-500/20'
+                    }`}
+                  >
+                    <span>All</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      resultFilter === 'all' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-800 dark:bg-purple-950 dark:text-purple-300'
+                    }`}>
+                      {quizQuestions.length}
+                    </span>
+                  </button>
 
-                      {q.explanation && (
-                        <div className={`p-4 rounded-2xl ${theme === 'dark' ? 'bg-white/5' : 'bg-slate-50'} border border-dashed border-white/10`}>
-                          <p className="text-[9px] font-black text-white/30 uppercase mb-2 flex items-center gap-1.5">
-                            <Info size={12} className="text-[#DC2626]" /> Explanation
-                          </p>
-                          <MarkdownRenderer content={q.explanation} className="text-xs text-white/70 leading-relaxed" />
-                        </div>
-                      )}
+                  <button
+                    onClick={() => setResultFilter('correct')}
+                    className={`px-4 py-2 rounded-full text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer border ${
+                      resultFilter === 'correct'
+                        ? 'bg-[#7E22CE] text-white border-purple-500 shadow-md shadow-purple-600/30'
+                        : 'bg-white text-slate-700 border-slate-200 dark:bg-[#1A142D] dark:text-purple-200 dark:border-purple-500/20'
+                    }`}
+                  >
+                    <span>Correct</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      resultFilter === 'correct' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-800 dark:bg-purple-950 dark:text-purple-300'
+                    }`}>
+                      {correctCount}
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => setResultFilter('incorrect')}
+                    className={`px-4 py-2 rounded-full text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer border ${
+                      resultFilter === 'incorrect'
+                        ? 'bg-[#7E22CE] text-white border-purple-500 shadow-md shadow-purple-600/30'
+                        : 'bg-white text-slate-700 border-slate-200 dark:bg-[#1A142D] dark:text-purple-200 dark:border-purple-500/20'
+                    }`}
+                  >
+                    <span>Incorrect</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      resultFilter === 'incorrect' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-800 dark:bg-purple-950 dark:text-purple-300'
+                    }`}>
+                      {incorrectCount}
+                    </span>
+                  </button>
+                </div>
+
+                {/* SUMMARY & QUICK ACTIONS */}
+                <div className={`p-5 sm:p-6 rounded-3xl border shadow-lg space-y-3 ${
+                  theme === 'dark' ? 'bg-[#120D24] border-purple-500/20 text-white' : 'bg-purple-50/70 border-purple-200 text-slate-900'
+                }`}>
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div>
+                      <h3 className="text-base sm:text-lg font-black leading-tight">
+                        {quizTopic || "Quiz Results"}
+                      </h3>
+                      <p className={`text-xs font-semibold mt-0.5 ${theme === 'dark' ? 'text-purple-300/80' : 'text-slate-600'}`}>
+                        {correctCount} of {quizQuestions.length} correct ({Math.round((correctCount / quizQuestions.length) * 100)}%)
+                      </p>
                     </div>
-                  );
-                })}
-              </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          if (props.setUserQuizAnswers) props.setUserQuizAnswers([]);
+                          setQuizState('active');
+                        }}
+                        className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-md"
+                      >
+                        Retake
+                      </button>
+                      <button
+                        onClick={() => setQuizState('idle')}
+                        className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                          theme === 'dark' ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-slate-200 hover:bg-slate-300 text-slate-800'
+                        }`}
+                      >
+                        New
+                      </button>
+                    </div>
+                  </div>
+                </div>
 
-              <button onClick={() => setQuizState('idle')} className="w-full bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black py-4 rounded-2xl text-sm shadow-xl shadow-[#DC2626]/20 transition-all flex items-center justify-center gap-2">
-                RETAKE OR TRY NEW TOPIC
-              </button>
-            </div>
-          )}
+                {/* DETAILED QUESTION BREAKDOWN CARDS */}
+                <div className="space-y-4">
+                  {filteredQuestions.map((q: any) => {
+                    const realIndex = quizQuestions.indexOf(q);
+                    const userAns = userQuizAnswers[realIndex];
+                    const isCorrect = userAns !== undefined && userAns === q.correctAnswer;
+
+                    return (
+                      <div
+                        key={realIndex}
+                        className={`p-5 rounded-3xl border shadow-sm space-y-3 transition-all ${
+                          theme === 'dark'
+                            ? 'bg-[#120D24] border-purple-500/20 text-white'
+                            : 'bg-white border-slate-200/80 text-slate-900 shadow-purple-900/5'
+                        }`}
+                      >
+                        {/* Card Header */}
+                        <div className="flex items-center justify-between">
+                          <span className={`px-3.5 py-1 rounded-full text-xs font-black text-white shadow-sm ${
+                            isCorrect ? 'bg-[#65A30D]' : 'bg-[#DC2626]'
+                          }`}>
+                            {isCorrect ? 'Correct' : 'Incorrect'}
+                          </span>
+                          <span className={`text-xs font-bold ${
+                            theme === 'dark' ? 'text-purple-300/60' : 'text-slate-400'
+                          }`}>
+                            Question {realIndex + 1} / {quizQuestions.length}
+                          </span>
+                        </div>
+
+                        {/* Question Text */}
+                        <h4 className={`text-base sm:text-lg font-bold leading-relaxed ${
+                          theme === 'dark' ? 'text-white' : 'text-slate-900'
+                        }`}>
+                          {q.question}
+                        </h4>
+
+                        <div className={`border-b my-2 ${
+                          theme === 'dark' ? 'border-purple-500/20' : 'border-slate-100'
+                        }`} />
+
+                        {/* Options List */}
+                        <div className="space-y-2.5">
+                          {(q.options || []).map((opt: string, optIdx: number) => {
+                            const isUserSelected = userAns === optIdx;
+                            const isCorrectOpt = optIdx === q.correctAnswer;
+
+                            let optStyle = "text-slate-600 dark:text-purple-200/70 font-medium";
+                            let numStyle = "text-slate-400 dark:text-purple-300/50 font-bold";
+
+                            if (isCorrect) {
+                              if (isCorrectOpt) {
+                                optStyle = "font-bold text-[#65A30D] dark:text-emerald-400";
+                                numStyle = "font-bold text-[#65A30D] dark:text-emerald-400";
+                              }
+                            } else {
+                              if (isUserSelected) {
+                                optStyle = "line-through text-slate-700 dark:text-rose-300 font-bold";
+                                numStyle = "line-through text-slate-700 dark:text-rose-300 font-bold";
+                              } else if (isCorrectOpt) {
+                                optStyle = "font-bold text-[#65A30D] dark:text-emerald-400";
+                                numStyle = "font-bold text-[#65A30D] dark:text-emerald-400";
+                              }
+                            }
+
+                            return (
+                              <div key={optIdx} className="flex items-start gap-2.5 text-sm sm:text-base leading-snug">
+                                <span className={`shrink-0 ${numStyle}`}>
+                                  {optIdx + 1}.
+                                </span>
+                                <span className={`flex-1 ${optStyle}`}>
+                                  {opt}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Explanation */}
+                        {q.explanation && (
+                          <div className={`mt-3 p-3.5 rounded-2xl border text-xs leading-relaxed space-y-1 ${
+                            theme === 'dark'
+                              ? 'bg-purple-950/40 border-purple-500/30 text-purple-200'
+                              : 'bg-amber-50 border-amber-200 text-slate-800'
+                          }`}>
+                            <p className="font-extrabold text-amber-500 flex items-center gap-1.5 uppercase text-[10px] tracking-wider">
+                              <Info size={13} /> Explanation
+                            </p>
+                            <p className="font-medium">{q.explanation}</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
         </motion.div>
       )}
 

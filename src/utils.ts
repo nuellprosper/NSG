@@ -2,6 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import { HfInference } from "@huggingface/inference";
 import axios from 'axios';
 import * as pdfjsLib from 'pdfjs-dist';
+import JSZip from 'jszip';
 
 export const extractPdfDetails = async (file: File): Promise<{ text: string; pageImages: string[]; pageCount: number; truncated: boolean }> => {
   const pageImages: string[] = [];
@@ -18,7 +19,7 @@ export const extractPdfDetails = async (file: File): Promise<{ text: string; pag
     if (pageCount > 20) {
       truncated = true;
     }
-    const pagesToRender = Math.min(pageCount, 20);
+    const pagesToRender = Math.min(pageCount, 10);
 
     for (let i = 1; i <= pageCount; i++) {
       const page = await pdf.getPage(i);
@@ -28,14 +29,14 @@ export const extractPdfDetails = async (file: File): Promise<{ text: string; pag
 
       if (i <= pagesToRender) {
         try {
-          const viewport = page.getViewport({ scale: 1.2 });
+          const viewport = page.getViewport({ scale: 1.0 });
           const canvas = document.createElement('canvas');
           const context = canvas.getContext('2d');
           canvas.width = viewport.width;
           canvas.height = viewport.height;
           if (context) {
             await page.render({ canvasContext: context, viewport, canvas } as any).promise;
-            const imgDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            const imgDataUrl = canvas.toDataURL('image/jpeg', 0.75);
             pageImages.push(imgDataUrl);
           }
         } catch (canvasErr) {
@@ -52,8 +53,12 @@ export const extractPdfDetails = async (file: File): Promise<{ text: string; pag
 
 export const extractTextFromDocument = async (file: File): Promise<string> => {
   const nameLower = file.name.toLowerCase();
-  if (nameLower.endsWith('.txt')) {
-    return (await file.text()).trim();
+  if (nameLower.endsWith('.txt') || nameLower.endsWith('.md') || nameLower.endsWith('.csv') || nameLower.endsWith('.json')) {
+    try {
+      return (await file.text()).trim();
+    } catch (e) {
+      console.warn("Text read error:", e);
+    }
   }
   if (nameLower.endsWith('.pdf')) {
     try {
@@ -63,7 +68,29 @@ export const extractTextFromDocument = async (file: File): Promise<string> => {
       console.warn("PDF parsing fallback:", err);
     }
   }
-  // Fallback text reader for docx/doc/other files
+  if (nameLower.endsWith('.docx')) {
+    try {
+      const zip = await JSZip.loadAsync(file);
+      const docXml = await zip.file('word/document.xml')?.async('text');
+      if (docXml) {
+        const matches = docXml.match(/<w:t[^>]*>(.*?)<\/w:t>/g);
+        if (matches && matches.length > 0) {
+          const extracted = matches
+            .map(m => m.replace(/<[^>]+>/g, ''))
+            .filter(Boolean)
+            .join(' ');
+          if (extracted.trim().length > 0) {
+            return extracted.trim();
+          }
+        }
+        const cleanXml = docXml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+        if (cleanXml.trim().length > 0) return cleanXml.trim();
+      }
+    } catch (docxErr) {
+      console.warn("DOCX ZIP extraction error:", docxErr);
+    }
+  }
+  // Fallback text reader for doc/other files
   try {
     const rawText = await file.text();
     const cleaned = rawText.replace(/[^\x20-\x7E\n\r\t]/g, ' ').replace(/\s+/g, ' ');
@@ -433,7 +460,7 @@ export const LIMITS = {
     PREMIUM: { IMAGES: 10, DAILY: 30 }
   },
   QUIZ: {
-    NORMAL: { WORDS: 300, DAILY: 4, IMAGES: 2 },
+    NORMAL: { WORDS: 300, DAILY: 3, IMAGES: 2 },
     PREMIUM: { WORDS: 20000, DAILY: 15, IMAGES: 20 }
   },
   RECORD: {

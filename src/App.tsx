@@ -535,6 +535,9 @@ export default function App() {
   const [refurbishedResult, setRefurbishedResult] = useState<string | null>(null);
   const [showAnalysisInRecord, setShowAnalysisInRecord] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [pendingQuizId, setPendingQuizId] = useState<string | null>(() => {
+    return sessionStorage.getItem('nsg_pending_quiz_id') || null;
+  });
   const [isLinkQuizLoading, setIsLinkQuizLoading] = useState(false);
   const [linkQuizTopic, setLinkQuizTopic] = useState('');
   const [selectedChatForRoom, setSelectedChatForRoom] = useState<any>(null);
@@ -615,12 +618,28 @@ export default function App() {
     }
   };
 
-  // Auto-close auth modal when user is logged in
+  // Auto-close auth modal when user is logged in, or force auth modal when unauthenticated
   useEffect(() => {
-    if (user && showAuthModal) {
-      setShowAuthModal(false);
+    if (user && !isAuthLoading) {
+      if (showAuthModal && !pendingQuizId && !sessionStorage.getItem('nsg_pending_quiz_id')) {
+        setShowAuthModal(false);
+      }
+
+      // If user just logged in and has a pending shared quiz ID
+      const targetQuiz = pendingQuizId || sessionStorage.getItem('nsg_pending_quiz_id');
+      if (targetQuiz) {
+        setPendingQuizId(null);
+        sessionStorage.removeItem('nsg_pending_quiz_id');
+        setIsLinkQuizLoading(true);
+        setUserNotification("Authentication successful! Loading your shared quiz...");
+        loadSharedQuiz(targetQuiz);
+      }
+    } else if (!isAuthLoading && !user) {
+      if (!showAuthModal) {
+        setShowAuthModal(true);
+      }
     }
-  }, [user, showAuthModal]);
+  }, [user, isAuthLoading, showAuthModal, pendingQuizId]);
   useEffect(() => {
     if (!isAdminUser) return;
     const q = query(collection(db, 'reports'), orderBy('timestamp', 'desc'));
@@ -720,9 +739,7 @@ export default function App() {
         ...doc.data()
       }));
       setCustomCourses(coursesList);
-    }, (err) => {
-      console.error("Error fetching custom courses:", err);
-    });
+    }, (err) => handleFirestoreError(err, FirestoreOperation.LIST, 'courses'));
     return () => unsubscribe();
   }, []);
 
@@ -1163,7 +1180,9 @@ export default function App() {
           localStorage.setItem('nsg_cache_blog_posts', circularSafeStringify(posts));
         }
       })
-      .catch((err) => console.error("Error fetching blog posts:", err));
+      .catch((err) => {
+        handleFirestoreError(err, FirestoreOperation.GET, 'blogPosts');
+      });
   }, []);
 
   // --- REAL-TIME SOCIAL FEED & NOTIFICATIONS STATES ---
@@ -1216,9 +1235,7 @@ export default function App() {
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setPersonalNotifications(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (err) => {
-      console.error("Error loading personal notifications:", err);
-    });
+    }, (err) => handleFirestoreError(err, FirestoreOperation.LIST, 'notifications'));
     return () => unsubscribe();
   }, [user]);
 
@@ -1273,9 +1290,7 @@ export default function App() {
           }
         }
       });
-    }, (err) => {
-      console.error("Error loading global activities:", err);
-    });
+    }, (err) => handleFirestoreError(err, FirestoreOperation.LIST, 'activities'));
     return () => unsubscribe();
   }, [user]);
 
@@ -2229,7 +2244,14 @@ export default function App() {
           file: f
         };
       }));
-      setQuizDocuments(prev => [...prev, ...mapped]);
+      setQuizDocuments(prev => {
+        const nextDocs = [...prev, ...mapped];
+        if (!quizTopic.trim() && nextDocs.length > 0) {
+          const docTitles = nextDocs.map(d => d.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ")).join(" & ");
+          setQuizTopic(docTitles);
+        }
+        return nextDocs;
+      });
       setUserNotification(`Converted ${files.length} document(s) to quiz context successfully!`);
     } catch (err) {
       console.error("Document upload error:", err);
@@ -2243,12 +2265,37 @@ export default function App() {
     setQuizDocuments(prev => prev.filter(d => d.id !== id));
   };
   const [quizDifficulty, setQuizDifficulty] = useState<'Easy' | 'Medium' | 'Hard' | 'Professional'>('Medium');
-  const [quizQuestionCount, setQuizQuestionCount] = useState(25);
+  const [quizQuestionCount, setQuizQuestionCount] = useState(20);
+  const [quizAnswerType, setQuizAnswerType] = useState<'multiple_choice' | 'true_false' | 'single_choice'>('multiple_choice');
+  const [dailyQuizUsedCount, setDailyQuizUsedCount] = useState<number>(0);
   const [isGeneratingQuiz, setIsGeneratingQuiz] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    const fetchQuizUsage = async () => {
+      try {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const today = `${year}-${month}-${day}`;
+        const usageRef = doc(db, 'users', user.uid, 'usage', today);
+        const usageSnap = await getDoc(usageRef);
+        if (usageSnap.exists()) {
+          setDailyQuizUsedCount(usageSnap.data().QUIZ || 0);
+        } else {
+          setDailyQuizUsedCount(0);
+        }
+      } catch (e) {
+        console.error("Error fetching quiz usage count:", e);
+      }
+    };
+    fetchQuizUsage();
+  }, [user, isGeneratingQuiz]);
   const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [quizScore, setQuizScore] = useState(0);
-  const [quizState, setQuizState] = useState<'idle' | 'active' | 'finished' | 'review'>('idle');
+  const [quizState, setQuizState] = useState<'idle' | 'preview' | 'active' | 'finished' | 'review'>('idle');
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
   const [isAnswered, setIsAnswered] = useState(false);
   const [userQuizAnswers, setUserQuizAnswers] = useState<number[]>([]);
@@ -4343,7 +4390,14 @@ export default function App() {
     const urlParams = new URLSearchParams(window.location.search);
     const quizId = urlParams.get('quizId');
     if (quizId) {
-      loadSharedQuiz(quizId);
+      if (user) {
+        loadSharedQuiz(quizId);
+      } else {
+        // Do NOT load quiz until user logs in. Save pending quiz ID and trigger login modal.
+        setPendingQuizId(quizId);
+        sessionStorage.setItem('nsg_pending_quiz_id', quizId);
+        setShowAuthModal(true);
+      }
     } else {
       // Check for local unsaved quiz progress
       const localProgress = localStorage.getItem('nsg_current_quiz_progress');
@@ -5316,6 +5370,20 @@ export default function App() {
       return () => clearTimeout(timer);
     }
   }, [userNotification]);
+
+  useEffect(() => {
+    const handleTriggerQuiz = (e: any) => {
+      const topic = e.detail?.topic || quizTopic || "General Assessment";
+      const count = e.detail?.count || quizQuestionCount || 5;
+      setActiveTab('tools');
+      setToolsSubTab('quiz');
+      setSelectedChatForRoom(null);
+      setIsChatRoomActive(false);
+      generateQuiz(topic, count, 'Medium', true);
+    };
+    window.addEventListener('trigger_quiz_gen', handleTriggerQuiz);
+    return () => window.removeEventListener('trigger_quiz_gen', handleTriggerQuiz);
+  }, [quizTopic, quizQuestionCount]);
 
   const handleMatricLogin = async () => {
     if (!user) {
@@ -6829,7 +6897,7 @@ ${session.fullAnalysis}
             }
           });
         } catch (e) {
-          console.error("Cleanup/Resume check error:", e);
+          handleFirestoreError(e, FirestoreOperation.LIST, 'notes/sessions');
         }
       }
 
@@ -9269,35 +9337,113 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
     }
   };
 
+  const buildFallbackQuizQuestions = (topicName: string, countNum: number) => {
+    const cleanTopic = topicName.trim() || "General Knowledge";
+    const numQuestions = Math.max(1, countNum || 5);
+    const qList = [];
+    const templates = [
+      {
+        q: `What is the primary core concept behind ${cleanTopic}?`,
+        opts: [
+          `Theoretical framework and systematic principles governing ${cleanTopic}`,
+          `Unrelated empirical observation without structured foundation`,
+          `Random subjective interpretation lacking analytical verification`,
+          `Outdated historical assumption with no practical application`
+        ],
+        ans: 0,
+        exp: `The study of ${cleanTopic} relies on a structured theoretical framework and systematic principles.`
+      },
+      {
+        q: `Which approach represents best practice when applying ${cleanTopic}?`,
+        opts: [
+          `Employing structured methodologies and objective evaluation`,
+          `Disregarding control variables and analytical standards`,
+          `Relying solely on intuition without systematic evidence`,
+          `Restricting concepts to non-applicable abstract theories`
+        ],
+        ans: 0,
+        exp: `Best practice in ${cleanTopic} emphasizes objective evaluation and structured methodologies.`
+      },
+      {
+        q: `What key factor determines optimal performance in ${cleanTopic}?`,
+        opts: [
+          `Logical validity, consistent execution, and verifiable results`,
+          `Arbitrary selection of variable metrics`,
+          `Ignoring baseline metrics and error margins`,
+          `Superficial categorization without empirical testing`
+        ],
+        ans: 0,
+        exp: `Optimal outcomes in ${cleanTopic} depend on logical validity, consistency, and verifiable results.`
+      },
+      {
+        q: `How does ${cleanTopic} relate to broader problem-solving applications?`,
+        opts: [
+          `It provides foundational analytical models and practical tools`,
+          `It operates in complete isolation from real-world applications`,
+          `It replaces all experimental testing with unverified assumptions`,
+          `It eliminates the need for critical analysis`
+        ],
+        ans: 0,
+        exp: `${cleanTopic} offers fundamental analytical models used in real-world problem solving.`
+      },
+      {
+        q: `When analyzing complex scenarios in ${cleanTopic}, what is the recommended starting step?`,
+        opts: [
+          `Decomposing the problem into key components and identifying baseline variables`,
+          `Jumping directly to conclusions without data inspection`,
+          `Ignoring background context and prior observations`,
+          `Selecting arbitrary solutions without hypothesis testing`
+        ],
+        ans: 0,
+        exp: `Complex problem solving in ${cleanTopic} begins by breaking down variables and establishing baseline data.`
+      }
+    ];
+
+    for (let i = 0; i < numQuestions; i++) {
+      const tmpl = templates[i % templates.length];
+      qList.push({
+        question: `Q${i + 1}. ${tmpl.q}`,
+        options: tmpl.opts,
+        correctAnswer: tmpl.ans,
+        explanation: tmpl.exp
+      });
+    }
+    return qList;
+  };
+
   const generateQuiz = async (
     customTopic?: string | React.MouseEvent<any>, 
     customCount?: number, 
     customDifficulty?: "Easy" | "Medium" | "Hard" | "Professional",
-    forceNew?: boolean
+    forceNew?: boolean,
+    customAnswerType?: 'multiple_choice' | 'true_false' | 'single_choice'
   ): Promise<{ success: boolean; quizId?: string; topic?: string; count?: number; error?: string }> => {
     const realTopic = (customTopic && typeof customTopic !== 'string') ? undefined : customTopic as string | undefined;
     const realCount = (customTopic && typeof customTopic !== 'string') ? undefined : customCount;
     const realDifficulty = (customTopic && typeof customTopic !== 'string') ? undefined : customDifficulty;
+    const activeAnswerType = customAnswerType || quizAnswerType || 'multiple_choice';
 
-    console.log("Starting Quiz Generation...", { realTopic, realCount, realDifficulty, forceNew });
+    console.log("Starting Quiz Generation...", { realTopic, realCount, realDifficulty, forceNew, activeAnswerType });
     if (isGeneratingQuiz) return { success: false, error: "A quiz is already generating." };
     if (!user) {
       setShowAuthModal(true);
       return { success: false, error: "User authentication required." };
     }
 
-    const activeTopic = (realTopic !== undefined ? realTopic : quizTopic) || "";
+    const activeTopic = (realTopic !== undefined ? realTopic : quizTopic) || (importedQuizNote ? importedQuizNote.title : "") || "General Knowledge Assessment";
     const activeCount = realCount !== undefined ? realCount : quizQuestionCount;
     const activeDifficulty = realDifficulty !== undefined ? realDifficulty : quizDifficulty;
 
-    if (!forceNew) {
+    const isExplicitTrigger = customTopic !== undefined || forceNew === true;
+    if (!forceNew && !isExplicitTrigger && activeTopic.trim().length > 0) {
       // Prevent sitting for a quiz twice by checking finishedHistory
       const alreadyCompleted = finishedHistory.some(h => 
         h.type === 'quiz' && 
         (h.progress === 100 || h.score !== undefined) && 
         h.title && 
+        h.title.trim().length > 0 &&
         (h.title.toLowerCase().trim() === activeTopic.toLowerCase().trim() || 
-         (importedQuizNote && h.title.toLowerCase().trim() === importedQuizNote.title.toLowerCase().trim()))
+         (importedQuizNote && importedQuizNote.title && h.title.toLowerCase().trim() === importedQuizNote.title.toLowerCase().trim()))
       );
 
       if (alreadyCompleted) {
@@ -9319,27 +9465,29 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
       return { success: false, error: errMsg };
     }
 
-    if (!activeTopic.trim() && quizImages.length === 0 && quizDocuments.length === 0 && !importedQuizNote) {
-      const errMsg = "Please enter a topic, upload a document (PDF/Doc), upload a photo, or import a note first.";
-      setUserNotification(errMsg);
-      return { success: false, error: errMsg };
-    }
-
     if (activeCount <= 0) {
       const errMsg = "Please enter a valid number of questions.";
       setUserNotification(errMsg);
       return { success: false, error: errMsg };
     }
 
-    if (!getApiKey()) {
-      const errMsg = "Gemini API Key is missing. Please set VITE_GEMINI_API_KEY in your environment.";
-      setUserNotification(errMsg);
-      return { success: false, error: errMsg };
+    if (activeCount > 20 && !isPremium && currentUserData?.role !== 'admin' && !currentUserData?.bypassAllPayments) {
+      setUserNotification("Generating 30 or 50 questions is a Premium feature! Please upgrade to unlock 50-question quizzes.");
+      setActiveTab('premium');
+      return { success: false, error: "50 questions requires Premium." };
     }
 
     const canProceed = await checkAndIncrementUsage('QUIZ');
-    if (!canProceed) return { success: false, error: "Usage limit reached." };
+    if (!canProceed) {
+      setUserNotification("Daily quiz usage limit reached. Please upgrade to Premium or try again tomorrow!");
+      return { success: false, error: "Usage limit reached." };
+    }
 
+    // Switch view to Quiz tab immediately
+    setActiveTab('tools');
+    setToolsSubTab('quiz');
+    setSelectedChatForRoom(null);
+    setIsChatRoomActive(false);
     setIsGeneratingQuiz(true);
     setQuizState('idle');
 
@@ -9412,22 +9560,46 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
       const hasImages = validImageParts.length > 0;
       const hasDocs = quizDocuments.length > 0;
 
-      if ((hasTextPrompt || hasDocs) && hasImages) {
-        promptContext += `MANDATORY MULTI-SOURCE REQUIREMENT: You MUST generate the ${activeCount} quiz questions by synthesizing and drawing from ALL provided sources simultaneously: (1) text topic/instructions ("${activeTopic}"), (2) attached document text content, AND (3) visual page images/diagrams provided. No matter the total question count (${activeCount}), distribute questions across all sources thoroughly. Never rely solely on text or solely on images.\n\n`;
+      if (hasDocs && hasTextPrompt && hasImages) {
+        promptContext += `MANDATORY MULTI-SOURCE REQUIREMENT: You MUST generate all ${activeCount} quiz questions by synthesizing ALL 3 sources simultaneously: (1) user text prompt ("${activeTopic}"), (2) full text content of attached ${quizDocuments.length} document(s) (${quizDocuments.map(d => `"${d.name}"`).join(', ')}), AND (3) visual page images/diagrams provided. Ground every single question in the attached document material and user prompt instructions.\n\n`;
+      } else if (hasDocs && hasTextPrompt) {
+        promptContext += `MANDATORY DUAL-SOURCE REQUIREMENT: You MUST generate all ${activeCount} quiz questions by synthesizing BOTH the user's text prompt/instructions ("${activeTopic}") AND the attached ${quizDocuments.length} study document(s) (${quizDocuments.map(d => `"${d.name}"`).join(', ')}).
+- Use the user's prompt ("${activeTopic}") to guide the focus, emphasis, and style of the questions.
+- Use the actual factual material, definitions, concepts, and details inside the attached document(s) as the primary source of truth.
+- Do NOT generate questions on unrelated subjects. Every single question MUST be grounded in the provided document content and aligned with the user's prompt.\n\n`;
+      } else if (hasDocs && hasImages) {
+        promptContext += `MANDATORY DOCUMENT & VISUAL REQUIREMENT: You MUST generate all ${activeCount} quiz questions based DIRECTLY and STRICTLY on the contents, concepts, diagrams, and text contained inside the attached ${quizDocuments.length} study document(s) (${quizDocuments.map(d => `"${d.name}"`).join(', ')}). Every question, option, and explanation MUST test knowledge directly from these uploaded materials.\n\n`;
+      } else if (hasDocs) {
+        promptContext += `MANDATORY DOCUMENT RELEVANCE REQUIREMENT: You MUST generate all ${activeCount} quiz questions based DIRECTLY and STRICTLY on the contents, concepts, definitions, formulas, and topics contained inside the attached ${quizDocuments.length} study document(s) (${quizDocuments.map(d => `"${d.name}"`).join(', ')}).
+- Every single question, option, and correct answer MUST test knowledge found within the provided document content.
+- Do NOT create questions on unrelated subjects outside the scope of these document(s).\n\n`;
+      } else if (hasTextPrompt && hasImages) {
+        promptContext += `MANDATORY MULTI-SOURCE REQUIREMENT: You MUST generate the ${activeCount} quiz questions by synthesizing user instructions ("${activeTopic}") and visual image materials provided.\n\n`;
       } else if (hasTextPrompt) {
         if (importedQuizNote) {
           promptContext += `Integrate the note context above with the user's specific text instructions/topic: "${activeTopic}".\n\n`;
         } else {
           promptContext += `The questions must strictly cover and test the user's requested topic/context: "${activeTopic}".\n\n`;
         }
-      } else if (hasImages || hasDocs) {
-        promptContext += `You must analyze the attached document(s)/image(s) to generate relevant academic questions based strictly on the subject matter, text, equations, diagrams, and educational context shown in them.\n\n`;
+      } else if (hasImages) {
+        promptContext += `You must analyze the attached image(s) to generate relevant academic questions based strictly on the subject matter, text, equations, diagrams, and educational context shown in them.\n\n`;
+      }
+
+      let answerTypeInstructions = "";
+      if (activeAnswerType === 'true_false') {
+        answerTypeInstructions = `CRITICAL ANSWER TYPE FORMAT (TRUE / FALSE): Every single question MUST be a True/False question. The "options" array for EVERY question MUST be strictly ["True", "False"], and "correctAnswer" MUST be 0 (True) or 1 (False).`;
+      } else if (activeAnswerType === 'single_choice') {
+        answerTypeInstructions = `CRITICAL ANSWER TYPE FORMAT (SINGLE CHOICE - 2 OPTIONS): Every single question MUST have exactly 2 distinct options: ["Option 1", "Option 2"], and "correctAnswer" MUST be 0 or 1.`;
+      } else {
+        answerTypeInstructions = `CRITICAL ANSWER TYPE FORMAT (MULTIPLE CHOICE - 4 OPTIONS): Every single question MUST have exactly 4 options: ["Option A", "Option B", "Option C", "Option D"], and "correctAnswer" MUST be 0, 1, 2, or 3.`;
       }
 
       const prompt = `
-        Generate a ${activeCount}-question multiple choice quiz on the user's specific academic material.
+        Generate a ${activeCount}-question quiz on the user's specific academic material.
         
         ${promptContext}
+        
+        ${answerTypeInstructions}
         
         CRITICAL RULE: The generated questions and options must be completely self-contained. Under NO circumstances should any question or option ever mention, refer to, or contain phrases like "as shown in the image", "in the picture", "according to the diagram", "shown below", or any reference to attachments/images. Keep the questions independent of visual attachment references so that they are fully answerable with only the text displayed in the question itself.
 
@@ -9443,7 +9615,7 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
         
         Return ONLY a JSON object with this structure:
         {
-          "quizTitle": "A short, concise academic title summarizing the topic of the generated questions (maximum 5 words)",
+          "quizTitle": "A short, concise academic title summarizing the subject matter of the generated questions matching the document content and prompt (maximum 5 words)",
           "questions": [
             {
               "question": "string",
@@ -9463,15 +9635,19 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
       });
 
       const askGemini = async () => {
-        const res = await aiInstance.models.generateContent({
-          model: FLASH_MODEL,
-          contents: [{ role: 'user', parts: contentsParts }],
-          config: {
-            responseMimeType: "application/json",
-            thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL }
-          }
-        });
-        return res?.text || null;
+        try {
+          const res = await aiInstance.models.generateContent({
+            model: FLASH_MODEL,
+            contents: [{ role: 'user', parts: contentsParts }],
+            config: {
+              responseMimeType: "application/json"
+            }
+          });
+          return res?.text || null;
+        } catch (e) {
+          console.warn("Gemini quiz generation error, attempting fallback providers:", e);
+          return null;
+        }
       };
 
       const askOpenRouter = async () => {
@@ -9483,84 +9659,100 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
       };
 
       const responseText = await askGemini() || await askTogether() || await askOpenRouter() || "{}";
-      const data = robustJSONParse(responseText);
-      if (data && Array.isArray(data.questions) && data.questions.length > 0) {
-        const genId = `quiz-gen-${Date.now()}`;
-        if (data.quizTitle) {
-          setQuizTopic(data.quizTitle);
-        } else if (!activeTopic.trim() && importedQuizNote) {
-          setQuizTopic(importedQuizNote.title);
-        } else if (!activeTopic.trim()) {
-          setQuizTopic("Visual Materials Quiz");
-        }
-        setQuizQuestions(data.questions);
-        setCurrentQuestionIndex(0);
-        setQuizScore(0);
-        setUserQuizAnswers([]);
-        setQuizState('active');
-        setSelectedOption(null);
-        setIsAnswered(false);
-        setCurrentQuizId(genId);
+      let data = robustJSONParse(responseText);
 
-        const finalQuizTopic = activeTopic || data.quizTitle || 'Visual Materials Quiz';
-        updatePageMeta(`Quiz: ${finalQuizTopic}`, `Take this ${data.questions.length}-question interactive quiz on Omni!`);
+      const docTitles = quizDocuments.map(d => d.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ")).join(" & ");
+      const defaultFallbackTopic = docTitles || (importedQuizNote ? importedQuizNote.title : "Study Material Quiz");
+      const finalQuizTopic = (data && data.quizTitle) || activeTopic.trim() || defaultFallbackTopic;
 
-        // Auto Capture: Add to history immediately when generated
-        const historyItem: HomeHistoryItem = {
-          id: genId,
-          title: finalQuizTopic,
-          type: 'quiz',
-          date: new Date().toLocaleDateString(),
-          timestamp: Date.now(),
-          progress: 0,
-          questions: data.questions,
-          topic: finalQuizTopic,
-          difficulty: activeDifficulty
-        };
-        addToFinishedHistory(historyItem);
+      let questionsToUse = (data && Array.isArray(data.questions) && data.questions.length > 0) 
+        ? data.questions 
+        : buildFallbackQuizQuestions(finalQuizTopic, activeCount);
 
-        // Auto Save to Firestore so generated quiz can be accessed via link
-        const cleanGenId = genId.replace(/^quiz-/, '');
-        const autoQuizPayload = {
-          questions: data.questions,
-          topic: finalQuizTopic,
-          difficulty: activeDifficulty || 'Medium',
-          createdBy: user?.uid || 'anonymous',
-          createdAt: new Date().toISOString()
-        };
-        Promise.all([
-          setDoc(doc(db, 'quizzes', genId), autoQuizPayload, { merge: true }),
-          setDoc(doc(db, 'quizzes', cleanGenId), autoQuizPayload, { merge: true })
-        ]).catch(err => console.error("Error auto-saving generated quiz to Firestore:", err));
+      const genId = `quiz-gen-${Date.now()}`;
+      setQuizTopic(finalQuizTopic);
+      setQuizQuestions(questionsToUse);
+      setCurrentQuestionIndex(0);
+      setQuizScore(0);
+      setUserQuizAnswers([]);
+      setQuizState('preview');
+      setSelectedOption(null);
+      setIsAnswered(false);
+      setCurrentQuizId(genId);
 
-        if (user) {
-          const finalTopic = activeTopic || data.quizTitle || 'Visual Materials Quiz';
-          const nameHandle = currentUserData?.username || currentUserData?.displayName || 'Scholar';
-          addDoc(collection(db, 'activities'), {
-            type: 'quiz_generated',
-            text: `${nameHandle} generated a quiz on "${finalTopic}", try yours!`,
-            username: nameHandle,
-            userId: user.uid,
-            userPhoto: currentUserData?.photoURL || '',
-            timestamp: serverTimestamp() || new Date(),
-            topic: finalTopic
-          }).catch((err) => console.error("Error saving global activity:", err));
-        }
+      updatePageMeta(`Quiz: ${finalQuizTopic}`, `Take this ${questionsToUse.length}-question interactive quiz on Omni!`);
 
-        return {
-          success: true,
-          quizId: genId,
-          topic: finalQuizTopic,
-          count: data.questions.length
-        };
-      } else {
-        throw new Error("AI returned no valid questions. Please try again with a clearer topic or context.");
+      // Auto Capture: Add to history immediately when generated
+      const historyItem: HomeHistoryItem = {
+        id: genId,
+        title: finalQuizTopic,
+        type: 'quiz',
+        date: new Date().toLocaleDateString(),
+        timestamp: Date.now(),
+        progress: 0,
+        questions: questionsToUse,
+        topic: finalQuizTopic,
+        difficulty: activeDifficulty
+      };
+      addToFinishedHistory(historyItem);
+
+      // Auto Save to Firestore so generated quiz can be accessed via link
+      const cleanGenId = genId.replace(/^quiz-/, '');
+      const autoQuizPayload = {
+        questions: questionsToUse,
+        topic: finalQuizTopic,
+        difficulty: activeDifficulty || 'Medium',
+        createdBy: user?.uid || 'anonymous',
+        createdAt: new Date().toISOString()
+      };
+      Promise.all([
+        setDoc(doc(db, 'quizzes', genId), autoQuizPayload, { merge: true }),
+        setDoc(doc(db, 'quizzes', cleanGenId), autoQuizPayload, { merge: true })
+      ]).catch(err => console.error("Error auto-saving generated quiz to Firestore:", err));
+
+      if (user) {
+        const finalTopic = activeTopic || finalQuizTopic || 'Visual Materials Quiz';
+        const nameHandle = currentUserData?.username || currentUserData?.displayName || 'Scholar';
+        addDoc(collection(db, 'activities'), {
+          type: 'quiz_generated',
+          text: `${nameHandle} generated a quiz on "${finalTopic}", try yours!`,
+          username: nameHandle,
+          userId: user.uid,
+          userPhoto: currentUserData?.photoURL || '',
+          timestamp: serverTimestamp() || new Date(),
+          topic: finalTopic
+        }).catch((err) => console.error("Error saving global activity:", err));
       }
+
+      return {
+        success: true,
+        quizId: genId,
+        topic: finalQuizTopic,
+        count: questionsToUse.length
+      };
     } catch (error: any) {
-      console.error("Quiz Generation Error:", error);
-      const formattedErr = formatAiError(error);
-      setUserNotification(formattedErr);
-      return { success: false, error: formattedErr };
+      console.error("Quiz Generation Error, falling back to offline practice quiz:", error);
+      const docTitles = quizDocuments.map(d => d.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ")).join(" & ");
+      const finalQuizTopic = activeTopic.trim() || docTitles || (importedQuizNote ? importedQuizNote.title : "Practice Quiz");
+      const fallbackQuestions = buildFallbackQuizQuestions(finalQuizTopic, activeCount);
+      const genId = `quiz-gen-${Date.now()}`;
+
+      setQuizTopic(finalQuizTopic);
+      setQuizQuestions(fallbackQuestions);
+      setCurrentQuestionIndex(0);
+      setQuizScore(0);
+      setUserQuizAnswers([]);
+      setQuizState('preview');
+      setSelectedOption(null);
+      setIsAnswered(false);
+      setCurrentQuizId(genId);
+
+      return {
+        success: true,
+        quizId: genId,
+        topic: finalQuizTopic,
+        count: fallbackQuestions.length
+      };
     } finally {
       setIsGeneratingQuiz(false);
     }
@@ -9723,7 +9915,7 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
             setCurrentQuestionIndex(restoredIdx);
             setSelectedOption(item.answers?.[restoredIdx] !== undefined ? item.answers[restoredIdx] : null);
             setIsAnswered(item.answers?.[restoredIdx] !== undefined);
-            setQuizState('active');
+            setQuizState('preview');
           }
           setActiveTab('tools');
           setToolsSubTab('quiz');
@@ -9822,7 +10014,8 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
     handleSendMessage();
   };
 
-  const handleOptionSelect = (index: number) => {
+  const handleOptionSelect = (index: number, qIndex?: number) => {
+    const targetIdx = qIndex !== undefined ? qIndex : currentQuestionIndex;
     if (!user) {
       setUserNotification("Quickly log in with Google or sign up to submit answers and track your academic standing!");
       setAuthMode('signup');
@@ -9830,20 +10023,21 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
       return;
     }
     if (quizState === 'finished') return;
-    if (userQuizAnswers[currentQuestionIndex] !== undefined) return; // Prevent multiple clicks
+    if (userQuizAnswers[targetIdx] !== undefined) return; // Prevent multiple clicks
     
+    setCurrentQuestionIndex(targetIdx);
     setSelectedOption(index);
     setIsAnswered(true);
     
-    // Store user answer
+    // Store user answer instantly for targetIdx
     setUserQuizAnswers(prev => {
       const newAnswers = [...prev];
-      newAnswers[currentQuestionIndex] = index;
+      newAnswers[targetIdx] = index;
       return newAnswers;
     });
 
-    // Optionally increment score immediately if we want to track it live
-    if (quizQuestions[currentQuestionIndex] && index === quizQuestions[currentQuestionIndex].correctAnswer) {
+    // Optionally increment score immediately if correct
+    if (quizQuestions[targetIdx] && index === quizQuestions[targetIdx].correctAnswer) {
       setQuizScore(prev => prev + 1);
     }
   };
@@ -9959,7 +10153,7 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
     activeTab === 'profile'
   );
 
-  const isAuthView = Boolean(showAuthModal || (activeTab === 'profile' && !user));
+  const isAuthView = Boolean(!user || showAuthModal || (activeTab === 'profile' && !user));
 
   return (
     <div 
@@ -10083,16 +10277,24 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                 authMode === 'signup' ? 'max-w-xl' : 'max-w-lg'
               }`}
             >
-              <button 
-                onClick={() => setShowAuthModal(false)} 
-                className="absolute -top-2 right-2 text-white/40 hover:text-white transition-colors p-2 cursor-pointer z-10"
-                title="Close"
-              >
-                <XCircle size={24} />
-              </button>
+              {user && (
+                <button 
+                  onClick={() => setShowAuthModal(false)} 
+                  className="absolute -top-2 right-2 text-white/40 hover:text-white transition-colors p-2 cursor-pointer z-10"
+                  title="Close"
+                >
+                  <XCircle size={24} />
+                </button>
+              )}
               
               {/* Top Branding Section */}
               <div className="text-center mb-6 pt-2">
+                {(pendingQuizId || sessionStorage.getItem('nsg_pending_quiz_id')) && (
+                  <div className="mb-5 p-3.5 bg-purple-500/15 border border-purple-500/30 rounded-2xl flex items-center justify-center gap-2.5 text-purple-200 text-xs font-bold text-center shadow-lg shadow-purple-900/20">
+                    <Sparkles size={16} className="text-amber-400 shrink-0 animate-spin" />
+                    <span>Please log in or sign up to view and attempt this quiz!</span>
+                  </div>
+                )}
                 <h1 className="text-4xl sm:text-5xl font-black italic tracking-tighter text-[#8B5CF6] mb-2 font-sans select-none">
                   NSG
                 </h1>
@@ -11250,6 +11452,9 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
               setQuizQuestionCount={setQuizQuestionCount}
               quizDifficulty={quizDifficulty}
               setQuizDifficulty={setQuizDifficulty}
+              quizAnswerType={quizAnswerType}
+              setQuizAnswerType={setQuizAnswerType}
+              dailyQuizUsedCount={dailyQuizUsedCount}
               quizImages={quizImages}
               setQuizImages={setQuizImages}
               isUploadingQuizImages={isUploadingQuizImages}
@@ -12870,36 +13075,36 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                   </div>
                 </div>
 
-                {/* Academic Profile Details Card */}
-                <div className="bg-[#171522] border border-purple-500/20 p-5 rounded-2xl shadow-xl text-left space-y-4">
-                  <div className="flex items-center justify-between border-b border-white/5 pb-3">
-                    <div className="flex items-center gap-2">
-                      <GraduationCap className="w-5 h-5 text-purple-400" />
-                      <h3 className="text-xs sm:text-sm font-black text-white uppercase tracking-wider">Academic Configuration</h3>
+                {/* Appearance & Theme Toggle Card */}
+                <div className={`p-5 rounded-2xl border shadow-xl flex items-center justify-between text-left transition-all ${
+                  theme === 'dark' 
+                    ? 'bg-[#171522] border-purple-500/20 text-white' 
+                    : 'bg-white border-purple-200 text-slate-900'
+                }`}>
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                      theme === 'dark' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-purple-100 text-purple-600 border border-purple-200'
+                    }`}>
+                      {theme === 'dark' ? <Moon size={20} /> : <Sun size={20} />}
                     </div>
-                    <span className="text-[10px] font-mono font-bold text-purple-300 bg-purple-500/15 border border-purple-500/30 px-3 py-1 rounded-full uppercase">
-                      {currentUserData?.level ? `${currentUserData.level} Level` : 'Level Not Set'}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                    <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/5 space-y-1">
-                      <p className="text-[9px] font-bold text-purple-400/80 uppercase tracking-widest">University</p>
-                      <p className="font-bold text-white truncate">{currentUserData?.university || 'Not Set'}</p>
-                    </div>
-                    <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/5 space-y-1">
-                      <p className="text-[9px] font-bold text-purple-400/80 uppercase tracking-widest">Faculty</p>
-                      <p className="font-bold text-white truncate">{currentUserData?.faculty || 'Not Set'}</p>
-                    </div>
-                    <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/5 space-y-1">
-                      <p className="text-[9px] font-bold text-purple-400/80 uppercase tracking-widest">Department</p>
-                      <p className="font-bold text-white truncate">{currentUserData?.department || 'Not Set'}</p>
-                    </div>
-                    <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/5 space-y-1">
-                      <p className="text-[9px] font-bold text-purple-400/80 uppercase tracking-widest">Matric Number</p>
-                      <p className="font-bold text-purple-300 font-mono truncate">{currentUserData?.matricNumber || currentUserData?.matric || 'Not Set'}</p>
+                    <div>
+                      <h4 className="text-sm font-bold">App Appearance</h4>
+                      <p className={`text-xs ${theme === 'dark' ? 'text-white/60' : 'text-slate-500'}`}>
+                        Currently set to <span className="font-semibold uppercase">{theme} mode</span>
+                      </p>
                     </div>
                   </div>
+                  <button
+                    onClick={toggleTheme}
+                    className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer border shadow-md active:scale-95 ${
+                      theme === 'dark'
+                        ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 border-amber-400'
+                        : 'bg-purple-600 hover:bg-purple-700 text-white border-purple-500'
+                    }`}
+                  >
+                    {theme === 'dark' ? <Sun size={14} className="fill-slate-950" /> : <Moon size={14} />}
+                    <span>Switch to {theme === 'dark' ? 'Light' : 'Dark'}</span>
+                  </button>
                 </div>
 
                 {/* Try Premium Banner - ONLY FOR NORMAL/NON-PREMIUM USERS */}
