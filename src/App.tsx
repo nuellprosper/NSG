@@ -270,7 +270,7 @@ export default function App() {
       const q = query(collection(db, 'users'), orderBy('points', 'desc'), limit(50));
       const unsub = onSnapshot(q, (snap) => {
         setLeaderboard(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      });
+      }, (err) => handleFirestoreError(err, FirestoreOperation.LIST, 'users'));
       return () => unsub();
     }
   }, [activeTab, profileSubTab]);
@@ -4399,7 +4399,15 @@ export default function App() {
           }
           setIsAuthLoading(false);
         }, (error) => {
-          console.error("Auth Snapshot Error:", error);
+          handleFirestoreError(error, FirestoreOperation.GET, `users/${currentUser.uid}`);
+          setCurrentUserData((prev: any) => prev || {
+            id: currentUser.uid,
+            uid: currentUser.uid,
+            email: currentUser.email,
+            displayName: currentUser.displayName || currentUser.email?.split('@')[0] || 'Student',
+            role: currentUser.email === "nuellkelechi@gmail.com" ? 'admin' : 'student',
+            status: 'active'
+          });
           setIsAuthLoading(false);
         });
       } else {
@@ -11493,6 +11501,8 @@ Ensure these selected question types are distributed throughout the quiz questio
               setQuizDifficulty={setQuizDifficulty}
               quizAnswerType={quizAnswerType}
               setQuizAnswerType={setQuizAnswerType}
+              quizAnswerTypes={quizAnswerTypes}
+              setQuizAnswerTypes={setQuizAnswerTypes}
               dailyQuizUsedCount={dailyQuizUsedCount}
               quizImages={quizImages}
               setQuizImages={setQuizImages}

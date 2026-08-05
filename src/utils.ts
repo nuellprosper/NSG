@@ -2,7 +2,13 @@ import { GoogleGenAI } from "@google/genai";
 import { HfInference } from "@huggingface/inference";
 import axios from 'axios';
 import * as pdfjsLib from 'pdfjs-dist';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import JSZip from 'jszip';
+
+// Configure pdfjs worker URL
+if (pdfjsLib.GlobalWorkerOptions) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl || `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version || '4.10.38'}/build/pdf.worker.min.mjs`;
+}
 
 export const extractPdfDetails = async (file: File): Promise<{ text: string; pageImages: string[]; pageCount: number; truncated: boolean }> => {
   const pageImages: string[] = [];
@@ -12,14 +18,16 @@ export const extractPdfDetails = async (file: File): Promise<{ text: string; pag
 
   try {
     const arrayBuffer = await file.arrayBuffer();
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version || '4.10.38'}/pdf.worker.min.mjs`;
+    if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl || `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version || '4.10.38'}/build/pdf.worker.min.mjs`;
+    }
     const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
     const pdf = await loadingTask.promise;
     pageCount = pdf.numPages;
     if (pageCount > 20) {
       truncated = true;
     }
-    const pagesToRender = Math.min(pageCount, 10);
+    const pagesToRender = Math.min(pageCount, 20);
 
     for (let i = 1; i <= pageCount; i++) {
       const page = await pdf.getPage(i);
@@ -29,14 +37,14 @@ export const extractPdfDetails = async (file: File): Promise<{ text: string; pag
 
       if (i <= pagesToRender) {
         try {
-          const viewport = page.getViewport({ scale: 1.0 });
+          const viewport = page.getViewport({ scale: 1.2 });
           const canvas = document.createElement('canvas');
           const context = canvas.getContext('2d');
           canvas.width = viewport.width;
           canvas.height = viewport.height;
           if (context) {
             await page.render({ canvasContext: context, viewport, canvas } as any).promise;
-            const imgDataUrl = canvas.toDataURL('image/jpeg', 0.75);
+            const imgDataUrl = canvas.toDataURL('image/jpeg', 0.8);
             pageImages.push(imgDataUrl);
           }
         } catch (canvasErr) {
