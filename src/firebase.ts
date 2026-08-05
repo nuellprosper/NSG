@@ -317,17 +317,34 @@ export function sanitizeData(data: any): any {
 
 let hasWarnedQuota = false;
 
+export function triggerQuotaErrorModal(customMsg?: string) {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('nsg_quota_error', { detail: { message: customMsg } }));
+  }
+}
+
+export function checkIsQuotaError(error: unknown): boolean {
+  if (!error) return false;
+  const msg = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return msg.includes('quota') || 
+         msg.includes('resource exhausted') || 
+         msg.includes('resource_exhausted') || 
+         msg.includes('free daily read units') ||
+         msg.includes('free daily write units') ||
+         msg.includes('rate limit') ||
+         msg.includes('quota limit exceeded') ||
+         msg.includes('quota exceeded');
+}
+
 export function handleFirestoreError(error: unknown, operationType: FirestoreOperation, path: string | null, shouldThrow: boolean = false) {
   const errorMessage = error instanceof Error ? error.message : String(error);
-  const isQuotaExceeded = errorMessage.toLowerCase().includes('quota') || 
-                          errorMessage.includes('8') || 
-                          errorMessage.toLowerCase().includes('resource exhausted') || 
-                          errorMessage.toLowerCase().includes('resource_exhausted');
+  const isQuotaExceeded = checkIsQuotaError(error) || errorMessage.includes('8');
 
   if (isQuotaExceeded) {
+    triggerQuotaErrorModal();
     if (!hasWarnedQuota) {
       hasWarnedQuota = true;
-      console.warn('Firestore Quota Limit reached. Operating in local cache & offline mode.');
+      console.warn('Firestore Quota Limit reached.');
     }
     if (shouldThrow) {
       console.warn(`Firestore operation '${operationType}' deferred due to quota limits.`);

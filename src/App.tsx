@@ -27,7 +27,8 @@ import {
   auth, db, googleProvider, signInWithPopup, signOut, onAuthStateChanged,
   doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, onSnapshot, getDocs, addDoc, serverTimestamp, orderBy, limit, arrayUnion,
   createUserWithEmailAndPassword, signInWithEmailAndPassword,
-  FirestoreOperation, handleFirestoreError, circularSafeStringify, sanitizeData
+  FirestoreOperation, handleFirestoreError, circularSafeStringify, sanitizeData,
+  triggerQuotaErrorModal, checkIsQuotaError
 } from './firebase';
 
 import { AILibrary } from './components/AILibrary';
@@ -264,6 +265,21 @@ export default function App() {
   const [communitySubTab, setCommunitySubTab] = useState<'quests' | 'rankings'>('quests');
   const [totalUnreadMessages, setTotalUnreadMessages] = useState(0);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+
+  // --- QUOTA LIMIT EXCEEDED MODAL STATE ---
+  const [showQuotaModal, setShowQuotaModal] = useState(false);
+  const [quotaModalMessage, setQuotaModalMessage] = useState<string>('');
+
+  useEffect(() => {
+    const handleQuotaEvent = (e: any) => {
+      if (e?.detail?.message) {
+        setQuotaModalMessage(e.detail.message);
+      }
+      setShowQuotaModal(true);
+    };
+    window.addEventListener('nsg_quota_error', handleQuotaEvent);
+    return () => window.removeEventListener('nsg_quota_error', handleQuotaEvent);
+  }, []);
 
   useEffect(() => {
     if (activeTab === 'community' || (activeTab === 'profile' && profileSubTab === 'stats')) {
@@ -8780,8 +8796,12 @@ ${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\nopt
           }
         }
         if (foundData) break;
-      } catch (err) {
+      } catch (err: any) {
         console.warn(`Attempt ${attempt} to fetch quiz ${cleanInputId} failed:`, err);
+        handleFirestoreError(err, FirestoreOperation.GET, `quizzes/${cleanInputId}`);
+        if (checkIsQuotaError(err)) {
+          triggerQuotaErrorModal();
+        }
       }
 
       // If not found yet and not last attempt, wait 1 second before retrying
@@ -9778,6 +9798,9 @@ Ensure these selected question types are distributed throughout the quiz questio
         count: questionsToUse.length
       };
     } catch (error: any) {
+      if (checkIsQuotaError(error)) {
+        triggerQuotaErrorModal();
+      }
       console.error("Quiz Generation Error, falling back to offline practice quiz:", error);
       const docTitles = quizDocuments.map(d => d.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ")).join(" & ");
       const finalQuizTopic = activeTopic.trim() || docTitles || (importedQuizNote ? importedQuizNote.title : "Practice Quiz");
@@ -10304,6 +10327,70 @@ Ensure these selected question types are distributed throughout the quiz questio
               </div>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* QUOTA LIMIT EXCEEDED MODAL POPUP */}
+      <AnimatePresence>
+        {showQuotaModal && (
+          <div className="fixed inset-0 z-[100000] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="relative w-full max-w-md bg-[#18181B] border border-amber-500/40 rounded-3xl p-6 sm:p-8 shadow-2xl shadow-amber-900/30 text-white overflow-hidden text-center select-none"
+            >
+              {/* Background Glows */}
+              <div className="absolute -top-16 -left-16 w-36 h-36 bg-amber-500/20 rounded-full blur-3xl pointer-events-none" />
+              <div className="absolute -bottom-16 -right-16 w-36 h-36 bg-purple-500/20 rounded-full blur-3xl pointer-events-none" />
+
+              {/* Close Button */}
+              <button
+                onClick={() => setShowQuotaModal(false)}
+                className="absolute top-4 right-4 text-white/50 hover:text-white transition-colors p-2 cursor-pointer z-10 rounded-full hover:bg-white/10"
+                title="Close"
+              >
+                <XCircle size={22} />
+              </button>
+
+              {/* Icon */}
+              <div className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-gradient-to-tr from-amber-500/20 to-amber-600/30 border border-amber-500/40 flex items-center justify-center text-amber-400 shadow-lg shadow-amber-500/20">
+                <AlertTriangle size={32} className="animate-bounce" />
+              </div>
+
+              {/* Header */}
+              <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight mb-3">
+                Service Limit Reached
+              </h3>
+
+              {/* Required Exact Messages */}
+              <p className="text-lg sm:text-xl font-black text-amber-300 leading-snug mb-2">
+                Please try again by 9:00 AM.
+              </p>
+
+              <p className="text-xs sm:text-sm font-semibold text-zinc-300 leading-relaxed mb-6">
+                We are sorry for the inconvenience this has caused you.
+              </p>
+
+              {/* Info Box */}
+              <div className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-4 mb-6 text-xs text-zinc-400 text-left">
+                <div className="flex items-start gap-2.5">
+                  <Clock size={18} className="text-amber-400 shrink-0 mt-0.5" />
+                  <span className="leading-relaxed">
+                    Our daily server quota limit has been reached for today. Operations will automatically refresh and resume at <strong>9:00 AM</strong>.
+                  </span>
+                </div>
+              </div>
+
+              {/* Button */}
+              <button
+                onClick={() => setShowQuotaModal(false)}
+                className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-black font-black text-sm uppercase tracking-wider shadow-lg shadow-amber-500/25 active:scale-98 transition-all cursor-pointer"
+              >
+                I Understand
+              </button>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
 
