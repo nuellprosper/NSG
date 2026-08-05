@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   Mic, StopCircle, Upload, FileAudio, Image as ImageIcon, 
   Brain, History, Download, Play, 
-  ChevronRight, Sparkles, Trash2, Settings, UserPlus, CreditCard, Edit2, FilePlus,
+  ChevronLeft, ChevronRight, Sparkles, Trash2, Settings, UserPlus, CreditCard, Edit2, FilePlus,
   ChevronUp, ChevronDown, Bold, Italic, List, CornerDownRight,
   Database, Zap, Cpu, CheckCircle2, XCircle, RefreshCcw, ArrowLeft, FileText, AlertCircle, RotateCcw,
   Sun, Moon, ArrowDown, PlusCircle, Copy, User, Users, Clock, Lock, Unlock, Shield, ShieldCheck, AlertTriangle, FileDown, LayoutDashboard, ListChecks, Bell, GraduationCap, LayoutGrid, Home,
@@ -2267,8 +2267,34 @@ export default function App() {
   const [quizDifficulty, setQuizDifficulty] = useState<'Easy' | 'Medium' | 'Hard' | 'Professional'>('Medium');
   const [quizQuestionCount, setQuizQuestionCount] = useState(20);
   const [quizAnswerType, setQuizAnswerType] = useState<'multiple_choice' | 'true_false' | 'single_choice'>('multiple_choice');
+  const [quizAnswerTypes, setQuizAnswerTypes] = useState<string[]>(['multiple_choice']);
   const [dailyQuizUsedCount, setDailyQuizUsedCount] = useState<number>(0);
   const [isGeneratingQuiz, setIsGeneratingQuiz] = useState(false);
+
+  // Scroll to top automatically whenever active tab, subtab, or subview changes
+  useEffect(() => {
+    const scrollToTopAll = () => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+      
+      const scrollableElements = document.querySelectorAll('main, div, section, article');
+      scrollableElements.forEach(el => {
+        if (el.scrollTop && el.scrollTop > 0) {
+          el.scrollTop = 0;
+        }
+      });
+    };
+
+    scrollToTopAll();
+    const animationFrameId = requestAnimationFrame(scrollToTopAll);
+    const timeoutId = setTimeout(scrollToTopAll, 50);
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+      clearTimeout(timeoutId);
+    };
+  }, [activeTab, toolsSubTab, profileSubTab, communitySubTab, isEditingProfile]);
 
   useEffect(() => {
     if (!user) return;
@@ -9416,12 +9442,12 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
     customCount?: number, 
     customDifficulty?: "Easy" | "Medium" | "Hard" | "Professional",
     forceNew?: boolean,
-    customAnswerType?: 'multiple_choice' | 'true_false' | 'single_choice'
+    customAnswerType?: 'multiple_choice' | 'true_false' | 'single_choice' | string[]
   ): Promise<{ success: boolean; quizId?: string; topic?: string; count?: number; error?: string }> => {
     const realTopic = (customTopic && typeof customTopic !== 'string') ? undefined : customTopic as string | undefined;
     const realCount = (customTopic && typeof customTopic !== 'string') ? undefined : customCount;
     const realDifficulty = (customTopic && typeof customTopic !== 'string') ? undefined : customDifficulty;
-    const activeAnswerType = customAnswerType || quizAnswerType || 'multiple_choice';
+    const activeAnswerType = customAnswerType || quizAnswerTypes || [quizAnswerType || 'multiple_choice'];
 
     console.log("Starting Quiz Generation...", { realTopic, realCount, realDifficulty, forceNew, activeAnswerType });
     if (isGeneratingQuiz) return { success: false, error: "A quiz is already generating." };
@@ -9585,13 +9611,26 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
         promptContext += `You must analyze the attached image(s) to generate relevant academic questions based strictly on the subject matter, text, equations, diagrams, and educational context shown in them.\n\n`;
       }
 
+      const activeTypes = Array.isArray(activeAnswerType)
+        ? activeAnswerType
+        : [activeAnswerType];
+
       let answerTypeInstructions = "";
-      if (activeAnswerType === 'true_false') {
-        answerTypeInstructions = `CRITICAL ANSWER TYPE FORMAT (TRUE / FALSE): Every single question MUST be a True/False question. The "options" array for EVERY question MUST be strictly ["True", "False"], and "correctAnswer" MUST be 0 (True) or 1 (False).`;
-      } else if (activeAnswerType === 'single_choice') {
-        answerTypeInstructions = `CRITICAL ANSWER TYPE FORMAT (SINGLE CHOICE - 2 OPTIONS): Every single question MUST have exactly 2 distinct options: ["Option 1", "Option 2"], and "correctAnswer" MUST be 0 or 1.`;
+      if (activeTypes.length > 1) {
+        answerTypeInstructions = `CRITICAL ANSWER TYPE FORMAT (MIXED OPTION TYPES): This quiz MUST include a varied combination of the following question option types: ${activeTypes.join(', ')}.
+- For True/False questions: the "options" array MUST be strictly ["True", "False"], and "correctAnswer" MUST be 0 (True) or 1 (False).
+- For Single Choice questions: the "options" array MUST contain exactly 2 distinct options: ["Option 1", "Option 2"], and "correctAnswer" MUST be 0 or 1.
+- For Multiple Choice questions: the "options" array MUST contain exactly 4 options: ["Option A", "Option B", "Option C", "Option D"], and "correctAnswer" MUST be 0, 1, 2, or 3.
+Ensure these selected question types are distributed throughout the quiz questions.`;
       } else {
-        answerTypeInstructions = `CRITICAL ANSWER TYPE FORMAT (MULTIPLE CHOICE - 4 OPTIONS): Every single question MUST have exactly 4 options: ["Option A", "Option B", "Option C", "Option D"], and "correctAnswer" MUST be 0, 1, 2, or 3.`;
+        const singleType = activeTypes[0] || 'multiple_choice';
+        if (singleType === 'true_false') {
+          answerTypeInstructions = `CRITICAL ANSWER TYPE FORMAT (TRUE / FALSE): Every single question MUST be a True/False question. The "options" array for EVERY question MUST be strictly ["True", "False"], and "correctAnswer" MUST be 0 (True) or 1 (False).`;
+        } else if (singleType === 'single_choice') {
+          answerTypeInstructions = `CRITICAL ANSWER TYPE FORMAT (SINGLE CHOICE - 2 OPTIONS): Every single question MUST have exactly 2 distinct options: ["Option 1", "Option 2"], and "correctAnswer" MUST be 0 or 1.`;
+        } else {
+          answerTypeInstructions = `CRITICAL ANSWER TYPE FORMAT (MULTIPLE CHOICE - 4 OPTIONS): Every single question MUST have exactly 4 options: ["Option A", "Option B", "Option C", "Option D"], and "correctAnswer" MUST be 0, 1, 2, or 3.`;
+        }
       }
 
       const prompt = `
@@ -13075,38 +13114,6 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
                   </div>
                 </div>
 
-                {/* Appearance & Theme Toggle Card */}
-                <div className={`p-5 rounded-2xl border shadow-xl flex items-center justify-between text-left transition-all ${
-                  theme === 'dark' 
-                    ? 'bg-[#171522] border-purple-500/20 text-white' 
-                    : 'bg-white border-purple-200 text-slate-900'
-                }`}>
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                      theme === 'dark' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-purple-100 text-purple-600 border border-purple-200'
-                    }`}>
-                      {theme === 'dark' ? <Moon size={20} /> : <Sun size={20} />}
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold">App Appearance</h4>
-                      <p className={`text-xs ${theme === 'dark' ? 'text-white/60' : 'text-slate-500'}`}>
-                        Currently set to <span className="font-semibold uppercase">{theme} mode</span>
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={toggleTheme}
-                    className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer border shadow-md active:scale-95 ${
-                      theme === 'dark'
-                        ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 border-amber-400'
-                        : 'bg-purple-600 hover:bg-purple-700 text-white border-purple-500'
-                    }`}
-                  >
-                    {theme === 'dark' ? <Sun size={14} className="fill-slate-950" /> : <Moon size={14} />}
-                    <span>Switch to {theme === 'dark' ? 'Light' : 'Dark'}</span>
-                  </button>
-                </div>
-
                 {/* Try Premium Banner - ONLY FOR NORMAL/NON-PREMIUM USERS */}
                 {!isPremium && (
                   <div className="bg-gradient-to-r from-amber-500 via-orange-400 to-amber-500 p-5 rounded-2xl shadow-lg flex items-center justify-between gap-4 text-slate-950 font-sans">
@@ -15748,79 +15755,73 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
           </div>
         )}
 
-        {/* HIDDEN QUIZ CARD FOR PREVIEW IMAGE GENERATION (EXACT UI MATCH TO SCREENSHOT) */}
+        {/* HIDDEN QUIZ CARD FOR PREVIEW IMAGE GENERATION */}
         <div className="fixed -left-[9999px] top-0 pointer-events-none">
           <div 
             ref={quizShareCardRef} 
-            className="w-[620px] p-6 bg-[#0B0D17] text-white rounded-3xl border border-slate-800 flex flex-col space-y-3 shadow-2xl relative overflow-hidden"
+            className="w-[620px] p-6 bg-[#0B0D17] text-white rounded-3xl border border-slate-800 flex flex-col space-y-4 shadow-2xl relative overflow-hidden"
             style={{ fontFamily: 'DM Sans, sans-serif' }}
           >
-            {/* Top Bar Pill Container with Gradient Background */}
-            <div className="bg-gradient-to-r from-[#D91B5C] via-[#8B1BD9] to-[#1D63D9] p-3.5 rounded-2xl border border-white/20 space-y-3 shadow-xl">
-              {/* Controls Row */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg bg-black/40 border border-white/20 flex items-center justify-center text-white shadow-inner">
-                    <Calculator size={15} />
-                  </div>
-                  <div className="w-8 h-8 rounded-lg bg-black/40 border border-white/20 flex items-center justify-center text-white shadow-inner">
-                    <Volume2 size={15} />
-                  </div>
-                  <div className="w-8 h-8 rounded-lg bg-black/40 border border-white/20 flex items-center justify-center text-white shadow-inner">
-                    <Share2 size={15} />
-                  </div>
+            {/* Active Quiz Header & Top Bar */}
+            <div className="flex items-center justify-between pb-2 border-b border-white/10">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-white/5 border border-white/10 text-white">
+                  <ChevronLeft size={18} />
                 </div>
-
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-black uppercase tracking-widest bg-black/40 px-3.5 py-1.5 rounded-full border border-white/20 text-white font-mono">
-                    PROGRESS: 1/{quizQuestions.length || 50}
-                  </span>
-                  <div className="px-3.5 py-1.5 bg-[#133B70] rounded-xl text-[10px] font-black uppercase tracking-widest border border-white/20 text-white shadow-sm">
-                    BACK TO LOBBY
-                  </div>
-                </div>
+                <span className="text-xs font-black uppercase tracking-wider text-purple-300">
+                  {quizTopic || "INTERACTIVE QUIZ"}
+                </span>
               </div>
-
-              {/* Numbered Pagination Pill Grid */}
-              <div className="flex flex-wrap items-center gap-1 pt-1 border-t border-white/20">
-                <div className="w-6 h-6 rounded-full bg-white text-black font-extrabold flex items-center justify-center text-[10px] shadow-md">
-                  1
-                </div>
-                {Array.from({ length: Math.min(quizQuestions.length || 50, 45) }, (_, i) => i + 2).map((num) => (
-                  <div key={num} className="w-6 h-6 rounded-md bg-black/30 border border-white/10 text-white/80 font-bold flex items-center justify-center text-[9px]">
-                    {num}
-                  </div>
-                ))}
+              <div className="p-2 rounded-xl bg-white/5 border border-white/10 text-white">
+                <Share2 size={18} />
               </div>
             </div>
 
-            {/* Main Question Card Container */}
-            <div className="bg-[#0B101D] border border-slate-800/80 rounded-2xl p-5 space-y-4 shadow-xl">
-              <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5">
-                <span className="text-[#EF4444] font-black text-xs uppercase tracking-widest">
-                  QUESTION 1 OF {quizQuestions.length || 50}
+            {/* Segmented Bar & Stats Header */}
+            <div className="flex items-center gap-3">
+              <div className="flex-1 flex gap-1 h-2">
+                {Array.from({ length: Math.min(quizQuestions.length || 10, 30) }, (_, i) => (
+                  <div key={i} className={`h-2 flex-1 rounded-full ${i === 0 ? 'bg-purple-500' : 'bg-white/20'}`} />
+                ))}
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="text-xs font-bold text-white/80">1 / {quizQuestions.length || 10}</span>
+                <span className="bg-[#4A0000] border border-red-800/40 text-red-300 px-2 py-0.5 rounded-full text-[10px] font-bold">
+                  ✕ 0
                 </span>
-                <span className="text-slate-400 font-bold text-[11px] uppercase tracking-wider truncate max-w-[300px]">
-                  {quizTopic ? quizTopic.toUpperCase() : 'ACADEMIC COURSE REVIEW QUIZ'}
+                <span className="bg-[#0D184A] border border-blue-800/40 text-blue-300 px-2 py-0.5 rounded-full text-[10px] font-bold">
+                  ✓ 0
+                </span>
+              </div>
+            </div>
+
+            {/* Main Question Container */}
+            <div className="bg-[#0F1424] border border-slate-800/80 rounded-2xl p-5 space-y-4 shadow-xl">
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-1 rounded-lg bg-purple-600 text-white font-black text-xs">
+                  Q1
+                </span>
+                <span className="text-xs font-bold text-purple-300 uppercase tracking-wide">
+                  Question 1 of {quizQuestions.length || 10}
                 </span>
               </div>
 
-              <h3 className="text-white text-base font-bold leading-relaxed pt-1">
-                {quizQuestions[0]?.question || "What is the primary focus of public health as a science?"}
+              <h3 className="text-white text-base font-bold leading-relaxed">
+                {quizQuestions[0]?.question || "What is the primary concept covered in this study module?"}
               </h3>
 
               <div className="space-y-2.5 pt-1">
                 {(quizQuestions[0]?.options || [
-                  "Treating individual patients with existing chronic conditions",
-                  "Diagnosing rare genetic disorders through specialized laboratory tests",
-                  "Preventing disease, prolonging life, and promoting health through organized community effort",
-                  "Rehabilitating patients following major orthopedic surgeries"
+                  "Core theoretical principles and foundational framework",
+                  "Advanced empirical analysis and experimental verification",
+                  "Practical methodology applied in modern research environments",
+                  "Comprehensive summary of historical development and progress"
                 ]).slice(0, 4).map((optText: string, optIdx: number) => (
                   <div 
                     key={optIdx} 
-                    className="bg-[#121929] border border-slate-800/90 p-3.5 rounded-2xl flex items-center gap-3.5"
+                    className="bg-white/5 border border-white/10 p-3.5 rounded-2xl flex items-center gap-3"
                   >
-                    <div className="w-7 h-7 rounded-xl bg-white/5 border border-white/10 text-slate-300 font-extrabold flex items-center justify-center text-xs shrink-0">
+                    <div className="w-7 h-7 rounded-xl bg-purple-600/30 border border-purple-500/40 text-purple-200 font-extrabold flex items-center justify-center text-xs shrink-0">
                       {String.fromCharCode(65 + optIdx)}
                     </div>
                     <span className="text-slate-200 text-sm font-semibold leading-snug">
@@ -15833,8 +15834,8 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
 
             {/* Card Footer */}
             <div className="flex items-center justify-between border-t border-slate-800/80 pt-2.5 px-1 text-[10px]">
-              <span className="text-slate-500 font-mono">NSG SCHOLAR OMNI • INTERACTIVE QUIZ</span>
-              <span className="text-[#EF4444] font-bold uppercase tracking-wider">{shareQuizLink || 'https://nsg-scholar.app'}</span>
+              <span className="text-slate-400 font-mono font-bold">NSG SCHOLAR OMNI • PRACTICE QUIZ</span>
+              <span className="text-purple-400 font-bold tracking-wider">{shareQuizLink || 'https://nsg-scholar.app'}</span>
             </div>
           </div>
         </div>

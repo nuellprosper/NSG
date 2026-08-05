@@ -351,6 +351,8 @@ export const ToolsPage = (props: any) => {
     setQuizDifficulty,
     quizAnswerType = 'multiple_choice',
     setQuizAnswerType,
+    quizAnswerTypes = ['multiple_choice'],
+    setQuizAnswerTypes,
     dailyQuizUsedCount = 0,
     quizImages,
     setQuizImages,
@@ -2180,10 +2182,19 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                           type="number"
                           min="1"
                           max="50"
-                          value={quizQuestionCount}
+                          value={quizQuestionCount === 0 ? '' : quizQuestionCount}
                           onChange={(e) => {
+                            if (e.target.value === '') {
+                              setQuizQuestionCount(0);
+                              return;
+                            }
                             const val = parseInt(e.target.value, 10);
-                            if (!isNaN(val) && val > 0 && val <= 50) setQuizQuestionCount(val);
+                            if (!isNaN(val)) {
+                              setQuizQuestionCount(Math.min(50, Math.max(1, val)));
+                            }
+                          }}
+                          onBlur={() => {
+                            if (!quizQuestionCount || quizQuestionCount < 1) setQuizQuestionCount(10);
                           }}
                           className="w-20 px-3 py-1.5 rounded-xl bg-[#1D1636] border border-purple-500/30 text-white text-xs font-bold outline-none focus:border-purple-400"
                         />
@@ -2225,11 +2236,19 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                     </div>
                   </div>
 
-                  {/* Answer Type Selector (Single Choice Radio behavior) */}
+                  {/* Answer Type Selector (Multi-select enabled for Premium users) */}
                   <div className="space-y-2">
-                    <p className={`text-sm font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
-                      Answer Type
-                    </p>
+                    <div className="flex items-center justify-between">
+                      <p className={`text-sm font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                        Answer Type
+                      </p>
+                      {!(isPremium || currentUserData?.role === 'admin' || currentUserData?.bypassAllPayments) && (
+                        <span className="text-[10px] font-bold text-white/40">
+                          (Upgrade for Multi-Option Quizzes)
+                        </span>
+                      )}
+                    </div>
+
                     <div className={`rounded-2xl border p-2 space-y-1 ${
                       theme === 'dark'
                         ? 'bg-[#191130] border-purple-500/20'
@@ -2240,14 +2259,43 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                         { key: 'multiple_choice', label: 'Multiple Choice' },
                         { key: 'single_choice', label: 'Single Choice' }
                       ].map(type => {
-                        const isSelected = (quizAnswerType || 'multiple_choice') === type.key;
+                        const currentTypes = Array.isArray(quizAnswerTypes) && quizAnswerTypes.length > 0 
+                          ? quizAnswerTypes 
+                          : [quizAnswerType || 'multiple_choice'];
+                        
+                        const isSelected = currentTypes.includes(type.key);
+
+                        const handleSelectOption = () => {
+                          const userIsPremium = isPremium || currentUserData?.role === 'admin' || currentUserData?.bypassAllPayments;
+
+                          if (userIsPremium) {
+                            let nextTypes: string[];
+                            if (isSelected) {
+                              if (currentTypes.length > 1) {
+                                nextTypes = currentTypes.filter(t => t !== type.key);
+                              } else {
+                                nextTypes = currentTypes; // Keep at least 1 selected
+                              }
+                            } else {
+                              nextTypes = [...currentTypes, type.key];
+                            }
+                            if (setQuizAnswerTypes) setQuizAnswerTypes(nextTypes);
+                            if (setQuizAnswerType) setQuizAnswerType(nextTypes[0] as any);
+                          } else {
+                            if (!isSelected) {
+                              if (setQuizAnswerTypes) setQuizAnswerTypes([type.key]);
+                              if (setQuizAnswerType) setQuizAnswerType(type.key as any);
+                            }
+                          }
+                        };
+
                         return (
                           <div
                             key={type.key}
-                            onClick={() => setQuizAnswerType && setQuizAnswerType(type.key as any)}
+                            onClick={handleSelectOption}
                             className={`flex items-center justify-between p-3.5 rounded-xl cursor-pointer transition-all ${
                               isSelected
-                                ? (theme === 'dark' ? 'bg-purple-900/40' : 'bg-white/80 shadow-xs')
+                                ? (theme === 'dark' ? 'bg-purple-900/40 border border-purple-500/30' : 'bg-white/80 shadow-xs border border-purple-200')
                                 : 'hover:bg-white/40 dark:hover:bg-purple-900/20'
                             }`}
                           >
@@ -2269,7 +2317,12 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
 
                   {/* Action Button */}
                   <button 
-                    onClick={() => generateQuiz(quizTopic, quizQuestionCount, quizDifficulty, true, quizAnswerType)} 
+                    onClick={() => {
+                      const selectedTypes = (Array.isArray(quizAnswerTypes) && quizAnswerTypes.length > 0)
+                        ? quizAnswerTypes 
+                        : [quizAnswerType || 'multiple_choice'];
+                      generateQuiz(quizTopic, quizQuestionCount, quizDifficulty, true, selectedTypes);
+                    }} 
                     disabled={isGeneratingQuiz} 
                     className="w-full bg-[#7E22CE] hover:bg-[#6B21A8] text-white font-black py-4 rounded-2xl text-base shadow-xl shadow-purple-600/30 transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer active:scale-98"
                   >
@@ -2521,7 +2574,6 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                               <button
                                 key={optIdx}
                                 onClick={() => {
-                                  if (userQuizAnswers[qIdx] !== undefined) return;
                                   if (handleOptionSelect) {
                                     handleOptionSelect(optIdx, qIdx);
                                   } else if (setUserQuizAnswers) {
@@ -2535,7 +2587,6 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                                   setSelectedOption(optIdx);
                                   setIsAnswered(true);
                                 }}
-                                disabled={hasAnswered}
                                 className={`w-full text-left p-3.5 sm:p-4 rounded-2xl border transition-all flex items-center gap-3 cursor-pointer ${optStyle}`}
                               >
                                 <span className={`w-7 h-7 rounded-xl flex items-center justify-center text-xs font-black border shrink-0 transition-all ${badgeStyle}`}>
@@ -2696,7 +2747,14 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                         {correctCount} of {quizQuestions.length} correct ({Math.round((correctCount / quizQuestions.length) * 100)}%)
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        onClick={shareQuiz}
+                        className="px-4 py-2 rounded-xl bg-[#DC2626] hover:bg-[#DC2626]/90 text-white text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-md flex items-center gap-1.5"
+                      >
+                        <Share2 size={14} />
+                        <span>Share Results</span>
+                      </button>
                       <button
                         onClick={() => {
                           if (props.setUserQuizAnswers) props.setUserQuizAnswers([]);
@@ -2717,6 +2775,26 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                     </div>
                   </div>
                 </div>
+
+                {/* INCORRECT REVIEW CONTAINER SHARE BAR */}
+                {resultFilter === 'incorrect' && (
+                  <div className="p-4 rounded-2xl bg-red-950/40 border border-red-500/30 flex items-center justify-between gap-3 shadow-lg">
+                    <div className="space-y-0.5 text-left">
+                      <p className="text-xs font-black text-red-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <AlertTriangle size={14} className="text-red-400" />
+                        <span>Incorrect Questions ({incorrectCount})</span>
+                      </p>
+                      <p className="text-[10px] text-white/60">Review your incorrect choices or export your performance breakdown.</p>
+                    </div>
+                    <button
+                      onClick={shareQuiz}
+                      className="px-4 py-2 bg-[#DC2626] hover:bg-[#DC2626]/90 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-lg flex items-center gap-1.5 shrink-0 cursor-pointer active:scale-95 transition-all"
+                    >
+                      <Share2 size={14} />
+                      <span>Share Results</span>
+                    </button>
+                  </div>
+                )}
 
                 {/* DETAILED QUESTION BREAKDOWN CARDS */}
                 <div className="space-y-4">
