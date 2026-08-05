@@ -237,6 +237,7 @@ export const PremiumPage: React.FC<PremiumPageProps> = ({
               >
                 <div className="space-y-2.5 pt-3 text-left">
                   {[
+                    { title: "Multi-Option Quiz Selection", desc: "Combine True/False, Single Choice, and Multiple Choice questions into a single quiz, or select any combination." },
                     { title: "Generate Up to 50 Questions per Quiz", desc: "Unlock 50-question comprehensive mock quizzes (free users limited to 20 questions)." },
                     { title: "Unlimited Quizzes per Day", desc: "Generate unlimited AI quizzes daily (free users limited to 3 quizzes per day)." },
                     { title: "Transcribe Lecture Audios", desc: "Transcribe uploaded lecture audios with instant AI summaries & key notes." },
