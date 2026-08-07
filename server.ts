@@ -337,33 +337,89 @@ async function downloadWhatsAppMedia(mediaId: string): Promise<Buffer> {
   return Buffer.from(mediaR.data);
 }
 
+// Paystack Initialize endpoint (Initiated from UI client-side or fallback redirect)
+app.post("/api/initialize-paystack-transaction", async (req, res) => {
+  const { uid, email, plan } = req.body;
+  const secretKey = process.env.PAYSTACK_SECRET_KEY || "sk_test_14a5b8ee0a06e063a8b0e46fc7e0e76ed66f2746";
+  const amount = plan === 'yearly' ? 3500 * 100 : 300 * 100; // ₦3,500 or ₦300
+
+  try {
+    const response = await axios.post(
+      "https://api.paystack.co/transaction/initialize",
+      {
+        email: email || "student@nsg.com",
+        amount: amount,
+        reference: `nsg_${plan || 'monthly'}_${uid || 'anon'}_${Date.now()}`,
+        metadata: {
+          userId: uid,
+          uid: uid,
+          email: email,
+          plan: plan || 'monthly'
+        }
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${secretKey}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    if (response.data?.status) {
+      return res.json({
+        status: "success",
+        authorization_url: response.data.data.authorization_url,
+        access_code: response.data.data.access_code,
+        reference: response.data.data.reference
+      });
+    } else {
+      return res.status(400).json({ error: "Failed to initialize Paystack transaction" });
+    }
+  } catch (error: any) {
+    console.error("Paystack initialize error:", error?.response?.data || error.message);
+    return res.status(500).json({ error: error?.response?.data?.message || "Failed to initialize payment" });
+  }
+});
+
 // Paystack verification endpoint (Initiated from UI client-side)
 app.post("/api/verify-payment", async (req, res) => {
   const { reference, uid, plan } = req.body;
-  const secretKey = process.env.PAYSTACK_SECRET_KEY;
-  if (!secretKey) return res.status(500).json({ error: "Paystack secret key not configured" });
+  const secretKey = process.env.PAYSTACK_SECRET_KEY || "sk_test_14a5b8ee0a06e063a8b0e46fc7e0e76ed66f2746";
+  if (!reference) return res.status(400).json({ error: "Reference required" });
+
   try {
     const response = await axios.get(`https://api.paystack.co/transaction/verify/${reference}`, {
       headers: { Authorization: `Bearer ${secretKey}` }
     });
-    if (response.data.data.status === "success") {
-      const duration = plan === 'monthly' ? 30 : 365;
-      const newUntil = new Date();
-      newUntil.setDate(newUntil.getDate() + duration);
+    if (response.data?.data?.status === "success") {
+      const selectedPlan = plan || response.data?.data?.metadata?.plan || (response.data?.data?.amount >= 100000 ? 'yearly' : 'monthly');
+      const durationSeconds = selectedPlan === 'monthly' ? 2592000 : 31536000;
+      const newUntil = new Date(Date.now() + durationSeconds * 1000);
       
-      // Update DB server side gracefully
-      try {
-        await db.collection('users').doc(uid).update({ 
-          isPremium: true,
-          premiumUntil: admin.firestore.Timestamp.fromDate(newUntil) 
-        });
-      } catch (dbErr: any) {
-        console.warn("⚠️ Server-side update of premium status failed (likely due to missing credentials in sandbox dev; handled gracefully since client-side update compensates):", dbErr.message);
+      const targetUid = uid || response.data?.data?.metadata?.userId || response.data?.data?.metadata?.uid;
+
+      if (targetUid && db) {
+        try {
+          await db.collection('users').doc(targetUid).update({ 
+            isPremium: true,
+            subscribed: true,
+            plan: selectedPlan,
+            premiumUntil: newUntil.toISOString()
+          });
+          console.log(`✅ Verified payment for user ${targetUid}: Premium activated until ${newUntil.toISOString()}`);
+        } catch (dbErr: any) {
+          console.warn("⚠️ Server-side update of premium status error:", dbErr.message);
+        }
       }
       
-      res.json({ status: "success", premiumUntil: newUntil.toISOString() });
-    } else { res.json({ status: "failed" }); }
-  } catch (error) { res.status(500).json({ error: "Verification failed" }); }
+      res.json({ status: "success", premiumUntil: newUntil.toISOString(), plan: selectedPlan });
+    } else { 
+      res.json({ status: "failed", message: response.data?.data?.gateway_response || "Payment pending or failed" }); 
+    }
+  } catch (error: any) { 
+    console.error("Verification endpoint error:", error?.response?.data || error.message);
+    res.status(500).json({ error: "Verification failed" }); 
+  }
 });
 
 // --- 1. WHATSAPP ACCOUNT LINKING & OTP SYSTEM ---
@@ -1441,8 +1497,80 @@ app.post("/api/admin/broadcast-list", async (req, res) => {
   }
 });
 
+// --- 4. RESET ALL USERS TO NON-PREMIUM EXCEPT OWNER nuellkelechi@gmail.com ---
+async function resetUserAccountsExceptOwner() {
+  try {
+    const ownerEmail = "nuellkelechi@gmail.com";
+    console.log(`🔄 Running account reset process (preserving owner: ${ownerEmail})...`);
+
+    if (!db) {
+      console.warn("⚠️ Firestore DB instance not available for account reset.");
+      return;
+    }
+
+    let usersSnap;
+    try {
+      usersSnap = await db.collection("users").get();
+    } catch (fetchErr: any) {
+      console.warn("⚠️ Could not fetch users collection for reset (using client-side rules or missing service credentials):", fetchErr.message);
+      return;
+    }
+
+    let resetCount = 0;
+
+    for (const docSnap of usersSnap.docs) {
+      try {
+        const data = docSnap.data();
+        const userEmail = (data.email || "").toLowerCase().trim();
+
+        if (userEmail === ownerEmail) {
+          await docSnap.ref.update({
+            isPremium: true,
+            role: 'admin',
+            bypassAllPayments: true,
+            bypassTakingPayment: true,
+            bypassHostingPayment: true,
+            premiumUntil: "2099-12-31T23:59:59.000Z"
+          });
+          console.log(`👑 Main owner account (${ownerEmail}) secured as Premium/Admin.`);
+        } else {
+          // Unconditionally reset ALL non-owner accounts to non-premium free tier
+          await docSnap.ref.update({
+            isPremium: false,
+            subscribed: false,
+            role: 'student',
+            bypassAllPayments: false,
+            bypassTakingPayment: false,
+            bypassHostingPayment: false,
+            premiumUntil: null
+          });
+          resetCount++;
+        }
+      } catch (docErr: any) {
+        console.warn(`⚠️ Could not update user doc ${docSnap.id}:`, docErr.message);
+      }
+    }
+
+    console.log(`✅ Reset complete: ${resetCount} user account(s) set to Non-Premium Free Tier (Owner ${ownerEmail} preserved).`);
+  } catch (err: any) {
+    console.warn("⚠️ Handled error in resetUserAccountsExceptOwner:", err.message);
+  }
+}
+
+app.post("/api/admin/reset-non-owners", async (req, res) => {
+  try {
+    await resetUserAccountsExceptOwner();
+    res.json({ success: true, message: "All non-owner accounts reset to non-premium free tier." });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 async function startServer() {
   const PORT = 3000;
+
+  // Run initial reset process to enforce non-premium status for non-owners
+  resetUserAccountsExceptOwner().catch(err => console.error("Initial account reset error:", err));
 
   // Vite middleware or static serving
   if (process.env.NODE_ENV !== "production") {
