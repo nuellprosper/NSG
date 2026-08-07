@@ -23,36 +23,41 @@ export const PremiumPage: React.FC<PremiumPageProps> = ({
 }) => {
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>('monthly');
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(false);
 
-  const handleActivate = () => {
-    if (selectedPlan === 'monthly' && initializeMonthly) {
-      initializeMonthly({
-        onSuccess: (response: any) => {
-          if (handleSubscriptionSuccess) {
-            handleSubscriptionSuccess('monthly', response.reference);
-          } else {
-            setIsPremium(true);
-            setUserNotification('🎉 Premium Plan Activated! Enjoy unlimited access to all NSG features.');
-          }
-        },
-        onClose: () => setUserNotification("Payment cancelled.")
-      });
-    } else if (selectedPlan === 'yearly' && initializeYearly) {
-      initializeYearly({
-        onSuccess: (response: any) => {
-          if (handleSubscriptionSuccess) {
-            handleSubscriptionSuccess('yearly', response.reference);
-          } else {
-            setIsPremium(true);
-            setUserNotification('🎉 Premium Plan Activated! Enjoy unlimited access to all NSG features.');
-          }
-        },
-        onClose: () => setUserNotification("Payment cancelled.")
-      });
-    } else {
-      setIsPremium(true);
-      setUserNotification('🎉 Premium Plan Activated! Enjoy unlimited access to all NSG features.');
-      onClose();
+  const handleActivate = async () => {
+    setIsInitializing(true);
+    setUserNotification("Connecting to Paystack gateway...");
+
+    try {
+      if (selectedPlan === 'monthly' && typeof initializeMonthly === 'function') {
+        initializeMonthly({});
+        setIsInitializing(false);
+      } else if (selectedPlan === 'yearly' && typeof initializeYearly === 'function') {
+        initializeYearly({});
+        setIsInitializing(false);
+      } else {
+        // Fallback: Initialize server-side Paystack checkout transaction
+        const res = await fetch('/api/initialize-paystack-transaction', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ plan: selectedPlan })
+        });
+        const data = await res.json();
+        setIsInitializing(false);
+
+        if (data.authorization_url) {
+          localStorage.setItem('nsg_pending_payment_ref', data.reference);
+          localStorage.setItem('nsg_pending_payment_plan', selectedPlan);
+          window.location.href = data.authorization_url;
+        } else {
+          setUserNotification("Unable to connect to Paystack. Please try again.");
+        }
+      }
+    } catch (err: any) {
+      console.error("Paystack initialization error:", err);
+      setIsInitializing(false);
+      setUserNotification("Error connecting to Paystack gateway. Please try again.");
     }
   };
 

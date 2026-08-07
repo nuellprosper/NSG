@@ -26,7 +26,7 @@ export class ErrorBoundary extends Component<Props, State> {
       if (typeof window !== 'undefined' && window.localStorage) {
         localStorage.removeItem('nsg_current_quiz_progress');
         localStorage.removeItem('nsg_tools_subtab');
-        localStorage.setItem('nsg_active_tab', 'home');
+        localStorage.removeItem('nsg_active_tab');
       }
     } catch (e) {
       console.error("Failed to auto-clean storage on error:", e);
@@ -38,7 +38,7 @@ export class ErrorBoundary extends Component<Props, State> {
       if (typeof window !== 'undefined' && window.localStorage) {
         localStorage.removeItem('nsg_current_quiz_progress');
         localStorage.removeItem('nsg_tools_subtab');
-        localStorage.setItem('nsg_active_tab', 'home');
+        localStorage.removeItem('nsg_active_tab');
       }
     } catch (e) {}
     if (typeof window !== 'undefined') {
