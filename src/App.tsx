@@ -258,9 +258,42 @@ export default function App() {
 
   // --- \u{1F4F1} APP STATE ---
   const [isChatRoomActive, setIsChatRoomActive] = useState(false);
-  const [activeTab, setActiveTab] = useState<'home' | 'ai' | 'tools' | 'profile' | 'notifications' | 'exam' | 'chat' | 'class' | 'community' | 'quiz_history' | 'exam_history' | 'notes_history' | 'general_history' | 'premium'>(() => {
-    return (safeStorage.getItem('nsg_active_tab') as any) || 'home';
-  });
+  const [activeTab, setActiveTab] = useState<'home' | 'ai' | 'tools' | 'profile' | 'notifications' | 'exam' | 'chat' | 'class' | 'community' | 'quiz_history' | 'exam_history' | 'notes_history' | 'general_history' | 'premium'>('home');
+  const [nowTime, setNowTime] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNowTime(Date.now()), 10000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const getPremiumDaysInfo = () => {
+    const isOwner = user?.email?.toLowerCase().trim() === 'nuellkelechi@gmail.com';
+    if (isOwner) return { isOwner: true, days: 9999, text: 'Lifetime Owner Access' };
+    
+    if (!currentUserData?.premiumUntil) return null;
+    
+    let untilTime: number;
+    if (typeof (currentUserData.premiumUntil as any)?.toDate === 'function') {
+      untilTime = (currentUserData.premiumUntil as any).toDate().getTime();
+    } else {
+      untilTime = new Date(currentUserData.premiumUntil).getTime();
+    }
+    
+    if (isNaN(untilTime)) return null;
+    
+    const diffMs = untilTime - nowTime;
+    if (diffMs <= 0) return { expired: true, days: 0, text: 'Premium Expired' };
+    
+    const diffSecs = Math.floor(diffMs / 1000);
+    const days = Math.ceil(diffSecs / 86400);
+    
+    return {
+      expired: false,
+      days,
+      diffSecs,
+      text: `Premium expires in ${days} ${days === 1 ? 'day' : 'days'}`
+    };
+  };
 
   const [communitySubTab, setCommunitySubTab] = useState<'quests' | 'rankings'>('quests');
   const [totalUnreadMessages, setTotalUnreadMessages] = useState(0);
@@ -363,8 +396,8 @@ export default function App() {
   const [isHost, setIsHost] = useState(false);
   
   useEffect(() => {
-    safeStorage.setItem('nsg_active_tab', activeTab);
-  }, [activeTab]);
+    safeStorage.removeItem('nsg_active_tab');
+  }, []);
 
   const [toolsSubTab, setToolsSubTab] = useState<'menu' | 'record' | 'quiz' | 'exam' | 'faculty' | 'assignment' | 'courses' | 'notebook'>(() => {
     const stored = safeStorage.getItem('nsg_tools_subtab');
@@ -616,17 +649,27 @@ export default function App() {
     const usageRef = doc(db, 'users', user.uid, 'usage', today);
     const usageSnap = await getDoc(usageRef);
     
-    const limits = isPremium ? LIMITS[type].PREMIUM : LIMITS[type].NORMAL;
+    const isOwner = user?.email?.toLowerCase().trim() === 'nuellkelechi@gmail.com';
+    const userIsPremium = isPremium || isOwner;
+    const limits = userIsPremium ? LIMITS[type].PREMIUM : LIMITS[type].NORMAL;
     const currentCount = usageSnap.exists() ? (usageSnap.data()[type] || 0) : 0;
 
-    if (currentCount >= (limits as any).DAILY) {
-      const displayType = type === 'QUIZ' ? 'Quiz Engine' : type;
+    if (!userIsPremium && currentCount >= (limits as any).DAILY) {
+      if ((type as string) === 'QUIZ') {
+        setUserNotification("subscribe for premium to panswer quiz");
+        setActiveTab('premium');
+        return false;
+      }
+      const displayType = (type as string) === 'QUIZ' ? 'Quiz Engine' : type;
       setUserNotification(`Daily limit reached for ${displayType} (${(limits as any).DAILY} per day). Everyday is a new day! Your limits reset at local midnight on ${today}.`);
       return false;
     }
 
     try {
       await setDoc(usageRef, { [type]: currentCount + 1 }, { merge: true });
+      if ((type as string) === 'QUIZ') {
+        setDailyQuizUsedCount(currentCount + 1);
+      }
       return true;
     } catch (e) {
       handleFirestoreError(e, FirestoreOperation.WRITE, usageRef.path);
@@ -1092,40 +1135,39 @@ export default function App() {
   const [showAIChallengeModal, setShowAIChallengeModal] = useState(false);
 
   // --- \u{1F451} GOD MODE LOGIC ---
+  // --- 👑 GOD MODE & PREMIUM EFFECT ---
   useEffect(() => {
+    const isOwner = user?.email?.toLowerCase().trim() === 'nuellkelechi@gmail.com';
+    
+    if (isOwner) {
+      setIsPremium(true);
+      setIsAdminUser(true);
+      setIsTakingPaid(true);
+      setIsHostPaid(true);
+      setPremiumTimeLeft("OWNER ACCESS");
+      return;
+    }
+
     if (currentUserData) {
-      const isCurrentlySubscribed = currentUserData.premiumUntil ? new Date(currentUserData.premiumUntil).getTime() > new Date().getTime() : false;
-      const isGod = currentUserData.bypassAllPayments || currentUserData.bypassTakingPayment || currentUserData.bypassHostingPayment;
-      const effectivePremium = currentUserData.isPremium || currentUserData.role === 'admin' || currentUserData.bypassAllPayments || isCurrentlySubscribed || currentUserData.subscribed === true || isGod;
+      const isCurrentlySubscribed = currentUserData.premiumUntil 
+        ? new Date(currentUserData.premiumUntil).getTime() > Date.now() 
+        : false;
+      const isExplicitGodBypass = currentUserData.bypassAllPayments === true;
+      const effectivePremium = (currentUserData.isPremium === true && isCurrentlySubscribed) || isExplicitGodBypass;
 
-      if (effectivePremium || currentUserData.bypassTakingPayment) {
-        setIsTakingPaid(true);
-      } else {
-        setIsTakingPaid(false);
-      }
-      
-      if (effectivePremium || currentUserData.bypassHostingPayment) {
-        setIsHostPaid(true);
-      } else {
-        setIsHostPaid(false);
-      }
+      setIsTakingPaid(effectivePremium || currentUserData.bypassTakingPayment === true);
+      setIsHostPaid(effectivePremium || currentUserData.bypassHostingPayment === true);
 
-      // Premium logic
       if (effectivePremium) {
         setIsPremium(true);
-        if (currentUserData.bypassAllPayments || isGod) {
+        if (isExplicitGodBypass) {
           setPremiumTimeLeft("GOD MODE ACTIVE");
-        } else if (currentUserData.role === 'admin') {
-          setPremiumTimeLeft("ADMIN ACCESS");
-        } else if (currentUserData.subscribed === true && !currentUserData.premiumUntil) {
-           setPremiumTimeLeft("ACTIVE");
         } else if (currentUserData.premiumUntil) {
           const until = new Date(currentUserData.premiumUntil).getTime();
           const updateTimer = () => {
-            const diff = until - new Date().getTime();
+            const diff = until - Date.now();
             if (diff <= 0) {
-              // Only clear if other premium flags are false
-              if (!(currentUserData.isPremium || currentUserData.role === 'admin' || currentUserData.bypassAllPayments || currentUserData.subscribed === true || isGod)) {
+              if (!isExplicitGodBypass) {
                 setIsPremium(false);
                 setPremiumTimeLeft("");
               }
@@ -1152,10 +1194,10 @@ export default function App() {
       setIsPremium(false);
       setPremiumTimeLeft("");
     }
-  }, [currentUserData]);
+  }, [currentUserData, user]);
 
   useEffect(() => {
-    if (showGodMode && (user?.email === "nuellkelechi@gmail.com" || isAdminUser || currentUserData?.role === 'admin')) {
+    if (showGodMode && (user?.email?.toLowerCase().trim() === "nuellkelechi@gmail.com" || isAdminUser)) {
       const unsubscribe = onSnapshot(query(collection(db, 'users'), limit(250)), (snapshot) => {
         const usersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         usersList.sort((a: any, b: any) => {
@@ -4092,9 +4134,8 @@ export default function App() {
   // --- \u{1F4B3} PAYSTACK INTEGRATION ---
   const handleSubscriptionSuccess = async (plan: 'monthly' | 'yearly', reference?: string) => {
     if (!user) return;
-    const duration = plan === 'monthly' ? 30 : 365;
-    const newUntil = new Date();
-    newUntil.setDate(newUntil.getDate() + duration);
+    const durationSeconds = plan === 'monthly' ? 2592000 : 31536000;
+    const newUntil = new Date(Date.now() + durationSeconds * 1000);
     
     if (reference) {
       localStorage.setItem('nsg_pending_payment_ref', reference);
@@ -4123,7 +4164,7 @@ export default function App() {
         }
       }
 
-      setUserNotification(`Subscription successful! Premium active until ${newUntil.toLocaleDateString()}`);
+      setUserNotification("premium subscription successful");
       setShowPremiumModal(false);
 
       // Send Thank You Email
@@ -4145,26 +4186,40 @@ export default function App() {
     }
   };
 
-  const configMonthly = {
-    reference: (new Date()).getTime().toString(),
-    email: user?.email || "user@example.com",
+  const configMonthly: any = {
+    reference: `nsg_m_${user?.uid || 'guest'}_${Date.now()}`,
+    email: user?.email || "student@nsg.com",
     amount: 300 * 100, // 300 Naira
     publicKey: PAYSTACK_PUBLIC_KEY,
+    metadata: {
+      custom_fields: [],
+      userId: user?.uid,
+      uid: user?.uid,
+      email: user?.email,
+      plan: 'monthly'
+    },
     onSuccess: (response: any) => {
       handleSubscriptionSuccess('monthly', response.reference);
     },
-    onClose: () => setUserNotification("Payment cancelled.")
+    onClose: () => setUserNotification("premium subscription cancels")
   };
 
-  const configYearly = {
-    reference: (new Date()).getTime().toString(),
-    email: user?.email || "user@example.com",
-    amount: 3600 * 100, // 3600 Naira
+  const configYearly: any = {
+    reference: `nsg_y_${user?.uid || 'guest'}_${Date.now()}`,
+    email: user?.email || "student@nsg.com",
+    amount: 3500 * 100, // 3500 Naira
     publicKey: PAYSTACK_PUBLIC_KEY,
+    metadata: {
+      custom_fields: [],
+      userId: user?.uid,
+      uid: user?.uid,
+      email: user?.email,
+      plan: 'yearly'
+    },
     onSuccess: (response: any) => {
       handleSubscriptionSuccess('yearly', response.reference);
     },
-    onClose: () => setUserNotification("Payment cancelled.")
+    onClose: () => setUserNotification("premium subscription cancels")
   };
 
   const initializeMonthly = usePaystackPayment(configMonthly);
@@ -4253,7 +4308,7 @@ export default function App() {
           const data = await response.json();
           
           if (data.status === 'success') {
-            setUserNotification(`Payment confirmed! Premium active.`);
+            setUserNotification("premium subscription successful");
             const duration = plan === 'monthly' ? 30 : 365;
             const newUntilDate = new Date();
             newUntilDate.setDate(newUntilDate.getDate() + duration);
@@ -4330,13 +4385,19 @@ export default function App() {
               }).catch((e) => console.error("Error migrating user points:", e));
             }
             
-            setIsAdminUser(data.role === 'admin' || currentUser.email === "nuellkelechi@gmail.com");
+            const isOwner = currentUser.email?.toLowerCase().trim() === "nuellkelechi@gmail.com";
+            setIsAdminUser(isOwner);
             
             const premiumUntilDate = data.premiumUntil ? new Date(data.premiumUntil) : null;
-            const isCurrentlySubscribed = premiumUntilDate ? premiumUntilDate > new Date() : false;
-            const userIsPremium = data.isPremium || data.bypassAllPayments || data.role === 'admin' || isCurrentlySubscribed || data.subscribed === true;
+            const isCurrentlySubscribed = (premiumUntilDate && !isNaN(premiumUntilDate.getTime())) ? (premiumUntilDate.getTime() > Date.now()) : false;
+            const isExplicitGodBypass = data.bypassAllPayments === true;
+            const userIsPremium = isOwner || ((data.isPremium === true || data.subscribed === true) && isCurrentlySubscribed) || isExplicitGodBypass;
             setIsPremium(userIsPremium);
             
+            if (!isOwner && !isCurrentlySubscribed && !isExplicitGodBypass && (data.isPremium || data.subscribed || data.role === 'admin' || data.bypassTakingPayment || data.bypassHostingPayment)) {
+              fetch('/api/admin/reset-non-owners', { method: 'POST' }).catch((e) => console.error("Error triggering server reset for non-owners:", e));
+            }
+
             if (userIsPremium) {
               setShowPremiumTrial(false);
               setShowPremiumModal(false);
@@ -6567,7 +6628,8 @@ export default function App() {
       return;
     }
 
-    if (isPremium || currentUserData?.role === 'admin' || currentUserData?.bypassHostingPayment) {
+    const isOwner = user?.email?.toLowerCase().trim() === "nuellkelechi@gmail.com";
+    if (isPremium || isOwner || currentUserData?.bypassHostingPayment) {
       handleHostPaymentSuccess({ reference: 'BYPASS' });
     } else {
       initializePayment({ 
@@ -6833,7 +6895,7 @@ export default function App() {
   const paystackConfig = {
     reference: (new Date()).getTime().toString(),
     email: user?.email || (matricNumber ? `${matricNumber}@nsg.com` : "nuellkelechi@gmail.com"),
-    amount: ((isPremium || currentUserData?.role === 'admin' || currentUserData?.bypassAllPayments) ? 0 : (adminMode ? 200 : 100)) * 100, // 0 for premium, 200 for hosting, 100 for taking
+    amount: ((isPremium || (user?.email?.toLowerCase().trim() === "nuellkelechi@gmail.com") || currentUserData?.bypassAllPayments) ? 0 : (adminMode ? 200 : 100)) * 100, // 0 for premium, 200 for hosting, 100 for taking
     publicKey: PAYSTACK_PUBLIC_KEY,
     onSuccess: handleExamPaymentSuccess,
     onClose: handlePaystackClose
@@ -8767,6 +8829,42 @@ ${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\nopt
   // --- 📝 QUIZ LOGIC ---
   const loadSharedQuiz = async (rawQuizId: string) => {
     if (!rawQuizId) return;
+
+    if (!user) {
+      setPendingQuizId(rawQuizId);
+      sessionStorage.setItem('nsg_pending_quiz_id', rawQuizId);
+      setShowAuthModal(true);
+      return;
+    }
+
+    const isOwner = user?.email?.toLowerCase().trim() === 'nuellkelechi@gmail.com';
+    const userIsPremium = isPremium || isOwner;
+
+    if (!userIsPremium) {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const today = `${year}-${month}-${day}`;
+      const usageRef = doc(db, 'users', user.uid, 'usage', today);
+      let currentCount = dailyQuizUsedCount;
+      try {
+        const usageSnap = await getDoc(usageRef);
+        if (usageSnap.exists()) {
+          currentCount = usageSnap.data().QUIZ || 0;
+        }
+      } catch (e) {
+        console.error("Error checking quiz usage:", e);
+      }
+
+      if (currentCount >= 7) {
+        setIsLinkQuizLoading(false);
+        setUserNotification("subscribe for premium to panswer quiz");
+        setActiveTab('premium');
+        return;
+      }
+    }
+
     setIsLinkQuizLoading(true);
 
     const cleanInputId = decodeURIComponent(rawQuizId).trim();
@@ -9482,6 +9580,15 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
     if (!user) {
       setShowAuthModal(true);
       return { success: false, error: "User authentication required." };
+    }
+
+    const isOwner = user?.email?.toLowerCase().trim() === 'nuellkelechi@gmail.com';
+    const userIsPremium = isPremium || isOwner;
+
+    if (!userIsPremium && dailyQuizUsedCount >= 7) {
+      setUserNotification("subscribe for premium to panswer quiz");
+      setActiveTab('premium');
+      return { success: false, error: "Quiz limit reached (7/7)." };
     }
 
     const activeTopic = (realTopic !== undefined ? realTopic : quizTopic) || (importedQuizNote ? importedQuizNote.title : "") || "General Knowledge Assessment";
@@ -11299,13 +11406,21 @@ Ensure these selected question types are distributed throughout the quiz questio
                 <div className="p-5 sm:p-6 rounded-[2rem] bg-gradient-to-r from-[#5B1366] via-[#3B0764] to-[#1E1B2E] border border-purple-500/30 text-white shadow-xl relative overflow-hidden flex items-center justify-between group">
                   <div className="absolute top-0 right-1/3 w-32 h-32 bg-purple-500/10 blur-3xl rounded-full pointer-events-none" />
                   
-                  <div className="space-y-1.5 z-10 max-w-[70%] text-left">
+                  <div className="space-y-1.5 z-10 max-w-[75%] text-left">
                     <p className="text-xs text-purple-200/80 font-medium tracking-wide">
                       All in One Space...
                     </p>
-                    <p className="text-xs font-bold text-purple-100/90 uppercase tracking-wider">
-                      My Academic Overview
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-xs font-bold text-purple-100/90 uppercase tracking-wider">
+                        My Academic Overview
+                      </p>
+                      {isPremium && (
+                        <span className="inline-flex items-center gap-1.5 bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border border-amber-400/40 text-amber-300 font-black text-[10px] px-2.5 py-0.5 rounded-full shadow-sm">
+                          <Zap size={11} className="text-amber-400 animate-pulse shrink-0" />
+                          {getPremiumDaysInfo()?.text || 'Premium Active'}
+                        </span>
+                      )}
+                    </div>
                     <div className="pt-1">
                       <div className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight flex items-baseline gap-2">
                         <span>{finishedHistory.filter(h => h.type === 'quiz').length || 0}</span>
@@ -11500,6 +11615,9 @@ Ensure these selected question types are distributed throughout the quiz questio
               onClose={() => setActiveTab('home')}
               setUserNotification={setUserNotification}
               setIsPremium={setIsPremium}
+              initializeMonthly={initializeMonthly}
+              initializeYearly={initializeYearly}
+              handleSubscriptionSuccess={handleSubscriptionSuccess}
             />
           )}
 
@@ -13697,7 +13815,7 @@ Ensure these selected question types are distributed throughout the quiz questio
                       onClick={createNewExam} 
                       className="w-full bg-[#DC2626] text-white font-black py-4 rounded-2xl text-xs shadow-xl hover:bg-[#DC2626]/90 transition-all uppercase tracking-widest"
                     >
-                      {isPremium || currentUserData?.role === 'admin' || currentUserData?.bypassHostingPayment ? "START EXAM HOSTING" : "PAY \u{20A6}200 TO START"}
+                      {isPremium || (user?.email?.toLowerCase().trim() === "nuellkelechi@gmail.com") || currentUserData?.bypassHostingPayment ? "START EXAM HOSTING" : "PAY \u{20A6}200 TO START"}
                     </button>
                   </div>
                 ) : (

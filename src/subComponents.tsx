@@ -7,7 +7,7 @@ import {
   Database, Zap, Cpu, CheckCircle2, XCircle, RefreshCcw, ArrowLeft, FileText, AlertCircle, RotateCcw,
   Sun, Moon, ArrowDown, PlusCircle, Copy, User, Users, Clock, Lock, Shield, ShieldCheck, AlertTriangle, FileDown, LayoutDashboard, ListChecks, Bell, GraduationCap, LayoutGrid, Home,
   Pin, Edit3, Share2, Trophy, LogOut, Plus, Menu, Camera, Monitor, X, Activity, MessageSquare, BookOpen, Calendar, Send, Save, MicOff, Video, AtSign,
-  Search, Check, Info, Volume2, Square, Mail, ArrowRight, BoxSelect, Globe, MapPin
+  Search, Check, Info, Volume2, Square, Mail, ArrowRight, BoxSelect, Globe, MapPin, Calculator, Scan, Delete, CornerDownLeft
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cleanTextForSpeech } from './lib/tts';
@@ -739,8 +739,11 @@ export interface AssignmentSolution {
 }
 
 export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, fileToGenerativePart, setUserNotification, setChatHistory, setActiveTab, setActiveChatSessionId, addToFinishedHistory, finishedHistory, solution, setSolution, checkAndIncrementUsage, generateQuiz, setToolsSubTab }: any) => {
+  const [solveMethod, setSolveMethod] = useState<'text' | 'scan' | 'upload' | 'calculator' | null>(null);
   const [images, setImages] = useState<MediaFile[]>([]);
   const [assignmentText, setAssignmentText] = useState("");
+  const [calcInput, setCalcInput] = useState("");
+  const [calcCategory, setCalcCategory] = useState<'basic' | 'fx' | 'trig' | 'calculus'>('basic');
   const [isSolving, setIsSolving] = useState(false);
   const [userWorkings, setUserWorkings] = useState<{
     [stepIdx: number]: {
@@ -1293,96 +1296,583 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, fileTo
   };
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto px-4 pb-20">
-      <div className={`p-10 rounded-[2.5rem] border ${theme === 'dark' ? 'bg-[#13111C] border-white/10' : 'bg-white border-slate-200'} shadow-sm text-center relative overflow-hidden`}>
-        <div className="absolute top-0 right-0 p-4">
-          {images.length > 0 && (
-            <button onClick={clearAll} className="p-2 text-slate-400 hover:text-red-500 transition-colors">
-              <Trash2 size={16} />
-            </button>
-          )}
-        </div>
+    <div className="space-y-6 max-w-4xl mx-auto px-1 sm:px-4 pb-20">
+      {/* LANDING PAGE WHEN NO METHOD SELECTED AND NO SOLUTION */}
+      {!solution && solveMethod === null && (
+        <div className="min-h-[480px] flex flex-col justify-between pt-6 sm:pt-14 pb-4">
+          <div className="flex-1" />
 
-        <div className="w-16 h-16 bg-[#DC2626]/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
-          <BookOpen size={32} className="text-[#DC2626]" />
-        </div>
-        <h2 className={`text-2xl font-black uppercase tracking-tighter ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Assignment Solver</h2>
-        
-        {finishedHistory.filter(i => i.type === 'assignment').length > 0 && (
-          <div className="mb-6 -mx-2">
-            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#DC2626] mb-3 px-2">Recently Solved</p>
-            <div className="flex gap-3 overflow-x-auto pb-2 px-2 no-scrollbar">
-              {finishedHistory.filter(i => i.type === 'assignment').slice(0, 10).map(item => (
-                <button
-                  key={item.id}
-                  onClick={() => setSolution(item.data)}
-                  className="flex-shrink-0 w-32 p-3 rounded-2xl bg-white/5 border border-white/10 hover:border-[#DC2626]/40 transition-all text-left group"
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <History size={10} className="text-[#DC2626]" />
-                    <span className="text-[8px] font-black uppercase text-white/40 truncate">{typeof item.date === 'string' ? item.date : (item.date?.toDate ? item.date.toDate().toLocaleDateString() : 'Recent')}</span>
-                  </div>
-                  <p className="text-[10px] font-bold text-white/80 line-clamp-1 group-hover:text-white transition-colors">{item.title}</p>
-                </button>
-              ))}
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <p className={`text-sm font-semibold ${theme === 'dark' ? 'text-purple-300/60' : 'text-slate-500'}`}>
+                Welcome!
+              </p>
+              <h1 className={`text-3xl sm:text-4xl font-extrabold leading-tight tracking-tight ${
+                theme === 'dark' ? 'text-white' : 'text-slate-900'
+              }`}>
+                Let's get started!<br />
+                Pick a way to solve<br />
+                your problem.
+              </h1>
+            </div>
+
+            {/* RECENTLY SOLVED CAROUSEL */}
+            {finishedHistory.filter((i: any) => i.type === 'assignment').length > 0 && (
+              <div className="pt-2">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#DC2626] mb-2">Recently Solved</p>
+                <div className="flex gap-2.5 overflow-x-auto pb-2 no-scrollbar">
+                  {finishedHistory.filter((i: any) => i.type === 'assignment').slice(0, 8).map((item: any) => (
+                    <button
+                      key={item.id}
+                      onClick={() => setSolution(item.data)}
+                      className="flex-shrink-0 px-3 py-2.5 rounded-xl bg-purple-950/40 border border-purple-500/20 hover:border-purple-500/50 transition-all text-left group"
+                    >
+                      <p className="text-xs font-bold text-white/90 line-clamp-1 group-hover:text-purple-300 transition-colors">{item.title}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 4 ACTION BUTTONS MATCHING QUIZ LANDING PAGE */}
+            <div className="space-y-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setSolveMethod('text')}
+                className={`w-full py-4 px-6 rounded-2xl font-bold text-base flex items-center justify-center gap-3 transition-all cursor-pointer border ${
+                  theme === 'dark'
+                    ? 'bg-[#1D1636] border-purple-500/30 text-white hover:bg-[#261E45]'
+                    : 'bg-[#EAE5FE] border-purple-200 text-slate-900 hover:bg-[#E0D8FD] shadow-xs'
+                }`}
+              >
+                <FileText className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                <span>Solve with text questions</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSolveMethod('scan')}
+                className={`w-full py-4 px-6 rounded-2xl font-bold text-base flex items-center justify-center gap-3 transition-all cursor-pointer border ${
+                  theme === 'dark'
+                    ? 'bg-[#1D1636] border-purple-500/30 text-white hover:bg-[#261E45]'
+                    : 'bg-[#EAE5FE] border-purple-200 text-slate-900 hover:bg-[#E0D8FD] shadow-xs'
+                }`}
+              >
+                <Camera className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                <span>Scan to solve</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSolveMethod('upload')}
+                className={`w-full py-4 px-6 rounded-2xl font-bold text-base flex items-center justify-center gap-3 transition-all cursor-pointer border ${
+                  theme === 'dark'
+                    ? 'bg-[#1D1636] border-purple-500/30 text-white hover:bg-[#261E45]'
+                    : 'bg-[#EAE5FE] border-purple-200 text-slate-900 hover:bg-[#E0D8FD] shadow-xs'
+                }`}
+              >
+                <Upload className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                <span>Upload to solve</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSolveMethod('calculator')}
+                className={`w-full py-4 px-6 rounded-2xl font-bold text-base flex items-center justify-center gap-3 transition-all cursor-pointer border ${
+                  theme === 'dark'
+                    ? 'bg-[#1D1636] border-purple-500/30 text-white hover:bg-[#261E45]'
+                    : 'bg-[#EAE5FE] border-purple-200 text-slate-900 hover:bg-[#E0D8FD] shadow-xs'
+                }`}
+              >
+                <Calculator className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                <span>Solve with AI powered calculator</span>
+              </button>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        <p className={`text-xs ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'} mt-1 mb-8`}>Upload up to 5 images for detailed academic solutions.</p>
-
+      {/* SUB-PAGES BASED ON SOLVE METHOD */}
+      {!solution && solveMethod !== null && (
         <div className="space-y-6">
-          <div className="space-y-3">
-             <label className="text-[10px] font-black uppercase tracking-widest text-[#DC2626]">Assignment Details (Text)</label>
-             <textarea 
-               value={assignmentText}
-               onChange={(e) => setAssignmentText(e.target.value)}
-               className={`w-full p-4 rounded-2xl border ${theme === 'dark' ? 'bg-[#13111C] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'} text-xs resize-none outline-none focus:border-[#DC2626]/50 min-h-[120px] transition-all`}
-               placeholder="Type or paste your assignment questions here..."
-             />
+          <div className="relative flex items-center justify-between pb-1">
+            <button
+              onClick={() => setSolveMethod(null)}
+              className={`p-2 rounded-2xl transition-colors flex items-center gap-1.5 text-sm font-bold ${
+                theme === 'dark' ? 'text-white hover:bg-white/10' : 'text-slate-900 hover:bg-slate-100'
+              }`}
+              title="Go Back"
+            >
+              <ArrowLeft size={20} />
+            </button>
+            <h2 className="absolute left-1/2 -translate-x-1/2 text-lg sm:text-xl font-bold tracking-tight text-white">
+              {solveMethod === 'calculator' ? "Calculator" : (
+                solveMethod === 'text' ? "Solve with Text Questions" : (
+                  solveMethod === 'scan' ? "Scan to Solve" : "Upload to Solve"
+                )
+              )}
+            </h2>
+            <div className="w-8"></div>
           </div>
 
-          <div className="space-y-3">
-            <label className="text-[10px] font-black uppercase tracking-widest text-[#DC2626]">Upload Photos</label>
-            <div className="flex flex-wrap gap-4 justify-center">
-              <AnimatePresence>
-                {images.map(img => (
-                  <motion.div key={img.id} initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} className="relative group">
-                    <img src={img.preview} className={`w-24 h-24 object-cover rounded-2xl border-2 ${theme === 'dark' ? 'border-white/10' : 'border-slate-100'} shadow-xl`} />
-                    <button onClick={() => removeImage(img.id)} className="absolute -top-2 -right-2 bg-red-600 text-white p-1 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity">
-                      <X size={12} />
-                    </button>
-                  </motion.div>
-                ))}
-              </AnimatePresence>
-              
-              {images.length < limits.IMAGES && (
-                <div className="flex gap-3">
-                  <label className={`w-24 h-24 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center cursor-pointer transition-all ${theme === 'dark' ? 'border-white/10 text-white/20 hover:border-[#DC2626]/40 hover:text-[#DC2626]' : 'border-slate-200 text-slate-300 hover:border-[#DC2626]/40 hover:text-[#DC2626]'}`}>
-                    <input type="file" accept="image/*" multiple onChange={handleImageUpload} className="hidden" />
-                    <Upload size={24} />
-                    <span className="text-[8px] font-black uppercase mt-1">Gallery</span>
+          {/* MODE 1: SOLVE WITH TEXT QUESTIONS */}
+          {solveMethod === 'text' && (
+            <div className={`p-6 sm:p-8 rounded-3xl border ${theme === 'dark' ? 'bg-[#13111C] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'} space-y-5 shadow-lg`}>
+              <div className="space-y-2">
+                <h3 className="text-xl font-extrabold">Type or Paste Your Question</h3>
+                <p className="text-xs text-purple-300/70">Enter any homework problem, word question, or math equation.</p>
+              </div>
+              <textarea 
+                value={assignmentText}
+                onChange={(e) => setAssignmentText(e.target.value)}
+                className={`w-full p-4 rounded-2xl border ${theme === 'dark' ? 'bg-[#1A142D] border-purple-500/20 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'} text-sm outline-none focus:border-purple-500 min-h-[160px] transition-all`}
+                placeholder="Type your question here (e.g., A car moves at 60 km/h for 2.5 hours. Calculate total distance)..."
+              />
+              <button
+                onClick={solveAssignment}
+                disabled={isSolving || !assignmentText.trim()}
+                className="w-full bg-[#7E22CE] hover:bg-[#6B21A8] text-white font-black py-4 rounded-2xl text-sm shadow-xl shadow-purple-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {isSolving ? <><RefreshCcw size={18} className="animate-spin" /> Solving...</> : <><Sparkles size={18} /> Solve Problem</>}
+              </button>
+            </div>
+          )}
+
+          {/* MODE 2: SCAN TO SOLVE (CAMERA VIEW) */}
+          {solveMethod === 'scan' && (
+            <div className="space-y-4">
+              <div className="relative w-full aspect-[3/4] max-h-[500px] bg-black rounded-3xl overflow-hidden border border-white/20 flex flex-col justify-between p-4 shadow-2xl">
+                {/* Viewfinder corner overlays & frame */}
+                <div className="absolute inset-8 border-2 border-white/40 rounded-2xl pointer-events-none flex flex-col justify-between p-3">
+                  <div className="flex justify-between">
+                    <span className="w-6 h-6 border-t-4 border-l-4 border-white rounded-tl-lg" />
+                    <span className="w-6 h-6 border-t-4 border-r-4 border-white rounded-tr-lg" />
+                  </div>
+                  <div className="w-full text-center">
+                    <span className="bg-black/70 backdrop-blur-md px-3 py-1 rounded-full text-white/90 text-xs font-medium">
+                      Focus by adjusting the corners
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="w-6 h-6 border-b-4 border-l-4 border-white rounded-bl-lg" />
+                    <span className="w-6 h-6 border-b-4 border-r-4 border-white rounded-br-lg" />
+                  </div>
+                </div>
+
+                {/* Top Camera bar */}
+                <div className="relative z-10 flex items-center justify-between text-white px-2">
+                  <span className="text-xs font-bold uppercase tracking-wider bg-black/50 px-3 py-1 rounded-full">Scan Viewfinder</span>
+                  <button onClick={() => setUserNotification("Flash mode toggled")} className="p-2 bg-black/50 rounded-full hover:bg-black/70">
+                    <Zap size={18} />
+                  </button>
+                </div>
+
+                {/* Center crosshair */}
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <Plus size={28} className="text-white/60" />
+                </div>
+
+                {/* Bottom Scanner Toolbar */}
+                <div className="relative z-10 flex items-center justify-around bg-black/70 backdrop-blur-md p-4 rounded-2xl">
+                  <button 
+                    onClick={() => setSolveMethod('calculator')} 
+                    className="flex flex-col items-center gap-1 text-white/80 hover:text-white"
+                  >
+                    <Calculator size={22} />
+                    <span className="text-[10px] font-bold">Calculator</span>
+                  </button>
+
+                  <label className="w-16 h-16 rounded-full bg-red-600 border-4 border-white flex items-center justify-center cursor-pointer hover:scale-105 active:scale-95 transition-all shadow-xl">
+                    <input type="file" accept="image/*" capture="environment" onChange={(e) => { handleImageUpload(e); solveAssignment(); }} className="hidden" />
+                    <div className="w-6 h-6 rounded-full bg-white/20" />
                   </label>
-                  <label className={`w-24 h-24 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center cursor-pointer transition-all ${theme === 'dark' ? 'border-white/10 text-white/20 hover:border-[#DC2626]/40 hover:text-[#DC2626]' : 'border-slate-200 text-slate-300 hover:border-[#DC2626]/40 hover:text-[#DC2626]'}`}>
-                    <input type="file" accept="image/*" capture="environment" onChange={handleImageUpload} className="hidden" />
-                    <Camera size={24} />
-                    <span className="text-[8px] font-black uppercase mt-1">Camera</span>
+
+                  <label className="flex flex-col items-center gap-1 text-white/80 hover:text-white cursor-pointer">
+                    <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                    <ImageIcon size={22} />
+                    <span className="text-[10px] font-bold">Gallery</span>
                   </label>
+                </div>
+              </div>
+
+              {images.length > 0 && (
+                <div className="p-4 rounded-2xl bg-purple-950/40 border border-purple-500/20 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <img src={images[0].preview} className="w-12 h-12 object-cover rounded-xl" />
+                    <div>
+                      <p className="text-xs font-bold text-white">Captured Image Ready</p>
+                      <p className="text-[10px] text-purple-300/70">{images.length} photo(s) selected</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={solveAssignment}
+                    disabled={isSolving}
+                    className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-black uppercase tracking-wider"
+                  >
+                    {isSolving ? "Analyzing..." : "Solve Scan"}
+                  </button>
                 </div>
               )}
             </div>
-            <p className={`text-[9px] text-center ${theme === 'dark' ? 'text-white/20' : 'text-slate-400'}`}>Max {limits.IMAGES} photos allowed ({isPremium ? 'Premium' : 'Free'} plan)</p>
-          </div>
+          )}
 
-          <button
-            onClick={solveAssignment}
-            disabled={isSolving || (images.length === 0 && !assignmentText.trim())}
-            className="w-full bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black py-5 rounded-2xl text-xs uppercase tracking-widest shadow-xl shadow-[#DC2626]/20 transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:grayscale"
-          >
-            {isSolving ? <><RefreshCcw size={18} className="animate-spin" /> Analyzing...</> : <><Sparkles size={18} /> Solve Assignment</>}
-          </button>
+          {/* MODE 3: UPLOAD TO SOLVE */}
+          {solveMethod === 'upload' && (
+            <div className={`p-6 sm:p-8 rounded-3xl border ${theme === 'dark' ? 'bg-[#13111C] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'} space-y-6 shadow-lg`}>
+              <div className="space-y-2 text-center">
+                <h3 className="text-xl font-extrabold">Upload Assignment Image or PDF</h3>
+                <p className="text-xs text-purple-300/70">Upload clear pictures or documents of your math, physics, or homework problems.</p>
+              </div>
+
+              <div className="flex flex-wrap gap-4 justify-center">
+                <AnimatePresence>
+                  {images.map(img => (
+                    <motion.div key={img.id} initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.5, opacity: 0 }} className="relative group">
+                      <img src={img.preview} className={`w-28 h-28 object-cover rounded-2xl border-2 ${theme === 'dark' ? 'border-white/10' : 'border-slate-100'} shadow-xl`} />
+                      <button onClick={() => removeImage(img.id)} className="absolute -top-2 -right-2 bg-red-600 text-white p-1 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                        <X size={12} />
+                      </button>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+                
+                {images.length < limits.IMAGES && (
+                  <label className={`w-full max-w-sm h-36 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center cursor-pointer transition-all ${
+                    theme === 'dark' ? 'border-purple-500/30 bg-purple-950/20 hover:border-purple-500' : 'border-purple-200 bg-purple-50/50 hover:border-purple-400'
+                  }`}>
+                    <input type="file" accept="image/*,.pdf" multiple onChange={handleImageUpload} className="hidden" />
+                    <Upload size={32} className="text-purple-500 mb-2" />
+                    <span className="text-xs font-bold text-white">Click or Drag to Upload File</span>
+                    <span className="text-[10px] text-purple-300/60 mt-1">Supports Images, Documents (Max {limits.IMAGES} files)</span>
+                  </label>
+                )}
+              </div>
+
+              <button
+                onClick={solveAssignment}
+                disabled={isSolving || images.length === 0}
+                className="w-full bg-[#7E22CE] hover:bg-[#6B21A8] text-white font-black py-4 rounded-2xl text-sm shadow-xl shadow-purple-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {isSolving ? <><RefreshCcw size={18} className="animate-spin" /> Solving...</> : <><Sparkles size={18} /> Solve Uploaded File</>}
+              </button>
+            </div>
+          )}
+
+          {/* MODE 4: SOLVE WITH AI POWERED CALCULATOR */}
+          {solveMethod === 'calculator' && (
+            <div className={`p-4 sm:p-6 rounded-3xl border ${
+              theme === 'dark' ? 'bg-[#0E0B1F] border-purple-500/30 text-white' : 'bg-white border-purple-200 text-slate-900'
+            } space-y-5 shadow-2xl relative overflow-hidden`}>
+
+              {/* CALC INPUT / WORKSPACE DISPLAY (UPPER HALF IN SCREENSHOT) */}
+              <div className="space-y-3 min-h-[140px] flex flex-col justify-between p-4 rounded-2xl bg-[#080514] border border-purple-500/20 shadow-inner">
+                <div className="flex items-center justify-between text-xs font-bold text-purple-300/80">
+                  <span className="flex items-center gap-1.5 font-mono uppercase tracking-wider text-[10px] text-amber-400">
+                    <Sparkles size={12} /> AI Math Workspace
+                  </span>
+                  {calcInput && (
+                    <button 
+                      onClick={() => setCalcInput("")}
+                      className="text-amber-400 hover:text-amber-300 font-sans text-xs font-semibold tracking-wide transition-colors cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+
+                {/* MATH INPUT FIELD WITH DOTTED UNDERLINE PLACEHOLDER EXACTLY LIKE SCREENSHOT */}
+                <div className="w-full text-left font-mono overflow-x-auto no-scrollbar py-2">
+                  {calcInput ? (
+                    <span className="text-2xl sm:text-3xl font-extrabold text-white tracking-wide break-words">
+                      {calcInput}
+                    </span>
+                  ) : (
+                    <span className="text-xl sm:text-2xl text-purple-300/40 font-medium border-b border-dashed border-purple-400/40 pb-1">
+                      Type a math problem...
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex justify-end">
+                  <span className="text-[10px] font-mono text-purple-400/60">
+                    {calcInput.length} chars
+                  </span>
+                </div>
+              </div>
+
+              {/* KEYBOARD TOOLBAR TOP ROW (abc, History, ←, →, ↵, ☒) */}
+              <div className="flex items-center justify-between gap-2 px-1 py-1 text-sm font-bold border-b border-purple-500/20 pb-3">
+                {/* Left group */}
+                <div className="flex items-center gap-3">
+                  <button 
+                    onClick={() => setCalcCategory('basic')} 
+                    className={`px-3 py-1 rounded-xl text-xs font-bold transition-all ${
+                      calcCategory === 'basic' ? 'bg-amber-500 text-slate-950 shadow-md' : 'bg-white/5 text-purple-300 hover:bg-white/10'
+                    }`}
+                  >
+                    abc
+                  </button>
+
+                  <button 
+                    onClick={() => {
+                      if (finishedHistory.length > 0) {
+                        const lastItem = finishedHistory[0];
+                        if (lastItem?.title) setCalcInput(lastItem.title);
+                      } else {
+                        setUserNotification("No past calculator history yet");
+                      }
+                    }}
+                    className="p-2 rounded-xl text-purple-300 hover:text-amber-400 hover:bg-white/5 transition-colors cursor-pointer"
+                    title="History"
+                  >
+                    <History size={18} />
+                  </button>
+                </div>
+
+                {/* Right group: Left Arrow, Right Arrow, Enter/Return, Delete */}
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => setCalcInput(p => p.slice(0, -1))}
+                    className="p-2 rounded-xl text-purple-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                    title="Cursor Left"
+                  >
+                    <ArrowLeft size={18} />
+                  </button>
+                  <button 
+                    onClick={() => setCalcInput(p => p + ' ')}
+                    className="p-2 rounded-xl text-purple-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                    title="Space / Right"
+                  >
+                    <ArrowRight size={18} />
+                  </button>
+                  <button 
+                    onClick={() => {
+                      if (calcInput.trim()) {
+                        setAssignmentText(calcInput);
+                        solveAssignment();
+                      }
+                    }}
+                    className="p-2 rounded-xl text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 transition-colors cursor-pointer"
+                    title="Return / Solve"
+                  >
+                    <CornerDownLeft size={18} />
+                  </button>
+                  <button 
+                    onClick={() => setCalcInput(p => p.slice(0, -1))}
+                    className="p-2 rounded-xl text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors cursor-pointer"
+                    title="Backspace"
+                  >
+                    <Delete size={18} />
+                  </button>
+                </div>
+              </div>
+
+              {/* 4 CATEGORY PILLS MATCHING SCREENSHOT */}
+              <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                {[
+                  { id: 'basic', top: '+ -', bottom: '× ÷' },
+                  { id: 'fx', top: 'f(x) e', bottom: 'log ln' },
+                  { id: 'trig', top: 'sin cos', bottom: 'tan cot' },
+                  { id: 'calculus', top: 'lim dx', bottom: '∫ ∑ ∞' }
+                ].map(cat => (
+                  <button
+                    key={cat.id}
+                    onClick={() => setCalcCategory(cat.id as any)}
+                    className={`px-4 py-2 rounded-full text-xs font-bold transition-all shrink-0 flex flex-col items-center justify-center leading-tight cursor-pointer ${
+                      calcCategory === cat.id 
+                        ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30 border border-purple-400/50' 
+                        : 'border border-purple-500/30 text-purple-200/80 hover:bg-white/5'
+                    }`}
+                  >
+                    <span className="text-[11px] font-mono">{cat.top}</span>
+                    <span className="text-[11px] font-mono opacity-80">{cat.bottom}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* 6-COLUMN GRID KEYBOARD MATCHING SCREENSHOT */}
+              <div className="grid grid-cols-6 gap-2 font-mono text-sm sm:text-base font-bold">
+                {/* ROW 1: (□). | >. | 7 | 8 | 9 | ÷ */}
+                <button 
+                  onClick={() => setCalcInput(p => p + '(')} 
+                  className="relative py-3.5 rounded-2xl bg-[#18122E] hover:bg-[#231A42] border border-purple-500/20 text-purple-200 flex items-center justify-center cursor-pointer active:scale-95 transition-all"
+                >
+                  (□)<span className="absolute bottom-1 right-1.5 w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                </button>
+                <button 
+                  onClick={() => setCalcInput(p => p + '>')} 
+                  className="relative py-3.5 rounded-2xl bg-[#18122E] hover:bg-[#231A42] border border-purple-500/20 text-purple-200 flex items-center justify-center cursor-pointer active:scale-95 transition-all"
+                >
+                  &gt;<span className="absolute bottom-1 right-1.5 w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                </button>
+                <button 
+                  onClick={() => setCalcInput(p => p + '7')} 
+                  className="py-3.5 rounded-2xl bg-[#130E26] hover:bg-[#1F173D] border border-white/10 text-white flex items-center justify-center cursor-pointer active:scale-95 transition-all text-base"
+                >
+                  7
+                </button>
+                <button 
+                  onClick={() => setCalcInput(p => p + '8')} 
+                  className="py-3.5 rounded-2xl bg-[#130E26] hover:bg-[#1F173D] border border-white/10 text-white flex items-center justify-center cursor-pointer active:scale-95 transition-all text-base"
+                >
+                  8
+                </button>
+                <button 
+                  onClick={() => setCalcInput(p => p + '9')} 
+                  className="py-3.5 rounded-2xl bg-[#130E26] hover:bg-[#1F173D] border border-white/10 text-white flex items-center justify-center cursor-pointer active:scale-95 transition-all text-base"
+                >
+                  9
+                </button>
+                <button 
+                  onClick={() => setCalcInput(p => p + ' ÷ ')} 
+                  className="py-3.5 rounded-2xl bg-[#18122E] hover:bg-[#231A42] border border-purple-500/20 text-amber-400 font-extrabold flex items-center justify-center cursor-pointer active:scale-95 transition-all text-lg"
+                >
+                  ÷
+                </button>
+
+                {/* ROW 2: □/□. | √□. | 4 | 5 | 6 | × */}
+                <button 
+                  onClick={() => setCalcInput(p => p + '/')} 
+                  className="relative py-3.5 rounded-2xl bg-[#18122E] hover:bg-[#231A42] border border-purple-500/20 text-purple-200 flex items-center justify-center cursor-pointer active:scale-95 transition-all text-xs"
+                >
+                  <span className="flex flex-col items-center leading-none">
+                    <span className="border-b border-purple-300/80 px-1">□</span>
+                    <span>□</span>
+                  </span>
+                  <span className="absolute bottom-1 right-1.5 w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                </button>
+                <button 
+                  onClick={() => setCalcInput(p => p + '√(')} 
+                  className="relative py-3.5 rounded-2xl bg-[#18122E] hover:bg-[#231A42] border border-purple-500/20 text-purple-200 flex items-center justify-center cursor-pointer active:scale-95 transition-all"
+                >
+                  √□<span className="absolute bottom-1 right-1.5 w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                </button>
+                <button 
+                  onClick={() => setCalcInput(p => p + '4')} 
+                  className="py-3.5 rounded-2xl bg-[#130E26] hover:bg-[#1F173D] border border-white/10 text-white flex items-center justify-center cursor-pointer active:scale-95 transition-all text-base"
+                >
+                  4
+                </button>
+                <button 
+                  onClick={() => setCalcInput(p => p + '5')} 
+                  className="py-3.5 rounded-2xl bg-[#130E26] hover:bg-[#1F173D] border border-white/10 text-white flex items-center justify-center cursor-pointer active:scale-95 transition-all text-base"
+                >
+                  5
+                </button>
+                <button 
+                  onClick={() => setCalcInput(p => p + '6')} 
+                  className="py-3.5 rounded-2xl bg-[#130E26] hover:bg-[#1F173D] border border-white/10 text-white flex items-center justify-center cursor-pointer active:scale-95 transition-all text-base"
+                >
+                  6
+                </button>
+                <button 
+                  onClick={() => setCalcInput(p => p + ' × ')} 
+                  className="py-3.5 rounded-2xl bg-[#18122E] hover:bg-[#231A42] border border-purple-500/20 text-amber-400 font-extrabold flex items-center justify-center cursor-pointer active:scale-95 transition-all text-lg"
+                >
+                  ×
+                </button>
+
+                {/* ROW 3: □². | x. | 1 | 2 | 3 | - */}
+                <button 
+                  onClick={() => setCalcInput(p => p + '^2')} 
+                  className="relative py-3.5 rounded-2xl bg-[#18122E] hover:bg-[#231A42] border border-purple-500/20 text-purple-200 flex items-center justify-center cursor-pointer active:scale-95 transition-all"
+                >
+                  □²<span className="absolute bottom-1 right-1.5 w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                </button>
+                <button 
+                  onClick={() => setCalcInput(p => p + 'x')} 
+                  className="relative py-3.5 rounded-2xl bg-[#18122E] hover:bg-[#231A42] border border-purple-500/20 text-purple-200 flex items-center justify-center cursor-pointer active:scale-95 transition-all"
+                >
+                  x<span className="absolute bottom-1 right-1.5 w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                </button>
+                <button 
+                  onClick={() => setCalcInput(p => p + '1')} 
+                  className="py-3.5 rounded-2xl bg-[#130E26] hover:bg-[#1F173D] border border-white/10 text-white flex items-center justify-center cursor-pointer active:scale-95 transition-all text-base"
+                >
+                  1
+                </button>
+                <button 
+                  onClick={() => setCalcInput(p => p + '2')} 
+                  className="py-3.5 rounded-2xl bg-[#130E26] hover:bg-[#1F173D] border border-white/10 text-white flex items-center justify-center cursor-pointer active:scale-95 transition-all text-base"
+                >
+                  2
+                </button>
+                <button 
+                  onClick={() => setCalcInput(p => p + '3')} 
+                  className="py-3.5 rounded-2xl bg-[#130E26] hover:bg-[#1F173D] border border-white/10 text-white flex items-center justify-center cursor-pointer active:scale-95 transition-all text-base"
+                >
+                  3
+                </button>
+                <button 
+                  onClick={() => setCalcInput(p => p + ' - ')} 
+                  className="py-3.5 rounded-2xl bg-[#18122E] hover:bg-[#231A42] border border-purple-500/20 text-amber-400 font-extrabold flex items-center justify-center cursor-pointer active:scale-95 transition-all text-lg"
+                >
+                  -
+                </button>
+
+                {/* ROW 4: π. | % | 0 | . | = | + */}
+                <button 
+                  onClick={() => setCalcInput(p => p + 'π')} 
+                  className="relative py-3.5 rounded-2xl bg-[#18122E] hover:bg-[#231A42] border border-purple-500/20 text-purple-200 flex items-center justify-center cursor-pointer active:scale-95 transition-all"
+                >
+                  π<span className="absolute bottom-1 right-1.5 w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                </button>
+                <button 
+                  onClick={() => setCalcInput(p => p + '%')} 
+                  className="py-3.5 rounded-2xl bg-[#18122E] hover:bg-[#231A42] border border-purple-500/20 text-purple-200 flex items-center justify-center cursor-pointer active:scale-95 transition-all"
+                >
+                  %
+                </button>
+                <button 
+                  onClick={() => setCalcInput(p => p + '0')} 
+                  className="py-3.5 rounded-2xl bg-[#130E26] hover:bg-[#1F173D] border border-white/10 text-white flex items-center justify-center cursor-pointer active:scale-95 transition-all text-base"
+                >
+                  0
+                </button>
+                <button 
+                  onClick={() => setCalcInput(p => p + '.')} 
+                  className="py-3.5 rounded-2xl bg-[#130E26] hover:bg-[#1F173D] border border-white/10 text-white flex items-center justify-center cursor-pointer active:scale-95 transition-all text-base"
+                >
+                  .
+                </button>
+                <button 
+                  onClick={() => {
+                    if (calcInput.trim()) {
+                      setAssignmentText(calcInput);
+                      solveAssignment();
+                    }
+                  }} 
+                  className="py-3.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black flex items-center justify-center cursor-pointer active:scale-95 transition-all text-lg shadow-md shadow-amber-500/20"
+                >
+                  =
+                </button>
+                <button 
+                  onClick={() => setCalcInput(p => p + ' + ')} 
+                  className="py-3.5 rounded-2xl bg-[#18122E] hover:bg-[#231A42] border border-purple-500/20 text-amber-400 font-extrabold flex items-center justify-center cursor-pointer active:scale-95 transition-all text-lg"
+                >
+                  +
+                </button>
+              </div>
+
+              {/* ACTION SOLVE BUTTON */}
+              <button
+                onClick={() => {
+                  if (calcInput.trim()) {
+                    setAssignmentText(calcInput);
+                    solveAssignment();
+                  } else {
+                    setUserNotification("Type a math problem first!");
+                  }
+                }}
+                disabled={isSolving || !calcInput.trim()}
+                className="w-full bg-gradient-to-r from-purple-700 via-purple-600 to-amber-500 hover:from-purple-600 hover:to-amber-400 text-white font-extrabold py-4 rounded-2xl text-sm shadow-xl shadow-purple-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-2"
+              >
+                {isSolving ? <><RefreshCcw size={18} className="animate-spin" /> Calculating Steps...</> : <><Sparkles size={18} /> Solve Step-by-Step with AI</>}
+              </button>
+            </div>
+          )}
         </div>
-      </div>
+      )}
 
       <AnimatePresence>
         {solution && (
