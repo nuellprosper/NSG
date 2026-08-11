@@ -2,6 +2,7 @@ import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';
+import { DevicePlatformProvider } from './lib/capacitor';
 import './index.css';
 
 const rootElement = document.getElementById('root');
@@ -10,12 +11,15 @@ if (rootElement) {
   root.render(
     <StrictMode>
       <ErrorBoundary>
-        <App />
+        <DevicePlatformProvider>
+          <App />
+        </DevicePlatformProvider>
       </ErrorBoundary>
     </StrictMode>,
   );
 } else {
   console.error("Root element #root not found in document");
 }
+
 
 

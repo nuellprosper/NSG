@@ -50,6 +50,9 @@ import {
   PremiumOnboarding as PremiumOnboardingComponent,
   PremiumModal as PremiumModalComponent
 } from './components/AppComponent';
+import { OfflineModal } from './components/OfflineModal';
+import { performGoogleAuth, initOfflineQueueSync, initPushNotifications, useHardwareBackButton, requestAppPermissions } from './lib/capacitor';
+
 
 import { 
   UNIVERSITIES, FACULTIES, DEPARTMENTS 
@@ -150,6 +153,19 @@ export default function App() {
   const [currentUserData, setCurrentUserData] = useState<any>(null);
   const [isAdminUser, setIsAdminUser] = useState(false);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
+
+  // --- OFFLINE WARNING MODAL STATE ---
+  const [showOfflineModal, setShowOfflineModal] = useState(false);
+  const [offlineModalMessage, setOfflineModalMessage] = useState('');
+
+  const checkOnlineOrShowModal = (customMsg?: string): boolean => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setOfflineModalMessage(customMsg || "This feature requires an active internet connection. Please check your connection and try again.");
+      setShowOfflineModal(true);
+      return false;
+    }
+    return true;
+  };
 
   // --- CUSTOM CONFIRM MODAL STATE ---
   const [confirmModal, setConfirmModal] = useState<{
@@ -488,8 +504,25 @@ export default function App() {
   const isGeneratingSuggestions = useRef(false);
   const notifiedIds = useRef<Set<string>>(new Set());
 
+  // Native hardware back button support for Android
+  useHardwareBackButton();
+
+  // Capacitor background push notifications, native permissions & offline action queue sync
+  useEffect(() => {
+    initPushNotifications();
+    requestAppPermissions();
+    const cleanupSync = initOfflineQueueSync(async (action) => {
+      console.log('Syncing queued action:', action);
+      return true;
+    });
+    return () => {
+      if (cleanupSync) cleanupSync();
+    };
+  }, []);
+
   useEffect(() => {
     if (isSyncingFromHistory.current) return;
+
     const currentNavState = {
       activeTab,
       toolsSubTab,
@@ -584,6 +617,8 @@ export default function App() {
   const [refurbishedResult, setRefurbishedResult] = useState<string | null>(null);
   const [showAnalysisInRecord, setShowAnalysisInRecord] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showAboutUsModal, setShowAboutUsModal] = useState(false);
+  const [showContactUsModal, setShowContactUsModal] = useState(false);
   const [pendingQuizId, setPendingQuizId] = useState<string | null>(() => {
     return sessionStorage.getItem('nsg_pending_quiz_id') || null;
   });
@@ -591,9 +626,16 @@ export default function App() {
   const [linkQuizTopic, setLinkQuizTopic] = useState('');
   const [selectedChatForRoom, setSelectedChatForRoom] = useState<any>(null);
 
-  const handleOpenOmniWithPrompt = async (promptText: string) => {
+  const handleOpenOmniWithPrompt = async (promptText: string, targetSessionId?: string) => {
+    let omniId = `omni_${user?.uid || 'guest'}`;
+    if (targetSessionId && targetSessionId !== 'new') {
+      omniId = targetSessionId;
+    } else if (targetSessionId === 'new') {
+      omniId = `omni_${Date.now()}`;
+    }
+
     const omniChatObj = {
-      id: `omni_${user?.uid || 'guest'}`,
+      id: omniId,
       name: 'Omni by NSG',
       isOmni: true,
       photoURL: 'https://images.unsplash.com/photo-1675557009875-436f09789900?q=80&w=200&auto=format&fit=crop',
@@ -605,7 +647,6 @@ export default function App() {
     setIsChatRoomActive(true);
 
     if (promptText && user) {
-      const omniId = `omni_${user.uid}`;
       try {
         await addDoc(collection(db, 'chats', omniId, 'messages'), {
           senderId: user.uid,
@@ -3598,8 +3639,7 @@ export default function App() {
       });
 
       const responseText = response.text || "";
-      const cleanJson = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
-      const parsed = JSON.parse(cleanJson);
+      const parsed = robustJSONParse(responseText) || {};
       
       setActiveAIChallenge({
         peerName: act.username || "Scholar",
@@ -4836,10 +4876,8 @@ export default function App() {
   const handleGoogleLogin = async () => {
     setIsAuthLoading(true);
     try {
-      // NOTE: For Google Sign-in to work on your custom domain (nuellstudyguide.name.ng),
-      // you MUST add it to the "Authorized domains" list in your Firebase Console:
-      // Authentication -> Settings -> Authorized domains
-      const result = await signInWithPopup(auth, googleProvider);
+      // Uses Capacitor native account picker on native Android/iOS, or standard popup on Web
+      const result = await performGoogleAuth(auth);
       const user = result.user;
       
       // Check if user document exists, if not create it
@@ -5408,7 +5446,7 @@ export default function App() {
       };
 
       const respText = await askGemini() || await askTogether() || await askOpenRouter() || "{}";
-      const data = JSON.parse(respText);
+      const data = robustJSONParse(respText) || {};
 
       if (!data.questions || !Array.isArray(data.questions) || data.questions.length === 0) {
         throw new Error("AI returned zero or invalid questions.");
@@ -7162,7 +7200,7 @@ ${session.fullAnalysis}
             : `You are continuing the analysis of audio recording "${cleanFileName}" (Part ${i + 1} of ${fragments.length}). Here is the previous transcription context so far:\n\n${accumulatedText}\n\nContinue transcribing and expanding the structured markdown study note seamlessly from where it left off, integrating new details from this next part without repeating. Output ONLY the clean markdown note content.`;
 
           const response = await aiInstance.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: FLASH_MODEL,
             contents: [{ parts: [audioPart, { text: prompt }] }]
           });
 
@@ -8757,11 +8795,19 @@ ${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\nopt
             ]);
           };
 
+          const askLocalQwen = async () => {
+            return await runLocalQwenInference({
+              prompt: textToSend,
+              systemInstruction: systemPrompt
+            });
+          };
+
           responseText = await runWithTimeout("Gemini", askGemini) 
                        || await runWithTimeout("Groq", askGroq) 
                        || await runWithTimeout("Together", askTogether)
                        || await runWithTimeout("HF", askHF) 
                        || await runWithTimeout("OpenRouter", askOpenRouter)
+                       || await askLocalQwen()
                        || "I'm sorry, all AI providers are currently unavailable. Please try again in a moment.";
 
           if (responseText.includes('[[GENERATE_QUIZ:')) {
@@ -9492,6 +9538,48 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
   const buildFallbackQuizQuestions = (topicName: string, countNum: number) => {
     const cleanTopic = topicName.trim() || "General Knowledge";
     const numQuestions = Math.max(1, countNum || 5);
+    
+    // Check if any quiz documents or imported note have extracted text
+    let aggregatedDocText = "";
+    if (quizDocuments && quizDocuments.length > 0) {
+      quizDocuments.forEach(doc => {
+        if (doc.extractedText && doc.extractedText.trim().length > 20) {
+          aggregatedDocText += doc.extractedText.trim() + "\n\n";
+        }
+      });
+    }
+    if (importedQuizNote && importedQuizNote.content && importedQuizNote.content.trim().length > 20) {
+      aggregatedDocText += importedQuizNote.content.trim() + "\n\n";
+    }
+
+    if (aggregatedDocText.length > 30) {
+      const sentences = aggregatedDocText
+        .split(/(?<=[.!?])\s+/)
+        .map(s => s.trim())
+        .filter(s => s.length > 25 && !s.toLowerCase().startsWith('http'));
+
+      if (sentences.length >= 2) {
+        const qList = [];
+        for (let i = 0; i < numQuestions; i++) {
+          const sentence = sentences[i % sentences.length];
+          const words = sentence.split(/\s+/);
+          const keyTerm = words.find(w => w.length > 5) || words[0] || "Concept";
+          qList.push({
+            question: `Q${i + 1}. According to your uploaded study document: "${sentence.slice(0, 110)}..." - Which statement is accurate regarding this material?`,
+            options: [
+              `${sentence.slice(0, 90)}`,
+              `This statement directly contradicts the core principles of ${keyTerm}`,
+              `It applies strictly to an unrelated external domain`,
+              `This observation lacks verifiable empirical evidence in the document`
+            ],
+            correctAnswer: 0,
+            explanation: `Derived directly from your uploaded document: "${sentence}"`
+          });
+        }
+        return qList;
+      }
+    }
+
     const qList = [];
     const templates = [
       {
@@ -9832,7 +9920,19 @@ Ensure these selected question types are distributed throughout the quiz questio
         return await callTogetherAI(prompt);
       };
 
-      const responseText = await askGemini() || await askTogether() || await askOpenRouter() || "{}";
+      const askLocalQwen = async () => {
+        try {
+          return await runLocalQwenInference({
+            prompt: prompt,
+            responseMimeType: "application/json"
+          });
+        } catch (e) {
+          console.warn("Local Qwen quiz generation error:", e);
+          return null;
+        }
+      };
+
+      const responseText = await askGemini() || await askTogether() || await askOpenRouter() || await askLocalQwen() || "{}";
       let data = robustJSONParse(responseText);
 
       const docTitles = quizDocuments.map(d => d.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ")).join(" & ");
@@ -10346,6 +10446,227 @@ Ensure these selected question types are distributed throughout the quiz questio
       <EmailPreviewModal />
       <AIChallengeModal />
       <AnalysisLoadingOverlay />
+
+      {/* ABOUT US MODAL */}
+      <AnimatePresence>
+        {showAboutUsModal && (
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-[#12101D] border border-white/10 rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto custom-scrollbar p-6 sm:p-8 space-y-6 text-left shadow-2xl text-white relative"
+            >
+              <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-cyan-500/20 text-cyan-400 rounded-2xl flex items-center justify-center border border-cyan-500/30">
+                    <Info size={22} />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-black text-white tracking-tight">About Nuell Study Guide (NSG)</h2>
+                    <p className="text-[10px] font-bold text-cyan-400 uppercase tracking-widest">Empowerment Through Next-Gen Learning AI</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowAboutUsModal(false)}
+                  className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all cursor-pointer"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="space-y-4 text-xs text-white/80 leading-relaxed font-sans">
+                <p>
+                  <strong>Nuell Study Guide (NSG)</strong>, founded by <strong>Abraham Emmanuel Prosper</strong>, is an advanced, all-in-one AI academic platform designed to empower university students and lifelong learners. NSG integrates state-of-the-art AI technology to transform how students study, practice CBT exams, transcribe lectures, and master complex subjects.
+                </p>
+
+                <h3 className="text-sm font-black text-white uppercase tracking-wider text-cyan-300 pt-2 border-t border-white/5">
+                  🛠️ Comprehensive Tools & Capabilities
+                </h3>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div className="bg-white/5 border border-white/5 p-3.5 rounded-2xl space-y-1">
+                    <div className="flex items-center gap-2 text-yellow-400 font-bold text-xs">
+                      <Zap size={16} />
+                      <span>1. Smart Quiz & CBT Engine</span>
+                    </div>
+                    <p className="text-[11px] text-white/70">
+                      Generate interactive quizzes in seconds. Supports Multiple Choice, True/False, and Theory with timed exam simulation and step-by-step AI answers.
+                    </p>
+                  </div>
+
+                  <div className="bg-white/5 border border-white/5 p-3.5 rounded-2xl space-y-1">
+                    <div className="flex items-center gap-2 text-blue-400 font-bold text-xs">
+                      <Sparkles size={16} />
+                      <span>2. Omni AI Academic Oracle</span>
+                    </div>
+                    <p className="text-[11px] text-white/70">
+                      Your personal empathetic AI tutor. Solves questions, analyzes study history, guides revision, and answers complex academic queries in real time.
+                    </p>
+                  </div>
+
+                  <div className="bg-white/5 border border-white/5 p-3.5 rounded-2xl space-y-1">
+                    <div className="flex items-center gap-2 text-purple-400 font-bold text-xs">
+                      <BookOpen size={16} />
+                      <span>3. Smart Notebook & Docs</span>
+                    </div>
+                    <p className="text-[11px] text-white/70">
+                      Organize notes and attach study files (PDFs, images). Allows 1-click quiz generation and podcast creation directly from note text and document attachments.
+                    </p>
+                  </div>
+
+                  <div className="bg-white/5 border border-white/5 p-3.5 rounded-2xl space-y-1">
+                    <div className="flex items-center gap-2 text-rose-400 font-bold text-xs">
+                      <Mic size={16} />
+                      <span>4. Audio Transcription</span>
+                    </div>
+                    <p className="text-[11px] text-white/70">
+                      Upload recorded audio files directly. Our AI transcribes the audio into clean, structured text notes, extracts key study takeaways, and builds practice quizzes from the transcription.
+                    </p>
+                  </div>
+
+                  <div className="bg-white/5 border border-white/5 p-3.5 rounded-2xl space-y-1">
+                    <div className="flex items-center gap-2 text-green-400 font-bold text-xs">
+                      <Volume2 size={16} />
+                      <span>5. Interactive Podcast (Omni & Zeal)</span>
+                    </div>
+                    <p className="text-[11px] text-white/70">
+                      Converts notes and study documents into dynamic dual-host audio & text podcast discussions for conversational, auditory learning.
+                    </p>
+                  </div>
+
+                  <div className="bg-white/5 border border-white/5 p-3.5 rounded-2xl space-y-1">
+                    <div className="flex items-center gap-2 text-red-400 font-bold text-xs">
+                      <LayoutDashboard size={16} />
+                      <span>6. Host Exam Control Room</span>
+                    </div>
+                    <p className="text-[11px] text-white/70">
+                      Host institutional CBT exams with matriculation login, candidate tracking, live timers, and automated score reports.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-white/10 flex justify-end">
+                <button
+                  onClick={() => setShowAboutUsModal(false)}
+                  className="px-6 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs rounded-xl transition-all cursor-pointer shadow-lg shadow-cyan-600/20"
+                >
+                  Close & Continue Learning
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* CONTACT US MODAL */}
+      <AnimatePresence>
+        {showContactUsModal && (
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-[#12101D] border border-white/10 rounded-3xl max-w-lg w-full p-6 sm:p-8 space-y-6 text-left shadow-2xl text-white relative"
+            >
+              <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-emerald-500/20 text-emerald-400 rounded-2xl flex items-center justify-center border border-emerald-500/30">
+                    <Mail size={22} />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-black text-white tracking-tight">Contact Us</h2>
+                    <p className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">We are here to assist you 24/7</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowContactUsModal(false)}
+                  className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all cursor-pointer"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-xs text-white/80 leading-relaxed font-sans">
+                  Have questions, feedback, subscription support, or technical issues? Reach out to our team directly through any of our official contact channels below:
+                </p>
+
+                <div className="space-y-3 pt-2">
+                  {/* WhatsApp */}
+                  <a
+                    href="https://wa.me/2347046732569"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center justify-between p-4 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-2xl transition-all cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-emerald-500 text-slate-950 font-black rounded-xl flex items-center justify-center text-lg">
+                        💬
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase text-emerald-400 tracking-wider">WhatsApp Support</p>
+                        <p className="text-sm font-bold text-white font-mono">07046732569</p>
+                      </div>
+                    </div>
+                    <span className="text-xs font-bold text-emerald-400 group-hover:translate-x-1 transition-transform">
+                      Chat Now →
+                    </span>
+                  </a>
+
+                  {/* Email 1 */}
+                  <a
+                    href="mailto:nuellkelechi@gmail.com"
+                    className="flex items-center justify-between p-4 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 rounded-2xl transition-all cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-purple-500/20 text-purple-400 rounded-xl flex items-center justify-center">
+                        <Mail size={20} />
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase text-purple-400 tracking-wider">Direct Admin Email</p>
+                        <p className="text-xs font-bold text-white font-mono">nuellkelechi@gmail.com</p>
+                      </div>
+                    </div>
+                    <span className="text-xs font-bold text-purple-400 group-hover:translate-x-1 transition-transform">
+                      Send Email →
+                    </span>
+                  </a>
+
+                  {/* Email 2 */}
+                  <a
+                    href="mailto:nuellstudyguide@gmail.com"
+                    className="flex items-center justify-between p-4 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 rounded-2xl transition-all cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-blue-500/20 text-blue-400 rounded-xl flex items-center justify-center">
+                        <Mail size={20} />
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase text-blue-400 tracking-wider">Official Support Email</p>
+                        <p className="text-xs font-bold text-white font-mono">nuellstudyguide@gmail.com</p>
+                      </div>
+                    </div>
+                    <span className="text-xs font-bold text-blue-400 group-hover:translate-x-1 transition-transform">
+                      Send Email →
+                    </span>
+                  </a>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-white/10 flex justify-end">
+                <button
+                  onClick={() => setShowContactUsModal(false)}
+                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition-all cursor-pointer shadow-lg shadow-emerald-600/20"
+                >
+                  Close Window
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* FLOATING PHONE PUSH NOTIFICATION SYSTEM */}
       <div className="fixed top-4 right-4 z-[9999] w-full max-w-[360px] pointer-events-none flex flex-col gap-3 px-4 sm:px-0">
@@ -11716,6 +12037,7 @@ Ensure these selected question types are distributed throughout the quiz questio
               handleQuizImageUpload={handleQuizImageUpload}
               removeQuizImage={removeQuizImage}
               quizDocuments={quizDocuments}
+              setQuizDocuments={setQuizDocuments}
               handleQuizDocumentUpload={handleQuizDocumentUpload}
               removeQuizDocument={removeQuizDocument}
               isGeneratingQuiz={isGeneratingQuiz}
@@ -12798,7 +13120,7 @@ Ensure these selected question types are distributed throughout the quiz questio
                               }
                             ];
 
-                        return notificationsToDisplay.map((notif) => {
+                        return notificationsToDisplay.map((notif, idx) => {
                           const getRelativeTime = (ts: any) => {
                             if (!ts) return 'Just now';
                             const d = ts.toDate ? ts.toDate() : (ts instanceof Date ? ts : new Date(ts));
@@ -12816,7 +13138,7 @@ Ensure these selected question types are distributed throughout the quiz questio
 
                           return (
                             <div 
-                              key={notif.id}
+                              key={`${notif.id || 'notif'}-${idx}`}
                               onClick={() => {
                                 if (notif.type !== 'streak_request' || notif.resolved) {
                                   handleNotificationClick(notif);
@@ -13281,13 +13603,15 @@ Ensure these selected question types are distributed throughout the quiz questio
                     </button>
                     <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Profile</h1>
                   </div>
-                  <button
-                    onClick={() => setIsEditingProfile(true)}
-                    className="px-3.5 py-1.5 bg-[#171522] hover:bg-white/10 border border-white/10 rounded-xl text-xs font-semibold text-white flex items-center gap-1.5 transition-all cursor-pointer shadow-md active:scale-95"
-                  >
-                    <Settings size={15} className="text-purple-400" />
-                    <span>Settings</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setIsEditingProfile(true)}
+                      className="px-3.5 py-1.5 bg-[#171522] hover:bg-white/10 border border-white/10 rounded-xl text-xs font-semibold text-white flex items-center gap-1.5 transition-all cursor-pointer shadow-md active:scale-95"
+                    >
+                      <Settings size={15} className="text-purple-400" />
+                      <span>Settings</span>
+                    </button>
+                  </div>
                 </div>
                             {/* Main User Identity Card */}
                 <div className="bg-[#171522] border border-white/5 p-6 rounded-2xl shadow-xl flex items-center gap-5 text-left">
@@ -13432,6 +13756,37 @@ Ensure these selected question types are distributed throughout the quiz questio
                     <div>
                       <p className="text-xs font-medium text-white/50">Academic Standing</p>
                       <p className="text-2xl font-bold text-white mt-1">{currentUserData?.rank || 'Fresher'}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* About Us & Contact Us Container Cards (Placed side-by-side, exact same container size & style as Smart Quizzes & Academic Standing) */}
+                <div className="grid grid-cols-2 gap-4">
+                  {/* About Us Container Card */}
+                  <div 
+                    onClick={() => setShowAboutUsModal(true)}
+                    className="bg-[#171522] border border-white/5 hover:border-cyan-500/30 p-5 rounded-2xl text-left space-y-3 shadow-xl cursor-pointer transition-all hover:bg-cyan-950/10 active:scale-95 group"
+                  >
+                    <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 flex items-center justify-center text-cyan-400 group-hover:scale-105 transition-transform">
+                      <Info size={26} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-white/50">Platform Info</p>
+                      <p className="text-xl font-bold text-white mt-1 group-hover:text-cyan-300 transition-colors">About Us</p>
+                    </div>
+                  </div>
+
+                  {/* Contact Us Container Card */}
+                  <div 
+                    onClick={() => setShowContactUsModal(true)}
+                    className="bg-[#171522] border border-white/5 hover:border-emerald-500/30 p-5 rounded-2xl text-left space-y-3 shadow-xl cursor-pointer transition-all hover:bg-emerald-950/10 active:scale-95 group"
+                  >
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform">
+                      <Mail size={26} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-white/50">24/7 Support</p>
+                      <p className="text-xl font-bold text-white mt-1 group-hover:text-emerald-300 transition-colors">Contact Us</p>
                     </div>
                   </div>
                 </div>
@@ -16243,6 +16598,13 @@ Ensure these selected question types are distributed throughout the quiz questio
           </button>
         </div>
       )}
+
+      {/* OFFLINE MODAL POPUP */}
+      <OfflineModal 
+        isOpen={showOfflineModal} 
+        onClose={() => setShowOfflineModal(false)} 
+        message={offlineModalMessage} 
+      />
 
       {/* QUIZ LINK LOADING POPUP OVERLAY */}
       {isLinkQuizLoading && (

@@ -3,8 +3,13 @@ import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChang
 import { initializeFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, onSnapshot, getDocs, addDoc, getDocFromServer, serverTimestamp, orderBy, limit, arrayUnion, enableIndexedDbPersistence } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
-// Initialize Firebase SDK
-const app = initializeApp(firebaseConfig);
+// Initialize Firebase SDK with fixed valid authDomain
+const activeFirebaseConfig = {
+  ...firebaseConfig,
+  authDomain: "gen-lang-client-0216655413.firebaseapp.com"
+};
+
+const app = initializeApp(activeFirebaseConfig);
 
 // Use initializeFirestore with long polling to bypass potential WebSocket restrictions
 export const db = initializeFirestore(app, {

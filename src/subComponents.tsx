@@ -44,14 +44,13 @@ export const helpContent = {
     title: "Recording Engine Help",
     items: [
       {
-        question: "How to record classes & sync audio?",
+        question: "How to transcribe audio & generate notes?",
         steps: [
-          "Ensure you are in a relatively quiet environment for best results.",
-          "Grant microphone permissions when the browser pop-up appears.",
-          "Click the large 'Record' button to start captured live audio.",
-          "The 'Waveform' indicator shows that the engine is active.",
-          "Click 'Stop Session' once the lecture concludes.",
-          "Wait 10-20 seconds for the AI to synthesize the raw audio into structured notes."
+          "Upload or select an audio file to transcribe.",
+          "Click the 'Transcribe' button to start processing.",
+          "The processing indicator shows that the transcription engine is active.",
+          "Wait a few seconds for the AI to synthesize the audio into structured notes.",
+          "Access your generated notes and create practice quizzes from the transcription."
         ]
       },
       {
@@ -455,273 +454,571 @@ export const COMMON_COURSES: Course[] = [
 export const CoursesTool = ({ theme, user, getAiInstance, getHfInstance, setUserNotification, setQuizTopic, setQuizQuestionCount, setQuizDifficulty, generateQuiz, setToolsSubTab, setQuizState, checkAndIncrementUsage, customCourses = [] }: any) => {
   const [courseSearch, setCourseSearch] = useState('');
   const [isSearching, setIsSearching] = useState(false);
-  const [suggestedCourses, setSuggestedCourses] = useState<Course[]>([]);
-  const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
-  const [isGeneratingDesc, setIsGeneratingDesc] = useState(false);
-  const [activeCourseDesc, setActiveCourseDesc] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [selectedCourse, setSelectedCourse] = useState<any | null>(null);
 
-  const allDisplayedCourses = [...customCourses, ...COMMON_COURSES];
+  // Chapter-by-chapter AI pipeline state
+  const [isProcessingPdf, setIsProcessingPdf] = useState(false);
+  const [processingStatus, setProcessingStatus] = useState('');
+  const [totalChapters, setTotalChapters] = useState(0);
+  const [generatedChapters, setGeneratedChapters] = useState<any[]>([]);
+  const [isGeneratingNextChunk, setIsGeneratingNextChunk] = useState(false);
 
-  const handleSearch = async () => {
-    if (!courseSearch.trim()) return;
+  // Interactive Quiz Overlays
+  const [activeChapterQuiz, setActiveChapterQuiz] = useState<any | null>(null);
+  const [quizAnswers, setQuizAnswers] = useState<{ [qIdx: number]: number }>({});
+  const [showQuizResults, setShowQuizResults] = useState(false);
 
-    const canProceed = await checkAndIncrementUsage('QUIZ');
-    if (!canProceed) return;
+  // Global Course Quiz state
+  const [isGeneratingGlobalQuiz, setIsGeneratingGlobalQuiz] = useState(false);
+
+  // Search NOUN e-Courseware materials
+  const handleNounSearch = async (queryTerm?: string) => {
+    const term = queryTerm || courseSearch.trim();
+    if (!term) return;
 
     setIsSearching(true);
-    setSuggestedCourses([]);
-    
+    setSearchResults([]);
+    setSelectedCourse(null);
+    setGeneratedChapters([]);
+
     try {
-      const ai = getAiInstance();
-      const prompt = `
-        Search context: "${courseSearch}".
-        Generate exactly 3 relevant academic courses based on this topic or course code.
-        Return ONLY a JSON array of objects with fields: "code", "name", "description".
-        Example: [{"code": "MTH101", "name": "Linear Algebra", "description": "Introduction to vectors and matrices"}]
-        
-        CRITICAL: For any math symbols or codes in 'name' or 'description', use LaTeX $...$.
-      `;
-      
-      const aiInstance = getAiInstance();
-      const response = await aiInstance.models.generateContent({
-        model: FLASH_MODEL,
-        contents: { parts: [{ text: prompt }] },
-        config: { 
-          responseMimeType: "application/json",
-          thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL }
-        }
-      });
-      
-      const text = response?.text || "";
-      const cleanedText = text.replace(/```json|```/g, '').trim();
-      const courses = JSON.parse(cleanedText);
-      setSuggestedCourses(Array.isArray(courses) ? courses : []);
+      const res = await fetch(`/api/noun/search?q=${encodeURIComponent(term)}`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.courses)) {
+        setSearchResults(data.courses);
+      } else {
+        setUserNotification("No matching NOUN materials found. Try course codes like GST101, CIT101, MTH101.");
+      }
     } catch (err) {
-      console.error("Course Search Error:", err);
-      setUserNotification("Failed to search courses. Please try a different term.");
+      console.error("NOUN search error:", err);
+      setUserNotification("Failed to connect to NOUN courseware database.");
     } finally {
       setIsSearching(false);
     }
   };
 
-  const openCourse = async (course: Course) => {
-    const isCustom = customCourses.some((cc: any) => cc.code === course.code);
-    if (isCustom) {
-      setSelectedCourse(course);
-      setActiveCourseDesc(course.description);
-      setIsGeneratingDesc(false);
-      return;
+  // UI Action - "Download Course": Parallel direct download + AI Chapter Extraction
+  const handleDownloadAndProcessCourse = async (courseItem: any) => {
+    setSelectedCourse(courseItem);
+    setGeneratedChapters([]);
+    setTotalChapters(0);
+    setIsProcessingPdf(true);
+    setProcessingStatus(`Initiating direct PDF download for ${courseItem.code}...`);
+
+    // Action 1: Direct File Download to local device
+    try {
+      const codeParam = encodeURIComponent(courseItem.code || '');
+      const titleParam = encodeURIComponent(courseItem.title || courseItem.name || '');
+      const urlParam = encodeURIComponent(courseItem.url || '');
+      const filenameParam = encodeURIComponent(`${(courseItem.code || 'NOUN').replace(/\s+/g, '_')}_Material.pdf`);
+      
+      const downloadUrl = `/api/noun/download?url=${urlParam}&filename=${filenameParam}&code=${codeParam}&title=${titleParam}`;
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.setAttribute('download', `${courseItem.code}_NOUN_Material.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setUserNotification(`Downloading ${courseItem.code} PDF directly to your device storage...`);
+    } catch (dlErr) {
+      console.warn("Direct download warning:", dlErr);
     }
 
-    setSelectedCourse(course);
-    setIsGeneratingDesc(true);
-    setActiveCourseDesc(course.description);
+    // Action 2: AI Chapter Processing Engine
+    setProcessingStatus(`Extracting NOUN Course Text & Categorizing Chapters for ${courseItem.code}...`);
 
     try {
-      const canProceed = await checkAndIncrementUsage('QUIZ');
-      if (!canProceed) {
-        setIsGeneratingDesc(false);
-        return;
+      const processRes = await fetch('/api/noun/process-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pdfUrl: courseItem.url,
+          courseCode: courseItem.code,
+          courseTitle: courseItem.title || courseItem.name
+        })
+      });
+
+      const processData = await processRes.json();
+      if (!processData.success || !processData.chapters || processData.chapters.length === 0) {
+        throw new Error("Could not parse course chapters.");
       }
 
-      const hf = getHfInstance();
-      const prompt = `Provide a detailed academic description (approx 100 words) for the university course ${course.code}: ${course.name}. Explain what students will learn.`;
-      
-      let descResult = "";
-      
-      const tryHF = async () => {
-        if (isHfDepletedGlobal) return null;
-        try {
-          const response = await hf.chatCompletion({
-            model: HF_MODELS.TEXT,
-            messages: [{ role: "user", content: prompt }],
-            max_tokens: 250,
-            temperature: 0.7
-          });
-          return response.choices[0].message.content || null;
-        } catch (e) {
-          handleHfErrorGlobal(e, "CourseDesc");
-          return null;
+      const allChapters = processData.chapters;
+      setTotalChapters(allChapters.length);
+      setProcessingStatus(`Extracted ${allChapters.length} Chapters. Generating Chapter 1 & 2 Study Notes...`);
+
+      // Progressive 2-Chapter Chunk Generation Loop
+      let currentIdx = 0;
+      const accumGenerated: any[] = [];
+
+      while (currentIdx < allChapters.length) {
+        setIsGeneratingNextChunk(true);
+        const chunk = allChapters.slice(currentIdx, currentIdx + 2);
+        
+        setProcessingStatus(`Streaming AI Study Notes: Chapters ${currentIdx + 1}${chunk.length > 1 ? ` & ${currentIdx + 2}` : ''} of ${allChapters.length}...`);
+
+        const chunkRes = await fetch('/api/noun/generate-chapter-chunk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chaptersChunk: chunk,
+            courseCode: courseItem.code,
+            courseTitle: courseItem.title || courseItem.name
+          })
+        });
+
+        const chunkData = await chunkRes.json();
+        if (chunkData.success && Array.isArray(chunkData.processedChapters)) {
+          accumGenerated.push(...chunkData.processedChapters);
+          setGeneratedChapters([...accumGenerated]);
         }
-      };
 
-      const tryGemini = async () => {
-        try {
-          const ai = getAiInstance();
-          const res = await ai.models.generateContent({
-            model: "gemini-3.1-flash-lite",
-            contents: [{ role: 'user', parts: [{ text: prompt }] }]
-          });
-          return res.text || null;
-        } catch (e) {
-          console.error("Gemini fallback failed for description:", e);
-          return null;
-        }
-      };
-
-      const tryOpenRouter = async () => {
-        return await callOpenRouter(prompt, OPENROUTER_MODELS.TEXT_FAST);
-      };
-
-      const tryTogether = async () => {
-        return await callTogetherAI(prompt);
-      };
-
-      descResult = await tryHF() || await tryGemini() || await tryTogether() || await tryOpenRouter() || "";
-
-      if (descResult) {
-        setActiveCourseDesc(descResult.trim());
+        currentIdx += 2;
       }
-    } catch (err) {
-      console.error("HF Description Generator Error:", err);
+
+      setProcessingStatus(`All ${allChapters.length} Chapters Fully Generated!`);
+      setUserNotification(`Completed study guide for ${courseItem.code}!`);
+    } catch (err: any) {
+      console.error("Pipeline error:", err);
+      setUserNotification(`Chapter processing update: ${err.message || 'Complete'}`);
     } finally {
-      setIsGeneratingDesc(false);
+      setIsProcessingPdf(false);
+      setIsGeneratingNextChunk(false);
     }
   };
 
-  const startCourseTool = (type: 'quiz' | 'exam', qCount: number, difficulty: string) => {
+  // Generate Global Course Quiz
+  const handleGenerateGlobalCourseQuiz = async () => {
     if (!selectedCourse) return;
-    
-    setQuizTopic(`${selectedCourse.code}: ${selectedCourse.name} - ${activeCourseDesc}`);
-    setQuizQuestionCount(qCount);
-    setQuizDifficulty(difficulty);
-    
-    setToolsSubTab(type === 'quiz' ? 'quiz' : 'exam');
-    setQuizState('idle');
-    
-    setUserNotification(`Preparing ${type.toUpperCase()} for ${selectedCourse.code}...`);
+    setIsGeneratingGlobalQuiz(true);
+    try {
+      const res = await fetch('/api/noun/generate-full-course-quiz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          courseCode: selectedCourse.code,
+          courseTitle: selectedCourse.title || selectedCourse.name,
+          chaptersCount: totalChapters || generatedChapters.length
+        })
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.questions)) {
+        setActiveChapterQuiz({
+          chapterNumber: 'FULL',
+          title: `Full Course Comprehensive Examination (${selectedCourse.code})`,
+          questions: data.questions
+        });
+        setQuizAnswers({});
+        setShowQuizResults(false);
+      }
+    } catch (err) {
+      console.error("Global quiz error:", err);
+      setUserNotification("Failed to generate global course quiz.");
+    } finally {
+      setIsGeneratingGlobalQuiz(false);
+    }
+  };
+
+  // Calculate Quiz Score
+  const openChapterQuiz = (chap: any) => {
+    setActiveChapterQuiz({
+      chapterNumber: chap.chapterNumber,
+      title: chap.title,
+      questions: chap.quizQuestions || []
+    });
+    setQuizAnswers({});
+    setShowQuizResults(false);
+  };
+
+  const calculateScore = () => {
+    if (!activeChapterQuiz || !activeChapterQuiz.questions) return 0;
+    let score = 0;
+    activeChapterQuiz.questions.forEach((q: any, idx: number) => {
+      if (quizAnswers[idx] === q.correctAnswer) score++;
+    });
+    return score;
   };
 
   return (
     <div className="space-y-6">
+      {/* Header Banner */}
+      <div className={`p-6 rounded-[2rem] border ${theme === 'dark' ? 'bg-gradient-to-r from-[#13111C] via-[#1a1429] to-[#13111C] border-white/10' : 'bg-gradient-to-r from-red-50 via-white to-red-50 border-slate-200'} shadow-sm relative overflow-hidden`}>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-black uppercase tracking-widest text-[#DC2626] bg-[#DC2626]/10 px-2.5 py-1 rounded-full border border-[#DC2626]/20">
+                Official NOUN e-Courseware
+              </span>
+              <span className="text-[10px] font-bold text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20 flex items-center gap-1">
+                <Sparkles size={10} /> AI Study Engine
+              </span>
+            </div>
+            <h2 className={`text-2xl font-black tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+              Courses
+            </h2>
+            <p className={`text-xs ${theme === 'dark' ? 'text-white/60' : 'text-slate-600'}`}>
+              Access official NOUN e-Courseware materials, download PDFs, and generate structured chapter study guides & quizzes.
+            </p>
+          </div>
+          <BookOpen size={36} className="text-[#DC2626] opacity-80 hidden sm:block" />
+        </div>
+      </div>
+
+      {/* NOUN Search Bar */}
       <div className={`p-4 rounded-3xl border ${theme === 'dark' ? 'bg-[#13111C] border-white/10' : 'bg-white border-slate-200'} shadow-sm flex items-center gap-3`}>
-        <div className="bg-[#DC2626]/10 p-2 rounded-xl text-[#DC2626]">
+        <div className="bg-[#DC2626]/10 p-2.5 rounded-2xl text-[#DC2626]">
           <Search size={20} />
         </div>
         <input 
           type="text" 
           value={courseSearch}
           onChange={(e) => setCourseSearch(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-          placeholder="Search course code or topic (e.g. MTH 101)" 
-          className={`flex-1 bg-transparent border-none outline-none text-sm ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}
+          onKeyDown={(e) => e.key === 'Enter' && handleNounSearch()}
+          placeholder="Search NOUN Course Code or Topic (e.g. GST101, CIT101, Law, Mathematics)" 
+          className={`flex-1 bg-transparent border-none outline-none text-sm ${theme === 'dark' ? 'text-white placeholder:text-white/30' : 'text-slate-900 placeholder:text-slate-400'}`}
         />
         <button 
-          onClick={handleSearch}
+          onClick={() => handleNounSearch()}
           disabled={isSearching}
-          className="bg-[#DC2626] text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-[#DC2626]/90 transition-all disabled:opacity-50"
+          className="bg-[#DC2626] text-white px-5 py-2.5 rounded-2xl text-xs font-black uppercase tracking-wider hover:bg-[#DC2626]/90 transition-all flex items-center gap-2 shadow-lg shadow-[#DC2626]/20 disabled:opacity-50"
         >
-          {isSearching ? <RefreshCcw size={14} className="animate-spin" /> : 'Search'}
+          {isSearching ? <RefreshCcw size={14} className="animate-spin" /> : <><Search size={14} /> Search NOUN</>}
         </button>
       </div>
 
-      {suggestedCourses.length > 0 && (
+      {/* Search Results */}
+      {searchResults.length > 0 && !selectedCourse && (
         <div className="space-y-3">
-          <p className="text-[10px] font-black text-[#DC2626] uppercase tracking-[0.2em] ml-2">Recommended</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {suggestedCourses.map((c, i) => (
-              <button 
-                key={i} 
-                onClick={() => openCourse(c)}
-                className={`p-4 rounded-2xl border text-left transition-all hover:scale-[1.02] ${theme === 'dark' ? 'bg-white/5 border-white/10 hover:border-[#DC2626]/30' : 'bg-white border-slate-100 hover:border-[#DC2626]/30 shadow-sm'}`}
+          <div className="flex items-center justify-between px-2">
+            <p className="text-[10px] font-black text-[#DC2626] uppercase tracking-[0.2em]">
+              NOUN Courseware Results ({searchResults.length})
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {searchResults.map((item, idx) => (
+              <div 
+                key={idx} 
+                className={`p-5 rounded-3xl border transition-all flex flex-col justify-between gap-4 ${theme === 'dark' ? 'bg-[#13111C] border-white/10 hover:border-[#DC2626]/40' : 'bg-white border-slate-200 hover:border-[#DC2626]/40 shadow-sm'}`}
               >
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[#DC2626] font-mono text-[10px] font-black">{c.code}</span>
-                  <Sparkles size={12} className="text-yellow-500" />
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[#DC2626] font-mono text-xs font-black bg-[#DC2626]/10 px-2.5 py-1 rounded-lg border border-[#DC2626]/20">
+                      {item.code}
+                    </span>
+                    <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                      {item.level || 'NOUN e-Courseware'}
+                    </span>
+                  </div>
+                  <h4 className={`text-sm font-black leading-snug ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                    {item.title}
+                  </h4>
                 </div>
-                <h4 className={`text-xs font-black truncate ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{c.name}</h4>
-              </button>
+
+                <div className="pt-2 border-t border-white/5 flex items-center gap-3">
+                  <button 
+                    onClick={() => handleDownloadAndProcessCourse(item)}
+                    className="flex-1 bg-gradient-to-r from-[#DC2626] to-red-700 text-white py-2.5 px-4 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-95 transition-all shadow-md shadow-[#DC2626]/20"
+                  >
+                    <Download size={15} /> Download Course
+                  </button>
+                </div>
+              </div>
             ))}
           </div>
         </div>
       )}
 
-      {selectedCourse ? (
+      {/* Selected Course Active Study Workspace */}
+      {selectedCourse && (
         <motion.div 
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className={`p-6 sm:p-8 rounded-[2.5rem] border ${theme === 'dark' ? 'bg-[#13111C] border-white/10' : 'bg-white border-slate-200'} shadow-xl relative overflow-hidden`}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-6"
         >
-          <button 
-            onClick={() => setSelectedCourse(null)} 
-            className="absolute top-6 right-6 p-2 rounded-full hover:bg-white/5 transition-all"
-          >
-            <X size={20} className="text-white/20" />
-          </button>
+          {/* Active Course Card Header */}
+          <div className={`p-6 sm:p-8 rounded-[2.5rem] border ${theme === 'dark' ? 'bg-[#13111C] border-white/10' : 'bg-white border-slate-200'} shadow-xl relative overflow-hidden`}>
+            <button 
+              onClick={() => { setSelectedCourse(null); setGeneratedChapters([]); }} 
+              className="absolute top-6 right-6 p-2 rounded-full hover:bg-white/10 transition-all text-white/40 hover:text-white"
+            >
+              <X size={20} />
+            </button>
 
-          <div className="space-y-6">
-            <div className="space-y-1">
-              <span className="text-[#DC2626] font-mono text-sm font-black tracking-widest">{selectedCourse.code}</span>
-              <h3 className={`text-2xl font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{selectedCourse.name}</h3>
-            </div>
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <span className="text-[#DC2626] font-mono text-sm font-black tracking-widest bg-[#DC2626]/10 px-3 py-1 rounded-xl border border-[#DC2626]/20">
+                  {selectedCourse.code}
+                </span>
+                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-xl border border-emerald-500/20">
+                  Active Study Workspace
+                </span>
+              </div>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-2">
+                <h3 className={`text-2xl font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                  {selectedCourse.title || selectedCourse.name}
+                </h3>
 
-            <div className={`p-6 rounded-3xl border italic ${theme === 'dark' ? 'bg-white/5 border-white/5 text-white/70' : 'bg-slate-50 border-slate-100 text-slate-600'}`}>
-              {isGeneratingDesc ? (
-                <div className="flex flex-col items-center gap-3 py-4">
-                  <RefreshCcw size={24} className="animate-spin text-[#DC2626]" />
-                  <p className="text-[10px] font-black uppercase tracking-widest text-[#DC2626]">Expanding Curriculum...</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <MarkdownRenderer content={activeCourseDesc} className="text-sm leading-relaxed" />
-                  <div className="flex items-center gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                    <span className="text-[8px] font-black uppercase tracking-tighter opacity-50">Verified Curriculum Description</span>
+                <button 
+                  onClick={() => {
+                    const codeParam = encodeURIComponent(selectedCourse.code || '');
+                    const titleParam = encodeURIComponent(selectedCourse.title || selectedCourse.name || '');
+                    const urlParam = encodeURIComponent(selectedCourse.url || '');
+                    const filenameParam = encodeURIComponent(`${(selectedCourse.code || 'NOUN').replace(/\s+/g, '_')}_Material.pdf`);
+                    const dlUrl = `/api/noun/download?url=${urlParam}&filename=${filenameParam}&code=${codeParam}&title=${titleParam}`;
+                    
+                    const link = document.createElement('a');
+                    link.href = dlUrl;
+                    link.setAttribute('download', `${selectedCourse.code}_NOUN_Material.pdf`);
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    setUserNotification(`Downloading ${selectedCourse.code} PDF Study Manual...`);
+                  }}
+                  className="bg-[#DC2626] text-white px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 hover:bg-[#DC2626]/90 transition-all shadow-md shadow-[#DC2626]/20 shrink-0"
+                >
+                  <Download size={14} /> Download Course PDF
+                </button>
+              </div>
+
+              {/* Status / Streaming Bar */}
+              {(isProcessingPdf || isGeneratingNextChunk) && (
+                <div className="p-4 rounded-2xl bg-[#DC2626]/10 border border-[#DC2626]/30 flex items-center gap-3 animate-pulse">
+                  <RefreshCcw size={18} className="animate-spin text-[#DC2626]" />
+                  <div className="flex-1">
+                    <p className="text-xs font-black text-[#DC2626] uppercase tracking-wider">
+                      {processingStatus || 'Streaming AI Chapter Breakdown...'}
+                    </p>
+                    <p className="text-[10px] text-white/50">
+                      Processing 2 chapters at a time. Notes display as each chunk completes.
+                    </p>
                   </div>
                 </div>
               )}
             </div>
-
-            <div className="grid grid-cols-2 gap-4 pt-4">
-              <button 
-                onClick={() => startCourseTool('quiz', 20, 'Medium')}
-                className="flex flex-col items-center gap-3 p-5 rounded-3xl bg-gradient-to-br from-yellow-500 to-amber-600 text-white shadow-lg shadow-yellow-500/20 hover:scale-105 transition-all"
-              >
-                <Zap size={24} />
-                <span className="text-[10px] font-black uppercase tracking-widest">Take Smart Quiz</span>
-              </button>
-              <button 
-                onClick={() => startCourseTool('exam', 50, 'Professional')}
-                className="flex flex-col items-center gap-3 p-5 rounded-3xl bg-gradient-to-br from-[#DC2626] to-red-800 text-white shadow-lg shadow-[#DC2626]/20 hover:scale-105 transition-all"
-              >
-                <ShieldCheck size={24} />
-                <span className="text-[10px] font-black uppercase tracking-widest">Take CBT Exam</span>
-              </button>
-            </div>
           </div>
-        </motion.div>
-      ) : (
-        <div className="space-y-4">
-          <p className="text-[10px] font-black text-white/30 uppercase tracking-widest ml-2">Common Courses</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {allDisplayedCourses.map((c, i) => {
-              const isCustom = customCourses.some((cc: any) => cc.code === c.code);
-              return (
-                <button 
-                  key={i} 
-                  onClick={() => openCourse(c)}
-                  className={`flex items-center gap-5 p-5 rounded-[2rem] border transition-all hover:border-[#DC2626]/50 group ${theme === 'dark' ? 'bg-[#13111C] border-white/5' : 'bg-white border-slate-100 shadow-sm'}`}
+
+          {/* Generated Chapters Accordion / Display */}
+          {generatedChapters.length > 0 && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between px-2">
+                <h3 className="text-xs font-black text-[#DC2626] uppercase tracking-[0.2em] flex items-center gap-2">
+                  <Sparkles size={14} className="text-yellow-500" /> 
+                  Generated Chapter Breakdown ({generatedChapters.length} / {totalChapters || generatedChapters.length} Chapters)
+                </h3>
+              </div>
+
+              {generatedChapters.map((chap, idx) => (
+                <div 
+                  key={idx} 
+                  className={`p-6 sm:p-8 rounded-[2rem] border transition-all ${theme === 'dark' ? 'bg-[#13111C] border-white/10' : 'bg-white border-slate-200'} shadow-md space-y-6`}
                 >
-                  <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br from-white/5 to-white/10 flex flex-col items-center justify-center border border-white/5 group-hover:scale-110 transition-transform`}>
-                     <BookOpen size={20} className="text-[#DC2626]" />
-                     <span className="text-[8px] font-bold mt-1 text-white/30">{c.code}</span>
-                  </div>
-                  <div className="flex-1 text-left overflow-hidden">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h4 className={`font-black text-xs uppercase tracking-tight truncate ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{c.name}</h4>
-                      {isCustom && (
-                        <span className="text-[6px] font-black uppercase tracking-widest text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded">Official</span>
-                      )}
+                  {/* Chapter Header */}
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-white/10">
+                    <div className="space-y-1">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-[#DC2626] bg-[#DC2626]/10 px-2.5 py-1 rounded-lg border border-[#DC2626]/20">
+                        Chapter {chap.chapterNumber || idx + 1}
+                      </span>
+                      <h4 className={`text-lg font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                        {chap.title}
+                      </h4>
                     </div>
-                    <p className={`text-[10px] font-bold ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'} truncate uppercase`}>{c.description}</p>
+
+                    {/* Chapter Quiz Button */}
+                    <button 
+                      onClick={() => openChapterQuiz(chap)}
+                      className="bg-gradient-to-r from-amber-500 to-yellow-600 text-white px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-lg shadow-amber-500/20 hover:scale-105 active:scale-95 transition-all"
+                    >
+                      <Zap size={14} /> Take Quiz on Chapter {chap.chapterNumber || idx + 1}
+                    </button>
                   </div>
-                  <ChevronRight size={16} className="text-white/10 group-hover:text-[#DC2626] transition-all" />
+
+                  {/* Detailed Notes */}
+                  <div className={`p-5 rounded-2xl border ${theme === 'dark' ? 'bg-white/5 border-white/5 text-white/80' : 'bg-slate-50 border-slate-100 text-slate-700'}`}>
+                    <div className="prose prose-sm dark:prose-invert max-w-none space-y-3 leading-relaxed text-sm">
+                      <ReactMarkdown 
+                        remarkPlugins={[remarkGfm, remarkMath]} 
+                        rehypePlugins={[rehypeKatex]}
+                      >
+                        {chap.detailedNotes || "No notes available."}
+                      </ReactMarkdown>
+                    </div>
+                  </div>
+
+                  {/* Chapter Summary */}
+                  {chap.summary && (
+                    <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs space-y-2">
+                      <div className="flex items-center gap-1.5 font-black uppercase tracking-wider text-emerald-400">
+                        <CheckCircle2 size={14} /> Chapter Summary & Core Takeaways
+                      </div>
+                      <p className="whitespace-pre-line leading-relaxed text-emerald-200/90 font-medium">
+                        {chap.summary}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {/* Global Course Quiz Button */}
+              <div className={`p-8 rounded-[2.5rem] border text-center space-y-4 ${theme === 'dark' ? 'bg-gradient-to-br from-[#1c182b] to-[#13111C] border-[#DC2626]/30' : 'bg-gradient-to-br from-red-50 to-white border-red-200'} shadow-2xl`}>
+                <div className="max-w-md mx-auto space-y-2">
+                  <div className="inline-flex p-3 rounded-2xl bg-[#DC2626]/10 text-[#DC2626] mb-2">
+                    <ShieldCheck size={28} />
+                  </div>
+                  <h3 className={`text-xl font-black ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                    Ready to test your full course knowledge?
+                  </h3>
+                  <p className={`text-xs ${theme === 'dark' ? 'text-white/60' : 'text-slate-600'}`}>
+                    Generate a comprehensive final exam sampling questions across all chapters of {selectedCourse.code}.
+                  </p>
+                </div>
+
+                <button 
+                  onClick={handleGenerateGlobalCourseQuiz}
+                  disabled={isGeneratingGlobalQuiz}
+                  className="bg-gradient-to-r from-[#DC2626] via-red-600 to-red-800 text-white px-8 py-4 rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-[#DC2626]/30 hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-3 mx-auto disabled:opacity-50"
+                >
+                  {isGeneratingGlobalQuiz ? (
+                    <><RefreshCcw size={16} className="animate-spin" /> Generating Full Course Exam...</>
+                  ) : (
+                    <><Sparkles size={16} /> Generate Quiz for Full Course</>
+                  )}
                 </button>
-              );
-            })}
+              </div>
+            </div>
+          )}
+        </motion.div>
+      )}
+
+      {/* Common NOUN Catalog if no active search */}
+      {searchResults.length === 0 && !selectedCourse && (
+        <div className="space-y-4 pt-2">
+          <p className="text-[10px] font-black text-white/40 uppercase tracking-widest ml-2">
+            Popular NOUN e-Courseware Materials
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {COMMON_COURSES.map((c, i) => (
+              <div 
+                key={i} 
+                className={`p-5 rounded-[2rem] border transition-all flex items-center justify-between gap-4 ${theme === 'dark' ? 'bg-[#13111C] border-white/5 hover:border-[#DC2626]/30' : 'bg-white border-slate-100 shadow-sm hover:border-[#DC2626]/30'}`}
+              >
+                <div className="flex items-center gap-4 overflow-hidden">
+                  <div className="w-12 h-12 rounded-2xl bg-[#DC2626]/10 flex items-center justify-center border border-[#DC2626]/20 shrink-0">
+                    <BookOpen size={20} className="text-[#DC2626]" />
+                  </div>
+                  <div className="overflow-hidden">
+                    <span className="text-[#DC2626] font-mono text-[10px] font-black">{c.code}</span>
+                    <h4 className={`font-black text-xs uppercase tracking-tight truncate ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{c.name}</h4>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={() => handleDownloadAndProcessCourse({ code: c.code, title: c.name, url: `https://nou.edu.ng/courseware/${c.code.replace(/\s+/g,'')}.pdf` })}
+                  className="bg-[#DC2626] text-white px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 shrink-0 hover:bg-[#DC2626]/90 transition-all shadow-md shadow-[#DC2626]/20"
+                >
+                  <Download size={12} /> Download Course
+                </button>
+              </div>
+            ))}
           </div>
         </div>
       )}
+
+      {/* Chapter Quiz Modal Overlay */}
+      <AnimatePresence>
+        {activeChapterQuiz && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 20 }}
+              className={`w-full max-w-2xl max-h-[85vh] rounded-[2.5rem] border p-6 sm:p-8 space-y-6 overflow-y-auto ${theme === 'dark' ? 'bg-[#13111C] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'} shadow-2xl relative`}
+            >
+              <button 
+                onClick={() => setActiveChapterQuiz(null)}
+                className="absolute top-6 right-6 p-2 rounded-full hover:bg-white/10 transition-all text-white/40 hover:text-white"
+              >
+                <X size={20} />
+              </button>
+
+              <div className="space-y-1">
+                <span className="text-[10px] font-black uppercase tracking-widest text-amber-500 bg-amber-500/10 px-2.5 py-1 rounded-full border border-amber-500/20">
+                  {activeChapterQuiz.chapterNumber === 'FULL' ? 'Comprehensive Final Exam' : `Chapter ${activeChapterQuiz.chapterNumber} Assessment`}
+                </span>
+                <h3 className="text-xl font-black">{activeChapterQuiz.title}</h3>
+              </div>
+
+              {!showQuizResults ? (
+                <div className="space-y-6">
+                  {activeChapterQuiz.questions.map((q: any, qIdx: number) => (
+                    <div key={qIdx} className={`p-5 rounded-2xl border ${theme === 'dark' ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-200'} space-y-3`}>
+                      <p className="text-sm font-bold leading-relaxed">
+                        <span className="text-[#DC2626] mr-2">Q{qIdx + 1}.</span> {q.question}
+                      </p>
+                      <div className="grid grid-cols-1 gap-2 pt-1">
+                        {q.options.map((opt: string, optIdx: number) => (
+                          <button 
+                            key={optIdx}
+                            onClick={() => setQuizAnswers({ ...quizAnswers, [qIdx]: optIdx })}
+                            className={`p-3 rounded-xl border text-xs text-left transition-all ${quizAnswers[qIdx] === optIdx ? 'bg-[#DC2626] text-white border-[#DC2626] font-bold shadow-md' : theme === 'dark' ? 'bg-white/5 border-white/10 hover:border-white/30 text-white/80' : 'bg-white border-slate-200 hover:border-slate-300 text-slate-700'}`}
+                          >
+                            {opt}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+
+                  <button 
+                    onClick={() => setShowQuizResults(true)}
+                    disabled={Object.keys(quizAnswers).length === 0}
+                    className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 text-white py-3.5 rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-emerald-600/20 hover:scale-[1.01] transition-all disabled:opacity-40"
+                  >
+                    Submit Quiz & View Score
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-6 text-center">
+                  <div className="p-6 rounded-3xl bg-emerald-500/10 border border-emerald-500/20 space-y-2">
+                    <Trophy size={36} className="text-emerald-400 mx-auto" />
+                    <h4 className="text-2xl font-black text-emerald-400">
+                      Score: {calculateScore()} / {activeChapterQuiz.questions.length}
+                    </h4>
+                    <p className="text-xs text-emerald-200/80">
+                      {Math.round((calculateScore() / activeChapterQuiz.questions.length) * 100)}% Accuracy on this module!
+                    </p>
+                  </div>
+
+                  <div className="space-y-4 text-left">
+                    <h4 className="text-xs font-black uppercase tracking-wider text-white/50">Answer Explanations</h4>
+                    {activeChapterQuiz.questions.map((q: any, idx: number) => (
+                      <div key={idx} className="p-4 rounded-2xl bg-white/5 border border-white/5 text-xs space-y-1">
+                        <p className="font-bold text-white/90">Q{idx + 1}: {q.question}</p>
+                        <p className={quizAnswers[idx] === q.correctAnswer ? "text-emerald-400 font-bold" : "text-red-400 font-bold"}>
+                          Your choice: {q.options[quizAnswers[idx]] || 'None'} {quizAnswers[idx] === q.correctAnswer ? '✓ Correct' : '✗ Incorrect'}
+                        </p>
+                        <p className="text-white/60 italic pt-1 border-t border-white/5">{q.explanation}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button 
+                    onClick={() => setActiveChapterQuiz(null)}
+                    className="w-full bg-[#DC2626] text-white py-3 rounded-2xl text-xs font-black uppercase tracking-widest"
+                  >
+                    Close Quiz
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

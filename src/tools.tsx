@@ -14,7 +14,7 @@ import {
   Share2, Trophy, Search, Check, X, ArrowLeft as ChevronLeft, GraduationCap, Users, User, Clock as ClockIcon,
   Activity, Video, Copy, PlusCircle, Plus, Italic, List, XCircle, CheckCircle2, MessageSquare,
   Undo2, Redo2, Save, CornerDownRight, Menu, ExternalLink, Percent, Bookmark, AlertCircle, Book, HelpCircle, Calculator,
-  Shirt, MoreVertical, CheckSquare, ListTodo, Compass, Wand2, Palette, Type
+  Shirt, MoreVertical, CheckSquare, ListTodo, Compass, Wand2, Palette, Type, Lock, Unlock
 } from 'lucide-react';
 
 const WhatsAppIcon = ({ size = 24, className = "" }: { size?: number, className?: string }) => (
@@ -509,7 +509,7 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
 
     setShowOmniQuizModal(false);
     if (props.onOpenOmniWithPrompt) {
-      props.onOpenOmniWithPrompt(contextPrompt);
+      props.onOpenOmniWithPrompt(contextPrompt, targetSessionId);
     } else {
       if (setActiveTab) {
         setActiveTab('chat');
@@ -810,21 +810,37 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
 
 
 
+  const isOwner = user?.email?.toLowerCase().trim() === 'nuellkelechi@gmail.com';
+
   const toolItems = useMemo(() => [
     { id: 'record', title: 'Transcribe Audio', icon: FileAudio, color: 'from-red-600 to-red-400', desc: 'Audio Transcription & Notes' },
     { id: 'quiz', title: 'Smart Quiz', icon: Zap, color: 'from-yellow-500 to-amber-400', desc: 'Test Your Knowledge' },
     { id: 'exam', title: 'CBT Exam', icon: ShieldCheck, color: 'from-orange-600 to-orange-400', desc: 'Professional Testing' },
     { id: 'faculty', title: 'Faculty Specials', icon: GraduationCap, color: 'from-blue-600 to-indigo-400', desc: 'Department Specific' },
     { id: 'assignment', title: 'Solve', icon: BookOpen, color: 'from-purple-600 to-pink-400', desc: 'Step-by-Step AI Solutions' },
-    { id: 'courses', title: 'Courses Tool', icon: BookOpen, color: 'from-emerald-600 to-teal-400', desc: 'Course-Specific Learning' },
     { id: 'notebook', title: 'Notebook Tool', icon: FileText, color: 'from-amber-600 to-yellow-400', desc: 'AI-Powered Sources' },
     { id: 'whatsapp', title: 'Omni WhatsApp', icon: WhatsAppIcon, color: 'from-green-600 to-green-400', desc: '+2349064470122' }
   ], [setActiveTab]);
 
   const comingSoonTools = useMemo(() => [
+    { id: 'courses', title: 'Courses Tool', icon: BookOpen, color: 'from-emerald-600/60 to-teal-400/60', desc: 'Coming Soon' },
     { id: 'class', title: 'Live Classroom', icon: Video, color: 'from-pink-600/60 to-rose-400/60', desc: 'Coming Soon' },
     { id: 'gst', title: 'Study GST Tool', icon: GraduationCap, color: 'from-teal-600/60 to-cyan-400/60', desc: 'Coming Soon' }
   ], []);
+
+  const handleComingSoonClick = useCallback((tool: any) => {
+    if (isOwner) {
+      if (tool.action) {
+        tool.action();
+      } else {
+        setToolsSubTab(tool.id);
+      }
+    } else {
+      if (setUserNotification) {
+        setUserNotification(`🚧 ${tool.title} is coming soon! Stay tuned.`);
+      }
+    }
+  }, [isOwner, setToolsSubTab, setUserNotification]);
 
   return (
     <motion.div 
@@ -874,22 +890,42 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
               {comingSoonTools.map((tool) => (
                 <div
                   key={tool.id}
-                  onClick={() => setUserNotification && setUserNotification(`🚧 ${tool.title} is coming soon! Stay tuned.`)}
-                  className={`flex flex-col items-center justify-center text-center p-5 rounded-3xl h-44 transition-all duration-300 relative overflow-hidden select-none cursor-pointer opacity-75 hover:opacity-100 ${
+                  onClick={() => handleComingSoonClick(tool)}
+                  className={`flex flex-col items-center justify-center text-center p-5 rounded-3xl h-44 transition-all duration-300 relative overflow-hidden select-none cursor-pointer ${
+                    isOwner 
+                      ? 'opacity-90 hover:opacity-100 hover:-translate-y-1' 
+                      : 'opacity-75 hover:opacity-100'
+                  } ${
                     theme === 'dark' 
                       ? 'bg-white/[0.02] border border-dashed border-white/10 hover:border-white/20' 
                       : 'bg-slate-100/60 border border-dashed border-slate-300 hover:border-slate-400'
                   }`}
                 >
-                  <div className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full bg-[#DC2626]/15 border border-[#DC2626]/30 text-[#DC2626] text-[7px] font-black uppercase tracking-wider">
-                    Coming Soon
+                  <div className={`absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full text-[7px] font-black uppercase tracking-wider flex items-center gap-1 ${
+                    isOwner 
+                      ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-400' 
+                      : 'bg-[#DC2626]/15 border border-[#DC2626]/30 text-[#DC2626]'
+                  }`}>
+                    {isOwner ? (
+                      <>
+                        <Unlock size={8} />
+                        <span>Owner Access</span>
+                      </>
+                    ) : (
+                      <>
+                        <Lock size={8} />
+                        <span>Coming Soon</span>
+                      </>
+                    )}
                   </div>
-                  <div className={`p-4 rounded-2xl bg-gradient-to-tr ${tool.color} text-white shadow-md shrink-0 mb-3 grayscale-[25%]`}>
+                  <div className={`p-4 rounded-2xl bg-gradient-to-tr ${tool.color} text-white shadow-md shrink-0 mb-3 ${isOwner ? '' : 'grayscale-[25%]'}`}>
                     <tool.icon size={24} />
                   </div>
                   <div className="space-y-1 w-full text-center z-10">
                     <h3 className={`font-extrabold text-[11px] sm:text-xs uppercase tracking-tight leading-tight truncate px-1 ${theme === 'dark' ? 'text-white/70' : 'text-slate-700'}`}>{tool.title}</h3>
-                    <p className={`text-[8px] uppercase tracking-wider font-bold leading-none truncate px-1 block text-[#DC2626]`}>{tool.desc}</p>
+                    <p className={`text-[8px] uppercase tracking-wider font-bold leading-none truncate px-1 block ${isOwner ? 'text-emerald-400 font-extrabold' : 'text-[#DC2626]'}`}>
+                      {isOwner ? 'Click to Open' : tool.desc}
+                    </p>
                   </div>
                 </div>
               ))}
@@ -1432,8 +1468,12 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                                       setShowNoteMenu(false);
                                       setIsPodcastActive(true);
                                       setIsTeacherMode(false);
-                                      if (podcastDialogue.length === 0 && selectedNote?.content) {
-                                        generatePodcastDiscussion(selectedNote.content);
+                                      if (selectedNote) {
+                                        let sourceContent = `${selectedNote.title || ''}\n\n${selectedNote.content || ''}`;
+                                        if (selectedNote.attachments && selectedNote.attachments.length > 0) {
+                                          sourceContent += `\n\nAttached Documents in Note:\n` + selectedNote.attachments.map((att: any) => `- ${att.name || 'Attachment'}: ${att.extractedText || att.text || ''}`).join('\n');
+                                        }
+                                        generatePodcastDiscussion(sourceContent);
                                       }
                                     }}
                                     className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-purple-500/10 text-xs font-bold transition-all text-left cursor-pointer"
@@ -1444,7 +1484,29 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                                   <button 
                                     onClick={() => {
                                       setShowNoteMenu(false);
-                                      setShowQuizConfigPopup(true);
+                                      if (selectedNote) {
+                                        setImportedQuizNote(selectedNote);
+                                        setQuizTopic(selectedNote.title || 'Study Note');
+                                        
+                                        // Convert note attachments into quiz documents if available
+                                        if (selectedNote.attachments && selectedNote.attachments.length > 0) {
+                                          const docItems = selectedNote.attachments.map((att: any, idx: number) => ({
+                                            id: att.id || `att-${Date.now()}-${idx}`,
+                                            name: att.name || `Attachment ${idx + 1}`,
+                                            size: att.size || 0,
+                                            extractedText: att.extractedText || att.text || (att.url ? `Document: ${att.name}` : ''),
+                                            pageImages: att.pageImages || []
+                                          }));
+                                          if ((props as any).setQuizDocuments) {
+                                            (props as any).setQuizDocuments(docItems);
+                                          }
+                                        }
+                                        
+                                        if (setToolsSubTab) {
+                                          setToolsSubTab('quiz');
+                                        }
+                                        setUserNotification(`Loaded "${selectedNote.title || 'Note'}" into Quiz Generator. Set your options and click Create Quiz!`);
+                                      }
                                     }}
                                     className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-purple-500/10 text-xs font-bold transition-all text-left cursor-pointer"
                                   >
@@ -3822,31 +3884,52 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
       )}
 
       {toolsSubTab === 'courses' && (
-        <motion.div key="courses" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
-          <div className="flex items-center justify-between px-2">
-            <button onClick={handleToolsBack} className="text-white/40 hover:text-[#DC2626] transition-colors flex items-center gap-1.5 text-xs font-black uppercase">
-              <ArrowLeft size={14} /> Back to Tools
-            </button>
-            <div className="flex items-center gap-2">
-              <span className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-white/20' : 'text-slate-400'}`}>Courses Tool</span>
-              <BookOpen size={20} className="text-[#DC2626]" />
+        !isOwner ? (
+          <div className="p-8 text-center space-y-4 my-8 rounded-3xl bg-white/[0.03] border border-white/10 max-w-lg mx-auto backdrop-blur-xl">
+            <div className="inline-flex p-4 rounded-2xl bg-amber-500/10 text-amber-500 border border-amber-500/20 mb-2">
+              <Lock size={28} />
             </div>
+            <h3 className={`text-base font-black uppercase tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Courses Tool — Coming Soon</h3>
+            <p className={`text-xs leading-relaxed max-w-md mx-auto ${theme === 'dark' ? 'text-white/60' : 'text-slate-600'}`}>
+              This tool is currently under active development. Access is reserved for site administrator preview.
+            </p>
+            <button 
+              onClick={handleToolsBack} 
+              className="mt-2 px-5 py-2.5 bg-[#DC2626] hover:bg-red-700 rounded-2xl text-xs font-bold uppercase text-white shadow-md transition-all active:scale-95"
+            >
+              Back to Tools
+            </button>
           </div>
-          <CoursesTool 
-            theme={theme}
-            user={user}
-            getAiInstance={getAiInstance}
-            getHfInstance={getHfInstance}
-            setUserNotification={setUserNotification}
-            setQuizTopic={setQuizTopic}
-            setQuizQuestionCount={setQuizQuestionCount}
-            setQuizDifficulty={setQuizDifficulty}
-            generateQuiz={generateQuiz}
-            setToolsSubTab={setToolsSubTab}
-            setQuizState={setQuizState}
-            checkAndIncrementUsage={checkAndIncrementUsage}
-          />
-        </motion.div>
+        ) : (
+          <motion.div key="courses" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
+            <div className="flex items-center justify-between px-2">
+              <button onClick={handleToolsBack} className="text-white/40 hover:text-[#DC2626] transition-colors flex items-center gap-1.5 text-xs font-black uppercase">
+                <ArrowLeft size={14} /> Back to Tools
+              </button>
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                  <Unlock size={10} /> Owner Access
+                </span>
+                <span className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-white/20' : 'text-slate-400'}`}>Courses Tool</span>
+                <BookOpen size={20} className="text-[#DC2626]" />
+              </div>
+            </div>
+            <CoursesTool 
+              theme={theme}
+              user={user}
+              getAiInstance={getAiInstance}
+              getHfInstance={getHfInstance}
+              setUserNotification={setUserNotification}
+              setQuizTopic={setQuizTopic}
+              setQuizQuestionCount={setQuizQuestionCount}
+              setQuizDifficulty={setQuizDifficulty}
+              generateQuiz={generateQuiz}
+              setToolsSubTab={setToolsSubTab}
+              setQuizState={setQuizState}
+              checkAndIncrementUsage={checkAndIncrementUsage}
+            />
+          </motion.div>
+        )
       )}
 
       {toolsSubTab === 'faculty' && (
@@ -4081,14 +4164,13 @@ const helpContent = {
     title: "Recording Engine Help",
     items: [
       {
-        question: "How to record classes & sync audio?",
+        question: "How to transcribe audio & generate notes?",
         steps: [
-          "Ensure you are in a relatively quiet environment for best results.",
-          "Grant microphone permissions when the browser pop-up appears.",
-          "Click the large 'Record' button to start captured live audio.",
-          "The 'Waveform' indicator shows that the engine is active.",
-          "Click 'Stop Session' once the lecture concludes.",
-          "Wait 10-20 seconds for the AI to synthesize the raw audio into structured notes."
+          "Upload or select an audio file to transcribe.",
+          "Click the 'Transcribe' button to start processing.",
+          "The processing indicator shows that the transcription engine is active.",
+          "Wait a few seconds for the AI to synthesize the audio into structured notes.",
+          "Access your generated notes and create practice quizzes from the transcription."
         ]
       },
       {

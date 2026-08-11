@@ -4,6 +4,7 @@ import axios from 'axios';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import JSZip from 'jszip';
+import { runLocalQwenInference } from './lib/capacitor';
 
 // Configure pdfjs worker URL
 if (pdfjsLib.GlobalWorkerOptions) {
@@ -231,14 +232,72 @@ export const handleHfErrorGlobal = (error: any, label: string) => {
   }
 };
 
+function extractPromptFromArgs(args: any[]): { prompt: string; isAudioTranscription: boolean; mimeType?: 'application/json' | 'text/plain' } {
+  if (!args || !args[0]) return { prompt: '', isAudioTranscription: false };
+  const req = args[0];
+  let promptText = '';
+  let isAudioTranscription = false;
+  let mimeType: 'application/json' | 'text/plain' | undefined = undefined;
+
+  if (req.config?.responseMimeType === 'application/json') {
+    mimeType = 'application/json';
+  }
+
+  const checkPart = (part: any) => {
+    if (part?.text) promptText += ' ' + part.text;
+    if (part?.inlineData?.mimeType?.startsWith('audio/') || part?.fileData?.mimeType?.startsWith('audio/')) {
+      isAudioTranscription = true;
+    }
+  };
+
+  if (typeof req.contents === 'string') {
+    promptText = req.contents;
+  } else if (Array.isArray(req.contents)) {
+    for (const c of req.contents) {
+      if (typeof c === 'string') promptText += ' ' + c;
+      else if (c?.parts) {
+        if (Array.isArray(c.parts)) c.parts.forEach(checkPart);
+      } else if (c?.text) {
+        promptText += ' ' + c.text;
+      }
+    }
+  } else if (req.contents?.parts) {
+    if (Array.isArray(req.contents.parts)) req.contents.parts.forEach(checkPart);
+  } else if (req.contents) {
+    promptText = JSON.stringify(req.contents);
+  }
+
+  if (promptText.toLowerCase().includes('transcribe this audio') || promptText.toLowerCase().includes('audio transcription') || promptText.toLowerCase().includes('transcribe literally')) {
+    isAudioTranscription = true;
+  }
+
+  return { prompt: promptText.trim(), isAudioTranscription, mimeType };
+}
+
 export const getAiInstance = () => {
   const key = getApiKey();
-  if (!key) throw new Error("Gemini API Key is missing. Please set GEMINI_API_KEY in your environment.");
-  const instance = new GoogleGenAI({ apiKey: key });
+  const instance = new GoogleGenAI({ apiKey: key || 'offline_fallback_key' });
   
   if (instance.models && typeof instance.models.generateContent === 'function') {
     const originalGenerateContent = instance.models.generateContent.bind(instance.models);
     instance.models.generateContent = async (...args: any[]) => {
+      const { prompt, isAudioTranscription, mimeType } = extractPromptFromArgs(args);
+      const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+
+      // Handle offline mode directly
+      if (!isOnline) {
+        if (isAudioTranscription) {
+          throw new Error("⚠️ Audio transcription requires an active internet connection. Please connect to the internet to transcribe audio.");
+        }
+
+        console.log("⚡ [Offline Mode] Routing request to on-device Qwen AI model...");
+        const localText = await runLocalQwenInference({ prompt, responseMimeType: mimeType });
+        return {
+          text: localText,
+          candidates: [{ content: { parts: [{ text: localText }] } }]
+        };
+      }
+
       let lastError: any = null;
       for (let attempt = 1; attempt <= 4; attempt++) {
         try {
@@ -247,6 +306,24 @@ export const getAiInstance = () => {
           lastError = err;
           const errMsg = String(err.message || err);
           console.warn(`[AI Attempt ${attempt} failed]:`, errMsg);
+
+          // Network or offline error during request execution
+          if (
+            errMsg.toLowerCase().includes("failed to fetch") ||
+            errMsg.toLowerCase().includes("networkerror") ||
+            errMsg.toLowerCase().includes("offline") ||
+            !navigator.onLine
+          ) {
+            if (isAudioTranscription) {
+              throw new Error("⚠️ Audio transcription requires an active internet connection. Please connect to the internet to transcribe audio.");
+            }
+            console.log("⚡ [Network Fallback] Offline during fetch, routing to local Qwen engine...");
+            const localText = await runLocalQwenInference({ prompt, responseMimeType: mimeType });
+            return {
+              text: localText,
+              candidates: [{ content: { parts: [{ text: localText }] } }]
+            };
+          }
           
           const containsBusy = errMsg.toLowerCase().includes("model") || 
                                errMsg.toLowerCase().includes("spikes") || 
@@ -256,12 +333,10 @@ export const getAiInstance = () => {
                                errMsg.toLowerCase().includes("busy");
                                
           if (attempt < 4) {
-            // Wait a short delay before retrying
             await new Promise(resolve => setTimeout(resolve, 800 * attempt));
             continue;
           }
           
-          // Final attempt failed, handle the error
           if (containsBusy) {
             throw new Error("(the Ai is busy try again sooner)");
           } else {
@@ -297,7 +372,7 @@ export const robustJSONParse = (text: string) => {
   let cleaned = text.trim();
   
   if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```(?:json)?\n?|```$/g, '').trim();
+    cleaned = cleaned.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/g, '').trim();
   }
 
   const fixControlCharacters = (str: string) => {
@@ -308,15 +383,12 @@ export const robustJSONParse = (text: string) => {
       const char = str[i];
       if (inString) {
         if (escape) {
-          // This character is escaped. Append it and reset escape state.
           output += char;
           escape = false;
         } else if (char === '\\') {
-          // Inner backslash sequences
           output += char;
           escape = true;
         } else if (char === '"') {
-          // Closing quote of string
           output += char;
           inString = false;
         } else if (char === '\n') {
@@ -349,28 +421,82 @@ export const robustJSONParse = (text: string) => {
     return str.replace(/\\(?![/"\\bfnrtu])/g, '\\\\');
   };
 
+  // 1. Direct attempt
   try {
-    const fixedText = fixControlCharacters(cleaned);
-    return JSON.parse(fixedText);
-  } catch (err) {
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const jsonStr = jsonMatch[0];
-      try {
-        const fixedMatch = fixControlCharacters(jsonStr);
-        return JSON.parse(fixedMatch);
-      } catch (err2) {
-        try {
-          const fixedEscapingStr = fixControlCharacters(fixEscaping(jsonStr));
-          return JSON.parse(fixedEscapingStr);
-        } catch (err3) {
-          console.error("Robust JSON parse failed:", { original: err, second: err2, final: err3 });
-          throw err;
+    return JSON.parse(fixControlCharacters(cleaned));
+  } catch (e) {
+    // Continue
+  }
+
+  // 2. Extract balanced JSON object or array (ignores trailing text outside the JSON)
+  const findBalanced = (input: string): string | null => {
+    const firstObj = input.indexOf('{');
+    const firstArr = input.indexOf('[');
+    if (firstObj === -1 && firstArr === -1) return null;
+
+    let startIdx = -1;
+    let openChar = '';
+    let closeChar = '';
+
+    if (firstObj !== -1 && (firstArr === -1 || firstObj < firstArr)) {
+      startIdx = firstObj;
+      openChar = '{';
+      closeChar = '}';
+    } else {
+      startIdx = firstArr;
+      openChar = '[';
+      closeChar = ']';
+    }
+
+    let depth = 0;
+    let inStr = false;
+    let escaped = false;
+
+    for (let i = startIdx; i < input.length; i++) {
+      const ch = input[i];
+      if (inStr) {
+        if (escaped) {
+          escaped = false;
+        } else if (ch === '\\') {
+          escaped = true;
+        } else if (ch === '"') {
+          inStr = false;
+        }
+      } else {
+        if (ch === '"') {
+          inStr = true;
+        } else if (ch === openChar) {
+          depth++;
+        } else if (ch === closeChar) {
+          depth--;
+          if (depth === 0) {
+            return input.substring(startIdx, i + 1);
+          }
         }
       }
     }
-    throw err;
+    return null;
+  };
+
+  const extracted = findBalanced(cleaned);
+  if (extracted) {
+    try {
+      return JSON.parse(fixControlCharacters(extracted));
+    } catch (err1) {
+      try {
+        return JSON.parse(fixControlCharacters(fixEscaping(extracted)));
+      } catch (err2) {
+        try {
+          const noTrailing = fixControlCharacters(extracted).replace(/,\s*([\}\]])/g, '$1');
+          return JSON.parse(noTrailing);
+        } catch (err3) {
+          console.warn("Robust JSON parse fallback exhausted for extracted text");
+        }
+      }
+    }
   }
+
+  return null;
 };
 
 export const HF_MODELS = {
