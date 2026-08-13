@@ -73,10 +73,7 @@ export const GeneralHistoryPage: React.FC<GeneralHistoryPageProps> = ({
   });
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0 }}
+    <div
       className="space-y-6 pb-24 max-w-4xl mx-auto px-3 sm:px-6 font-sans text-left"
     >
       {/* Top Bar */}
@@ -155,7 +152,7 @@ export const GeneralHistoryPage: React.FC<GeneralHistoryPageProps> = ({
 
             return (
               <div
-                key={item.id || idx}
+                key={`${item.id || 'gen-hist'}-${idx}`}
                 onClick={() => {
                   if (isQuiz) {
                     if (item.id) onOpenQuizById(item.id);
@@ -213,6 +210,6 @@ export const GeneralHistoryPage: React.FC<GeneralHistoryPageProps> = ({
           })}
         </div>
       )}
-    </motion.div>
+    </div>
   );
 };

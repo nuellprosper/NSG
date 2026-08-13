@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cleanTextForSpeech } from '../lib/tts';
+import { robustJSONParse } from '../utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -327,8 +328,8 @@ export const AILibrary: React.FC<{
         config: { responseMimeType: "application/json" }
       });
       const text = result?.text || "";
-      const cleanedText = text.replace(/```json|```/g, '').trim();
-      setStemFormulas(JSON.parse(cleanedText));
+      const parsed = robustJSONParse(text);
+      setStemFormulas(parsed);
       
       if (onSaveHistory) {
         onSaveHistory(Math.random().toString(), `${stemTopic} Formulas`, 'faculty', undefined, { type: 'formulas', topic: stemTopic });
@@ -397,8 +398,8 @@ export const AILibrary: React.FC<{
         config: { responseMimeType: "application/json" }
       });
       const text = result?.text || "";
-      const cleanedText = text.replace(/```json|```/g, '').trim();
-      setLatinWords(JSON.parse(cleanedText));
+      const parsed = robustJSONParse(text);
+      setLatinWords(parsed);
 
       if (onSaveHistory) {
         onSaveHistory(Math.random().toString(), `Latin: ${lawLatinQuery}`, 'faculty', undefined, { type: 'latin', query: lawLatinQuery });
@@ -498,11 +499,11 @@ export const AILibrary: React.FC<{
         ` }] }
       });
       const text = result?.text || "";
-      const cleanedText = text.replace(/```json|```/g, '').trim();
-      setSocNewsResult(JSON.parse(cleanedText));
+      const parsed = robustJSONParse(text);
+      setSocNewsResult(parsed);
 
       if (onSaveHistory) {
-        onSaveHistory(Math.random().toString(), `Journalism: ${socFiles[0]?.name || 'News'}`, 'faculty', undefined, { type: 'news', result: JSON.parse(cleanedText) });
+        onSaveHistory(Math.random().toString(), `Journalism: ${socFiles[0]?.name || 'News'}`, 'faculty', undefined, { type: 'news', result: parsed });
       }
     } catch (err: any) {
       console.error(err);
@@ -1210,8 +1211,8 @@ export const AILibrary: React.FC<{
                           config: { responseMimeType: "application/json" }
                         });
                         const text = result?.text || "";
-                        const cleanedText = text.replace(/```json|```/g, '').trim();
-                        setLangOutput(JSON.parse(cleanedText));
+                        const parsed = robustJSONParse(text);
+                        setLangOutput(parsed);
                       } catch (err: any) {
                         console.error(err);
                         if (setUserNotification) setUserNotification(`AI Error: ${err.message}`);

@@ -98,10 +98,7 @@ export const PremiumPage: React.FC<PremiumPageProps> = ({
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 10 }}
+    <div
       className="max-w-md mx-auto px-3 sm:px-4 py-3 font-sans text-left flex flex-col space-y-4 select-none"
     >
       {/* Top Header Bar */}
@@ -282,6 +279,6 @@ export const PremiumPage: React.FC<PremiumPageProps> = ({
           <span>Secure payment. Cancel anytime.</span>
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 };

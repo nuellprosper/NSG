@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { CoursesTool } from '../subComponents';
+export { CoursesTool };
 import { 
   Search, RefreshCcw, Sparkles, X, Zap, ShieldCheck, BookOpen, ChevronRight, 
   Trash2, Camera, Upload, History, Volume2, Square, Send, Image as ImageIcon, Mic, Brain 
@@ -24,7 +26,7 @@ export const COMMON_COURSES: Course[] = [
   { code: 'BUS 101', name: 'Introduction to Business', description: 'The nature of business, entrepreneurship, organizational structures, and the functional areas of modern business.' }
 ];
 
-export const CoursesTool = ({ theme, user, getAiInstance, getHfInstance, setUserNotification, setQuizTopic, setQuizQuestionCount, setQuizDifficulty, generateQuiz, setToolsSubTab, setQuizState, checkAndIncrementUsage }: any) => {
+const OldCoursesToolDuplicate = ({ theme, user, getAiInstance, getHfInstance, setUserNotification, setQuizTopic, setQuizQuestionCount, setQuizDifficulty, generateQuiz, setToolsSubTab, setQuizState, checkAndIncrementUsage }: any) => {
   const [courseSearch, setCourseSearch] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [suggestedCourses, setSuggestedCourses] = useState<Course[]>([]);
@@ -62,8 +64,7 @@ export const CoursesTool = ({ theme, user, getAiInstance, getHfInstance, setUser
       });
       
       const text = response?.text || "";
-      const cleanedText = text.replace(/```json|```/g, '').trim();
-      const courses = JSON.parse(cleanedText);
+      const courses = robustJSONParse(text) || [];
       setSuggestedCourses(Array.isArray(courses) ? courses : []);
     } catch (err) {
       console.error("Course Search Error:", err);

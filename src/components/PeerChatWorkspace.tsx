@@ -468,7 +468,7 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
               
               return (
                 <div 
-                  key={msg.id || index}
+                  key={`${msg.id || 'peer'}-${index}`}
                   onContextMenu={(e) => onMessageContextMenu(e, msg)}
                   className={`flex w-full ${isMe ? 'justify-end' : 'justify-start'}`}
                 >

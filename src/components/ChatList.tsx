@@ -8,6 +8,7 @@ import { Chat } from '../types/chat';
 
 interface ChatListProps {
   chats: Chat[];
+  chatSessions?: any[];
   selectedChat: Chat | null;
   setSelectedChat: (chat: Chat | null) => void;
   user: any;
@@ -34,6 +35,7 @@ interface ChatListProps {
 
 export const ChatList: React.FC<ChatListProps> = ({
   chats,
+  chatSessions,
   selectedChat,
   setSelectedChat,
   user,
@@ -60,51 +62,120 @@ export const ChatList: React.FC<ChatListProps> = ({
   const [showSearchInput, setShowSearchInput] = useState(false);
   const [showSettingsDropdown, setShowSettingsDropdown] = useState(false);
 
-  // Core Sorting & Pin Logic (OMNI at index 0 always)
+  // Core Sorting & Pin Logic (Omni AI Chat Sessions Exclusively)
   const processChatsList = (): Chat[] => {
-    // 1. Separate Omni from standard threads
-    const omniChat = chats.find(c => c.isOmni || c.id.startsWith('omni_'));
-    const secondaryChats = chats.filter(c => !(c.isOmni || c.id.startsWith('omni_')));
+    const omniChatsMap = new Map<string, Chat>();
 
-    // 2. Sort standard chats: Pinned first, then latest updated time
-    const sortedSecondary = [...secondaryChats].sort((a, b) => {
-      if (a.isPinned && !b.isPinned) return -1;
-      if (!a.isPinned && b.isPinned) return 1;
-      const tA = a.updatedAt?.toMillis?.() || (a.updatedAt instanceof Date ? a.updatedAt.getTime() : 0);
-      const tB = b.updatedAt?.toMillis?.() || (b.updatedAt instanceof Date ? b.updatedAt.getTime() : 0);
-      return tB - tA;
+    chats.filter(c => c.isOmni || c.id.startsWith('omni_')).forEach(c => {
+      omniChatsMap.set(c.id, c);
     });
 
-    // 3. Render Omni fixed at index 0 if found
-    const finalChain: Chat[] = [];
-    if (omniChat) {
-      finalChain.push(omniChat);
-    }
-    finalChain.push(...sortedSecondary);
+    const savedSessions = chatSessions || (() => {
+      try {
+        const saved = localStorage.getItem(`nsg_omni_sessions_${user?.uid || 'guest'}`);
+        return saved ? JSON.parse(saved) : [];
+      } catch (e) {
+        return [];
+      }
+    })();
 
-    return finalChain;
+    if (Array.isArray(savedSessions)) {
+      savedSessions.forEach((s: any) => {
+        if (!omniChatsMap.has(s.id)) {
+          const lastMsgText = Array.isArray(s.messages) && s.messages.length > 0 
+            ? (s.messages[s.messages.length - 1].text || 'Omni Chat Session')
+            : 'Omni AI Study Companion';
+          omniChatsMap.set(s.id, {
+            id: s.id,
+            name: s.title || 'Omni AI Session',
+            type: 'direct',
+            isOmni: true,
+            isPinned: Boolean(s.isPinned),
+            lastMessage: lastMsgText,
+            members: [user?.uid || 'user'],
+            updatedAt: s.timestamp || Date.now()
+          } as any);
+        }
+      });
+    }
+
+    const omniChats = Array.from(omniChatsMap.values());
+
+    if (omniChats.length === 0) {
+      return [{
+        id: 'omni_main',
+        name: 'Omni AI Study Companion',
+        type: 'direct',
+        isOmni: true,
+        lastMessage: 'Ask Omni anything! Powered by Local Qwen & Cloud AI',
+        members: [user?.uid || 'user']
+      } as any];
+    }
+
+    return omniChats;
   };
 
   const processedChats = processChatsList();
 
-  // Apply search/sub-filters
-  const filteredChats = processedChats.filter(chat => {
-    const chatName = (getChatName(chat) || '').toLowerCase();
-    const queryMatch = chatName.includes(searchQuery.toLowerCase());
-    if (!queryMatch) return false;
+  const query = searchQuery.toLowerCase().trim();
 
-    // Sub filter logic
-    if (subFilter === 'unread') {
-      return chat.unreadBy?.includes(user?.uid || '');
+  // Helper to retrieve message list for a chat session
+  const getMessagesForChat = (chatId: string): any[] => {
+    if (chatSessions && Array.isArray(chatSessions)) {
+      const sess = chatSessions.find((s: any) => s.id === chatId);
+      if (sess && Array.isArray(sess.messages) && sess.messages.length > 0) {
+        return sess.messages;
+      }
     }
-    if (subFilter === 'secured') {
-      // Direct clean non-AI P2P conversations (no Omni, no Group)
-      return !chat.isOmni && !chat.id.startsWith('omni_') && chat.type !== 'group';
+    try {
+      const saved = localStorage.getItem(`nsg_msgs_${chatId}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {}
+    try {
+      const savedOmni = localStorage.getItem(`nsg_omni_sessions_${user?.uid || 'guest'}`);
+      if (savedOmni) {
+        const parsedOmni = JSON.parse(savedOmni);
+        const sess = parsedOmni.find((s: any) => s.id === chatId);
+        if (sess && Array.isArray(sess.messages)) return sess.messages;
+      }
+    } catch (e) {}
+    return [];
+  };
+
+  // Find matching text snippet in conversation history
+  const getMatchingSnippet = (chat: Chat): string | null => {
+    if (!query) return null;
+    const msgs = getMessagesForChat(chat.id);
+    for (const m of msgs) {
+      const text = String(m.text || m.noteContent || m.noteTitle || m.content || '');
+      if (text.toLowerCase().includes(query)) {
+        const idx = text.toLowerCase().indexOf(query);
+        const start = Math.max(0, idx - 15);
+        const end = Math.min(text.length, idx + query.length + 30);
+        let snippet = text.slice(start, end);
+        if (start > 0) snippet = '...' + snippet;
+        if (end < text.length) snippet = snippet + '...';
+        return snippet;
+      }
     }
-    if (subFilter === 'groups') {
-      return chat.type === 'group';
-    }
-    return true; // includes 'all'
+    return null;
+  };
+
+  // Filter processed chats by checking chat name, last message, AND full message history content!
+  const filteredChats = processedChats.filter(chat => {
+    if (!query) return true;
+    const chatName = (getChatName(chat) || '').toLowerCase();
+    if (chatName.includes(query)) return true;
+    if (chat.lastMessage && chat.lastMessage.toLowerCase().includes(query)) return true;
+
+    const msgs = getMessagesForChat(chat.id);
+    return msgs.some((m: any) => {
+      const text = String(m.text || m.noteContent || m.noteTitle || m.content || '').toLowerCase();
+      return text.includes(query);
+    });
   });
 
   return (
@@ -112,101 +183,58 @@ export const ChatList: React.FC<ChatListProps> = ({
       {/* Sticky Top-aligned Header Component */}
       <div className="sticky top-0 z-30 bg-gradient-to-b from-[#181628] to-[#13111C]/95 backdrop-blur-md px-6 py-4 border-b border-white/5 shrink-0">
         <div className="flex items-center justify-between">
-          <AnimatePresence mode="wait">
-            {isSelectionMode ? (
-              <motion.div 
-                initial={{ opacity: 0, y: -5 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -5 }}
-                className="flex items-center gap-4 w-full justify-between"
+          <div className="flex items-center justify-between w-full">
+            <h1 className="text-md font-black uppercase tracking-tighter italic text-white flex items-center gap-2">
+              <span className="w-1.5 h-4 bg-[#DC2626] rounded-full inline-block" />
+              Omni AI Chat
+            </h1>
+            
+            <div className="flex items-center gap-1 relative z-40">
+              <button 
+                onClick={() => setShowSearchInput(!showSearchInput)}
+                className="p-2 rounded-xl transition-all hover:bg-white/5 text-[#DC2626] focus:outline-none"
+                title="Search chat history"
               >
-                <div className="flex items-center gap-3">
-                  <button 
-                    onClick={() => {
-                      setIsSelectionMode(false);
-                      // Clear selections
-                      chats.forEach(c => {
-                        if (selectedChatIds.includes(c.id)) {
-                          toggleChatSelection(c.id);
-                        }
-                      });
-                    }}
-                    className="p-1 rounded-lg hover:bg-white/10 text-white/60 hover:text-white"
-                  >
-                    <X size={18} />
-                  </button>
-                  <span className="text-xs font-black uppercase tracking-widest text-[#DC2626]">
-                    {selectedChatIds.length} Selected
-                  </span>
-                </div>
-                {selectedChatIds.length > 0 && (
-                  <button 
-                    onClick={onBatchDelete}
-                    className="p-2 bg-red-650/15 hover:bg-red-500/25 border border-red-500/25 text-[#DC2626] rounded-xl font-bold text-[10px] uppercase tracking-widest transition-all flex items-center gap-1.5"
-                  >
-                    <Trash2 size={12} /> Delete
-                  </button>
+                <Search size={16} />
+              </button>
+
+              <button 
+                onClick={() => setShowSettingsDropdown(!showSettingsDropdown)}
+                className="p-2 rounded-xl transition-all hover:bg-white/5 text-white/50 hover:text-white focus:outline-none"
+              >
+                <MoreVertical size={16} />
+              </button>
+
+              {/* Settings dropdown menu */}
+              <AnimatePresence>
+                {showSettingsDropdown && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowSettingsDropdown(false)} />
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                      className="absolute right-0 top-11 w-48 bg-[#1E1B2E] border border-white/10 rounded-2xl p-2 shadow-2xl z-50 text-left"
+                    >
+                      <button
+                        onClick={() => {
+                          setShowSettingsDropdown(false);
+                          onOpenSettings();
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-white/5 text-xs text-white/80 hover:text-white transition-all font-bold uppercase tracking-wider"
+                      >
+                        <User size={13} className="text-[#DC2626]" /> Edit Profile
+                      </button>
+                      <div className="border-t border-white/5 my-1" />
+                      <div className="px-3 py-1.5 text-[8px] font-black text-white/30 uppercase tracking-widest">
+                        Nuell Study Guide v3.4
+                      </div>
+                    </motion.div>
+                  </>
                 )}
-              </motion.div>
-            ) : (
-              <motion.div 
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="flex items-center justify-between w-full"
-              >
-                <h1 className="text-md font-black uppercase tracking-tighter italic text-white flex items-center gap-2">
-                  <span className="w-1.5 h-4 bg-[#DC2626] rounded-full inline-block" />
-                  NSG Chats
-                </h1>
-                
-                <div className="flex items-center gap-1 relative z-40">
-                  <button 
-                    onClick={() => setShowSearchInput(!showSearchInput)}
-                    className="p-2 rounded-xl transition-all hover:bg-white/5 text-[#DC2626] focus:outline-none"
-                    title="Search scholarly database"
-                  >
-                    <Search size={16} />
-                  </button>
-
-                  <button 
-                    onClick={() => setShowSettingsDropdown(!showSettingsDropdown)}
-                    className="p-2 rounded-xl transition-all hover:bg-white/5 text-white/50 hover:text-white focus:outline-none"
-                  >
-                    <MoreVertical size={16} />
-                  </button>
-
-                  {/* Settings dropdown menu */}
-                  <AnimatePresence>
-                    {showSettingsDropdown && (
-                      <>
-                        <div className="fixed inset-0 z-40" onClick={() => setShowSettingsDropdown(false)} />
-                        <motion.div
-                          initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                          animate={{ opacity: 1, scale: 1, y: 0 }}
-                          exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                          className="absolute right-0 top-11 w-48 bg-[#1E1B2E] border border-white/10 rounded-2xl p-2 shadow-2xl z-50 text-left"
-                        >
-                          <button
-                            onClick={() => {
-                              setShowSettingsDropdown(false);
-                              onOpenSettings();
-                            }}
-                            className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl hover:bg-white/5 text-xs text-white/80 hover:text-white transition-all font-bold uppercase tracking-wider"
-                          >
-                            <User size={13} className="text-[#DC2626]" /> Edit Profile
-                          </button>
-                          <div className="border-t border-white/5 my-1" />
-                          <div className="px-3 py-1.5 text-[8px] font-black text-white/30 uppercase tracking-widest">
-                            Nuell Study Guide v3.4
-                          </div>
-                        </motion.div>
-                      </>
-                    )}
-                  </AnimatePresence>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+              </AnimatePresence>
+            </div>
+          </div>
         </div>
 
         {/* Expandable slide search */}
@@ -221,7 +249,7 @@ export const ChatList: React.FC<ChatListProps> = ({
               <div className="relative">
                 <input 
                   type="text"
-                  placeholder="Query academic key words..."
+                  placeholder="Search Omni conversation..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full bg-[#0A0713] border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-[#DC2626]/50 transition-all font-medium"
@@ -239,33 +267,6 @@ export const ChatList: React.FC<ChatListProps> = ({
             </motion.div>
           )}
         </AnimatePresence>
-      </div>
-
-      {/* WhatsApp style dynamic filter array */}
-      <div className="flex overflow-x-auto gap-1.5 px-6 py-2.5 pb-3 border-b border-white/5 bg-[#13111C]/40 text-left scrollbar-none shrink-0 scroll-smooth">
-        {[
-          { id: 'all', label: 'All Chats' },
-          { id: 'unread', label: 'Unread' },
-          { id: 'groups', label: 'Groups' }
-        ].map((f) => {
-          const active = subFilter === f.id;
-          return (
-            <button
-              key={f.id}
-              onClick={() => {
-                setSubFilter(f.id as any);
-                setActiveTab('chats');
-              }}
-              className={`px-3 py-1.5 text-[8.5px] font-black uppercase tracking-widest rounded-xl whitespace-nowrap transition-all border shrink-0 ${
-                active 
-                  ? 'bg-[#DC2626] border-[#DC2626] text-white shadow-lg shadow-red-950/20' 
-                  : 'bg-white/5 border-white/10 text-white/40 hover:text-white'
-              }`}
-            >
-              {f.label}
-            </button>
-          );
-        })}
       </div>
 
       {/* Chat Lists Canvas */}
@@ -400,17 +401,6 @@ export const ChatList: React.FC<ChatListProps> = ({
             <p className="text-[10px] text-white/30 tracking-tight max-w-[200px]">Initiate a direct channel or academic group to verify credentials.</p>
           </div>
         )}
-      </div>
-
-      {/* Primary Floating Action Button (FAB) at Bottom Right */}
-      <div className="absolute right-6 bottom-6 z-40">
-        <button
-          onClick={onNewChatTrigger}
-          className="w-12 h-12 rounded-full bg-[#6D28D9] border-2 border-transparent hover:border-[#DC2626] hover:bg-[#5B21B6] text-white flex items-center justify-center shadow-lg hover:shadow-red-950/40 active:scale-95 transition-all outline-none"
-          title="Initiate academic connection"
-        >
-          <Plus size={24} className="stroke-[3px]" />
-        </button>
       </div>
     </div>
   );

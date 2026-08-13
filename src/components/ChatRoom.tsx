@@ -233,11 +233,22 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   const [activeTab, setActiveTab] = useState<'chats' | 'groups' | 'calls'>('chats');
   const [subFilter, setSubFilter] = useState<'all' | 'unread' | 'secured' | 'groups' | 'calls'>('all');
   const [chats, setChats] = useState<Chat[]>([]);
-  const [selectedChat, setSelectedChat] = useState<Chat | null>(initialSelectedChat || null);
+  const OMNI_DEFAULT_CHAT: Chat = {
+    id: 'omni_main',
+    name: 'Omni AI Study Companion',
+    type: 'direct',
+    isOmni: true,
+    unreadBy: [],
+    members: [user?.uid || 'guest']
+  } as any;
+
+  const [selectedChat, setSelectedChat] = useState<Chat | null>(initialSelectedChat || OMNI_DEFAULT_CHAT);
 
   useEffect(() => {
     if (initialSelectedChat) {
       setSelectedChat(initialSelectedChat);
+    } else if (!selectedChat) {
+      setSelectedChat(OMNI_DEFAULT_CHAT);
     }
   }, [initialSelectedChat]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -1157,7 +1168,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   useEffect(() => {
     if (!selectedChat) return;
     
-    // Load from local storage first
+    // Load from local storage or omniSessions first
     const localMsgs = localStorage.getItem(`nsg_msgs_${selectedChat.id}`);
     if (localMsgs) {
       try {
@@ -1167,7 +1178,16 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         setMessages([]);
       }
     } else {
-      setMessages([]);
+      if (selectedChat.isOmni || selectedChat.id.startsWith('omni_')) {
+        const matchingSession = omniSessions.find(s => s.id === selectedChat.id);
+        if (matchingSession && matchingSession.messages && matchingSession.messages.length > 0) {
+          setMessages(matchingSession.messages);
+        } else {
+          setMessages([]);
+        }
+      } else {
+        setMessages([]);
+      }
     }
 
     lastMessageIdRef.current = null; // Reset for new chat load
@@ -1179,45 +1199,46 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const msgList = snapshot.docs.map(docSnap => {
-        const data = docSnap.data();
-        // Only take serializable fields for the message object
-        return {
-          id: docSnap.id,
-          senderId: data.senderId || '',
-          senderHandle: data.senderHandle || '',
-          senderName: data.senderName || '',
-          text: data.text || '',
-          type: data.type || 'text',
-          mediaUrl: data.mediaUrl || null,
-          isViewOnce: data.isViewOnce || false,
-          seenBy: data.seenBy || [],
-          replyTo: data.replyTo ? {
-            id: data.replyTo.id,
-            text: data.replyTo.text,
-            senderName: data.replyTo.senderName
-          } : undefined,
-          timestamp: data.timestamp?.toDate ? data.timestamp.toDate().getTime() : (typeof data.timestamp === 'number' ? data.timestamp : Date.now())
-        };
-      }) as Message[];
+      if (!snapshot.empty) {
+        const msgList = snapshot.docs.map(docSnap => {
+          const data = docSnap.data();
+          // Only take serializable fields for the message object
+          return {
+            id: docSnap.id,
+            senderId: data.senderId || '',
+            senderHandle: data.senderHandle || '',
+            senderName: data.senderName || '',
+            text: data.text || '',
+            type: data.type || 'text',
+            mediaUrl: data.mediaUrl || null,
+            isViewOnce: data.isViewOnce || false,
+            seenBy: data.seenBy || [],
+            replyTo: data.replyTo ? {
+              id: data.replyTo.id,
+              text: data.replyTo.text,
+              senderName: data.replyTo.senderName
+            } : undefined,
+            timestamp: data.timestamp?.toDate ? data.timestamp.toDate().getTime() : (typeof data.timestamp === 'number' ? data.timestamp : Date.now())
+          };
+        }) as Message[];
 
-      const lastMsg = msgList[msgList.length - 1];
-      const isNewMessage = lastMsg && lastMsg.id !== lastMessageIdRef.current;
-      
-      setMessages(msgList);
-      if (msgList.length > 0) {
-        const lastMsgObj = msgList[msgList.length - 1];
-        if (lastMsgObj.senderId !== user.uid) {
-          setIsOmniThinking(false);
+        const lastMsg = msgList[msgList.length - 1];
+        const isNewMessage = lastMsg && lastMsg.id !== lastMessageIdRef.current;
+        
+        setMessages(msgList);
+        if (msgList.length > 0) {
+          const lastMsgObj = msgList[msgList.length - 1];
+          if (lastMsgObj.senderId !== user.uid) {
+            setIsOmniThinking(false);
+          }
         }
-      }
-      try {
-        localStorage.setItem(`nsg_msgs_${selectedChat.id}`, circularSafeStringify(msgList));
-      } catch (e) {
-        console.error("Local messages save error", e);
-      }
+        try {
+          localStorage.setItem(`nsg_msgs_${selectedChat.id}`, circularSafeStringify(msgList));
+        } catch (e) {
+          console.error("Local messages save error", e);
+        }
 
-      if (isNewMessage) {
+        if (isNewMessage) {
         const wasEmpty = !lastMessageIdRef.current;
         lastMessageIdRef.current = lastMsg.id;
         
@@ -1244,6 +1265,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
           }).catch(err => handleFirestoreError(err, FirestoreOperation.UPDATE, `chats/${selectedChat.id}/messages/${docSnap.id}`));
         }
       });
+      }
     }, (err) => handleFirestoreError(err, FirestoreOperation.LIST, `chats/${selectedChat.id}/messages`));
 
     return () => unsubscribe();

@@ -765,7 +765,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
               if (isMe) {
                 return (
                   <UserMessageItem 
-                    key={msg.id || index}
+                    key={`${msg.id || 'usr'}-${index}`}
                     msg={msg}
                     user={user}
                     userHandle={userHandle}
@@ -779,7 +779,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
 
                 return (
                   <div 
-                    key={msg.id || index} 
+                    key={`${msg.id || 'omni'}-${index}`} 
                     className="w-full py-4 px-3 sm:px-6 flex flex-col text-left font-sans border-b border-white/[0.03] relative group"
                   >
                     {/* Omni Response text container */}

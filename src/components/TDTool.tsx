@@ -1,6 +1,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { circularSafeStringify } from '../firebase';
+import { robustJSONParse } from '../utils';
 import { 
   Box, 
   Layers, 
@@ -216,8 +217,7 @@ export const TDTool = ({ theme, getAiInstance, onClose }: any) => {
       });
       
       const responseText = response.text || "";
-      const cleanedJson = responseText.replace(/```json|```/g, '').trim();
-      const parsedData = JSON.parse(cleanedJson);
+      const parsedData = robustJSONParse(responseText) || {};
       
       if (parsedData.lines) {
         setDrawing2D(parsedData);
