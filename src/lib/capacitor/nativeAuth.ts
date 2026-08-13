@@ -17,20 +17,25 @@ export async function performGoogleAuth(authInstance: Auth): Promise<any> {
           await GoogleAuth.initialize({
             clientId: '780956680320-web-native.apps.googleusercontent.com',
             scopes: ['profile', 'email'],
-            grantOfflineAccess: true,
+            grantOfflineAccess: false,
           });
         } catch (initErr) {
           console.warn('GoogleAuth initialize warning:', initErr);
         }
 
         const googleUser = await GoogleAuth.signIn();
-        const idToken = googleUser?.authentication?.idToken || googleUser?.idToken || (googleUser as any)?.serverAuthCode;
+        console.log('Native GoogleAuth response:', googleUser);
         
-        if (idToken) {
-          const credential = GoogleAuthProvider.credential(idToken);
+        const idToken = googleUser?.authentication?.idToken || googleUser?.idToken;
+        const accessToken = googleUser?.authentication?.accessToken || (googleUser as any)?.accessToken;
+        
+        if (idToken || accessToken) {
+          const credential = GoogleAuthProvider.credential(idToken || null, accessToken || null);
           const userCred = await signInWithCredential(authInstance, credential);
           return userCred;
         }
+
+        throw new Error('Google native login did not return authentication tokens.');
       }
     } catch (nativeErr: any) {
       console.warn('Native Google Auth error:', nativeErr);

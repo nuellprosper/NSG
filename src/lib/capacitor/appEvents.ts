@@ -81,3 +81,23 @@ export function useLongPress({ threshold = 500, onLongPress, onClick }: LongPres
     }
   };
 }
+
+/**
+ * Register deep link listener for native app URLs
+ */
+export function useAppUrlListener(onDeepLink?: (url: string) => void) {
+  useEffect(() => {
+    if (!isNativePlatform()) return;
+
+    let listenerPromise = App.addListener('appUrlOpen', (data) => {
+      console.log('🔗 Deep link received in native app:', data?.url);
+      if (onDeepLink && data?.url) {
+        onDeepLink(data.url);
+      }
+    });
+
+    return () => {
+      listenerPromise.then(l => l.remove()).catch(() => {});
+    };
+  }, [onDeepLink]);
+}

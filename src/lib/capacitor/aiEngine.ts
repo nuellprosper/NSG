@@ -1,4 +1,5 @@
 import { isNativePlatform, checkNetworkStatus } from './platform';
+import { CreateMLCEngine, MLCEngine, InitProgressReport } from '@mlc-ai/web-llm';
 
 export interface AIRequestPayload {
   prompt: string;
@@ -14,17 +15,156 @@ export interface AIResponseResult {
   engine: 'cloud-gemini' | 'on-device-qwen';
 }
 
+export interface QwenLoadProgress {
+  progress: number; // 0 - 100
+  text: string;
+  isLoading: boolean;
+  isReady: boolean;
+  error: string | null;
+}
+
+// Global Qwen WebLLM state
+const QWEN_MODEL_ID = 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC';
+let mlcEngineInstance: MLCEngine | null = null;
+let isInitializingEngine = false;
+let engineInitError: string | null = null;
+
+const progressListeners: Set<(state: QwenLoadProgress) => void> = new Set();
+let currentProgressState: QwenLoadProgress = {
+  progress: 0,
+  text: 'Not initialized',
+  isLoading: false,
+  isReady: false,
+  error: null
+};
+
+function updateProgressState(next: Partial<QwenLoadProgress>) {
+  currentProgressState = { ...currentProgressState, ...next };
+  progressListeners.forEach(listener => listener(currentProgressState));
+}
+
+export function subscribeQwenProgress(listener: (state: QwenLoadProgress) => void): () => void {
+  progressListeners.add(listener);
+  listener(currentProgressState);
+  return () => {
+    progressListeners.delete(listener);
+  };
+}
+
+export function getQwenProgressState(): QwenLoadProgress {
+  return currentProgressState;
+}
+
 /**
- * On-Device Qwen GGUF Local Inference Engine (Model: Qwen2.5-0.5B-Instruct-Q4_K_M.gguf)
- * Generates structured or plain text response when offline across Omni Chat, Quiz, Solve, Courses & Notebook.
+ * Initialize WebGPU Qwen Model via @mlc-ai/web-llm with progress tracking
+ */
+export async function initWebLlmQwen(onProgress?: (progress: number, text: string) => void): Promise<MLCEngine | null> {
+  if (mlcEngineInstance) {
+    updateProgressState({ progress: 100, text: 'Qwen model ready (Cached/Loaded)', isLoading: false, isReady: true, error: null });
+    if (onProgress) onProgress(100, 'Qwen model ready');
+    return mlcEngineInstance;
+  }
+
+  // WebGPU capability check
+  if (typeof navigator === 'undefined' || !('gpu' in navigator)) {
+    const msg = 'WebGPU is not supported on this browser/webview driver. Falling back to structured local engine.';
+    console.warn('⚠️ WebGPU check failed:', msg);
+    updateProgressState({ isLoading: false, isReady: false, error: msg, text: 'WebGPU unavailable (using fallback)' });
+    return null;
+  }
+
+  if (isInitializingEngine) {
+    return null;
+  }
+
+  isInitializingEngine = true;
+  engineInitError = null;
+  updateProgressState({ isLoading: true, isReady: false, error: null, progress: 5, text: 'Initializing WebGPU Qwen model...' });
+
+  try {
+    const initProgressCallback = (report: InitProgressReport) => {
+      let pct = 0;
+      if (typeof report.progress === 'number') {
+        pct = Math.round(report.progress * 100);
+      } else {
+        const match = report.text.match(/(\d+)%/);
+        if (match) pct = parseInt(match[1], 10);
+      }
+
+      updateProgressState({
+        progress: pct,
+        text: report.text || `Loading model weights (${pct}%)...`,
+        isLoading: true,
+        isReady: false,
+        error: null
+      });
+
+      if (onProgress) {
+        onProgress(pct, report.text);
+      }
+    };
+
+    console.log(`🤖 [WebLLM] Creating engine for ${QWEN_MODEL_ID}...`);
+    const engine = await CreateMLCEngine(QWEN_MODEL_ID, {
+      initProgressCallback,
+      logLevel: 'WARN'
+    });
+
+    mlcEngineInstance = engine;
+    isInitializingEngine = false;
+    updateProgressState({ progress: 100, text: 'Qwen 2.5 local model fully loaded in VRAM!', isLoading: false, isReady: true, error: null });
+    return engine;
+  } catch (err: any) {
+    isInitializingEngine = false;
+    const errText = err?.message || 'Failed to load Qwen WebGPU weights';
+    console.warn('⚠️ WebLLM initialization error:', errText);
+    engineInitError = errText;
+    updateProgressState({ isLoading: false, isReady: false, error: errText, text: 'Load failed (fallback active)' });
+    return null;
+  }
+}
+
+/**
+ * On-Device Qwen Local Inference Engine
+ * Executes WebGPU inference via @mlc-ai/web-llm when available, or falls back seamlessly to structured generator.
  */
 export async function runLocalQwenInference(payload: AIRequestPayload): Promise<string> {
-  console.log('🤖 [On-Device Qwen2.5-0.5B-Instruct-Q4_K_M.gguf Model] Processing offline request...');
+  console.log('🤖 [On-Device Qwen Model] Processing offline request...');
   const promptLower = payload.prompt.toLowerCase();
-  
+
   // Audio transcription guard
   if (promptLower.includes('transcribe this audio') || promptLower.includes('audio transcription') || promptLower.includes('transcribe literally')) {
     throw new Error("⚠️ Audio transcription requires an active internet connection. Please connect to the internet to transcribe audio.");
+  }
+
+  // Attempt WebGPU inference via @mlc-ai/web-llm if possible
+  try {
+    let engine = mlcEngineInstance;
+    if (!engine && !currentProgressState.error && typeof navigator !== 'undefined' && 'gpu' in navigator) {
+      engine = await initWebLlmQwen();
+    }
+
+    if (engine) {
+      console.log('⚡ Executing Qwen WebGPU inference...');
+      const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [];
+      if (payload.systemInstruction) {
+        messages.push({ role: 'system', content: payload.systemInstruction });
+      }
+      messages.push({ role: 'user', content: payload.prompt });
+
+      const completion = await engine.chat.completions.create({
+        messages,
+        temperature: payload.responseMimeType === 'application/json' ? 0.3 : 0.7,
+        max_tokens: payload.maxTokens || 1024
+      });
+
+      const resultText = completion.choices[0]?.message?.content?.trim();
+      if (resultText && resultText.length > 5) {
+        return resultText;
+      }
+    }
+  } catch (webGpuErr) {
+    console.warn('⚠️ WebGPU inference error, executing fallback generator:', webGpuErr);
   }
 
   // Extract attached document text or note content from prompt if present
@@ -32,12 +172,12 @@ export async function runLocalQwenInference(payload: AIRequestPayload): Promise<
   const noteMatches = payload.prompt.match(/study note titled.*?\n"""\n([\s\S]*?)\n"""/gi) || [];
   
   const extractedTextChunks: string[] = [];
-  docMatches.forEach(m => {
-    const clean = m.replace(/--- ATTACHED STUDY DOCUMENT \d+:.*?---\n/gi, '').trim();
+  docMatches.forEach((m: string) => {
+    const clean = String(m).replace(/--- ATTACHED STUDY DOCUMENT \d+:.*?---\n/gi, '').trim();
     if (clean) extractedTextChunks.push(clean);
   });
-  noteMatches.forEach(m => {
-    const clean = m.replace(/.*?"""\n/gi, '').replace(/\n"""/gi, '').trim();
+  noteMatches.forEach((m: string) => {
+    const clean = String(m).replace(/.*?"""\n/gi, '').replace(/\n"""/gi, '').trim();
     if (clean) extractedTextChunks.push(clean);
   });
 
@@ -159,7 +299,7 @@ export async function runLocalQwenInference(payload: AIRequestPayload): Promise<
     // General JSON fallback
     return JSON.stringify({
       status: "success",
-      engine: "On-Device Qwen 2.5 GGUF Local Model",
+      engine: "On-Device Qwen 2.5 Local Model",
       isOffline: true,
       message: "Generated structured response offline.",
       data: payload.prompt.slice(0, 100)
@@ -229,3 +369,4 @@ export async function routeAIRequest(
     };
   }
 }
+
