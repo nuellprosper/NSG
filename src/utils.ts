@@ -11,6 +11,44 @@ if (pdfjsLib.GlobalWorkerOptions) {
   pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl || `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version || '4.10.38'}/build/pdf.worker.min.mjs`;
 }
 
+export const extractTextFromRawPdfBuffer = (arrayBuffer: ArrayBuffer): string => {
+  try {
+    const decoder = new TextDecoder('utf-8', { fatal: false });
+    const rawText = decoder.decode(arrayBuffer);
+    
+    const textBlocks: string[] = [];
+    const btRegex = /BT[\s\S]*?ET/g;
+    let match;
+    while ((match = btRegex.exec(rawText)) !== null) {
+      const block = match[0];
+      const stringMatches = block.match(/\(([^)]+)\)\s*T[jJ]/g) || block.match(/\[([^\]]+)\]\s*TJ/g) || block.match(/\(([^)]+)\)/g);
+      if (stringMatches) {
+        stringMatches.forEach(s => {
+          const cleaned = s.replace(/[\(\)\[\]]/g, '').replace(/\\([0-9]{3})/g, '').trim();
+          if (cleaned.length > 1 && !/^[0-9\s.\/]+$/.test(cleaned)) {
+            textBlocks.push(cleaned);
+          }
+        });
+      }
+    }
+
+    if (textBlocks.length > 3) {
+      return textBlocks.join(' ');
+    }
+
+    const allStrings = rawText.match(/\(([^)]+)\)/g);
+    if (allStrings && allStrings.length > 5) {
+      const filtered = allStrings
+        .map(s => s.replace(/[\(\)]/g, '').trim())
+        .filter(s => s.length > 3 && /[a-zA-Z]{3,}/.test(s));
+      if (filtered.length > 3) return filtered.join(' ');
+    }
+  } catch (e) {
+    console.warn("Raw PDF buffer fallback parsing error:", e);
+  }
+  return '';
+};
+
 export const extractPdfDetails = async (file: File): Promise<{ text: string; pageImages: string[]; pageCount: number; truncated: boolean }> => {
   const pageImages: string[] = [];
   let fullText = '';
@@ -19,45 +57,62 @@ export const extractPdfDetails = async (file: File): Promise<{ text: string; pag
 
   try {
     const arrayBuffer = await file.arrayBuffer();
-    if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl || `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version || '4.10.38'}/build/pdf.worker.min.mjs`;
-    }
-    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-    const pdf = await loadingTask.promise;
-    pageCount = pdf.numPages;
-    if (pageCount > 20) {
-      truncated = true;
-    }
-    const pagesToRender = Math.min(pageCount, 20);
+    
+    // Attempt standard PDF.js document loading
+    try {
+      if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl || `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version || '4.10.38'}/build/pdf.worker.min.mjs`;
+      }
+      const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+      const pdf = await loadingTask.promise;
+      pageCount = pdf.numPages;
+      if (pageCount > 20) {
+        truncated = true;
+      }
+      const pagesToRender = Math.min(pageCount, 20);
 
-    for (let i = 1; i <= pageCount; i++) {
-      const page = await pdf.getPage(i);
-      const textContent = await page.getTextContent();
-      const pageText = textContent.items.map((item: any) => item.str).join(' ');
-      fullText += pageText + '\n';
+      for (let i = 1; i <= pageCount; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items.map((item: any) => item.str).join(' ');
+        fullText += pageText + '\n';
 
-      if (i <= pagesToRender) {
-        try {
-          const viewport = page.getViewport({ scale: 1.2 });
-          const canvas = document.createElement('canvas');
-          const context = canvas.getContext('2d');
-          canvas.width = viewport.width;
-          canvas.height = viewport.height;
-          if (context) {
-            await page.render({ canvasContext: context, viewport, canvas } as any).promise;
-            const imgDataUrl = canvas.toDataURL('image/jpeg', 0.8);
-            pageImages.push(imgDataUrl);
+        if (i <= pagesToRender) {
+          try {
+            const viewport = page.getViewport({ scale: 1.2 });
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            if (context) {
+              await page.render({ canvasContext: context, viewport, canvas } as any).promise;
+              const imgDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+              pageImages.push(imgDataUrl);
+            }
+          } catch (canvasErr) {
+            console.warn(`Canvas render error on PDF page ${i}:`, canvasErr);
           }
-        } catch (canvasErr) {
-          console.warn(`Canvas render error on PDF page ${i}:`, canvasErr);
         }
+      }
+    } catch (pdfJsErr) {
+      console.warn("PDF.js worker/document parsing error, executing stream fallback:", pdfJsErr);
+      const fallbackText = extractTextFromRawPdfBuffer(arrayBuffer);
+      if (fallbackText.trim().length > 0) {
+        fullText = fallbackText;
+      }
+    }
+
+    if (fullText.trim().length === 0) {
+      const rawText = extractTextFromRawPdfBuffer(arrayBuffer);
+      if (rawText.trim().length > 0) {
+        fullText = rawText;
       }
     }
   } catch (err) {
     console.error("PDF details extraction failed:", err);
   }
 
-  return { text: fullText.trim(), pageImages, pageCount, truncated };
+  return { text: fullText.trim(), pageImages, pageCount: pageCount || 1, truncated };
 };
 
 export const extractTextFromDocument = async (file: File): Promise<string> => {

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 // import Browser from './components/Browser'; // Suspended
 import { 
   Mic, StopCircle, Upload, FileAudio, Image as ImageIcon, 
@@ -51,7 +51,8 @@ import {
   PremiumModal as PremiumModalComponent
 } from './components/AppComponent';
 import { OfflineModal } from './components/OfflineModal';
-import { performGoogleAuth, initOfflineQueueSync, initPushNotifications, useHardwareBackButton, requestAppPermissions } from './lib/capacitor';
+import { NativeAudioRecorder } from './components/NativeAudioRecorder';
+import { performGoogleAuth, initOfflineQueueSync, initPushNotifications, schedulePeriodicBackgroundNotifications, useHardwareBackButton, useAppUrlListener, isNativePlatform, requestAppPermissions, runLocalQwenInference, scheduleLocalNotification } from './lib/capacitor';
 
 
 import { 
@@ -106,6 +107,67 @@ import {
 
 
 
+const AdUnit = ({ slot }: { slot: string }) => {
+  const adRef = useRef<any>(null);
+  const [isSandbox, setIsSandbox] = useState(true);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const hostname = window.location.hostname;
+      const isProd = hostname.includes("nsg.studios");
+      setIsSandbox(!isProd);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isSandbox || !adRef.current) return;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect.width > 0) {
+          try {
+            if (adRef.current && !adRef.current.getAttribute('data-adsbygoogle-status')) {
+              const adsbygoogle = (window as any).adsbygoogle || [];
+              adsbygoogle.push({});
+              observer.disconnect();
+            }
+          } catch (e) {
+            console.error("AdSense error:", e);
+          }
+        }
+      }
+    });
+
+    observer.observe(adRef.current);
+    return () => observer.disconnect();
+  }, [isSandbox]);
+
+  if (isSandbox) {
+    return (
+      <div className="my-5 p-4 rounded-2xl bg-[#13111C]/40 border border-[#DC2626]/20 flex flex-col items-center justify-center text-center w-full min-h-[70px] relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-[#DC2626]/5 to-transparent rounded-full pointer-events-none" />
+        <span className="text-[7.5px] font-black text-[#DC2626] uppercase tracking-[0.3em] mb-1.5">🎓 NSG Academic Booster</span>
+        <p className="text-[9.5px] font-black text-white/70 uppercase leading-snug max-w-md font-sans">
+          "Tip: Leverage CBT Exams to evaluate course memory before major academic tests!"
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="my-6 overflow-hidden flex flex-col items-center w-full min-h-[90px]">
+      <span className="text-[8px] font-black text-white/20 uppercase tracking-[0.3em] mb-2">Advertisement</span>
+      <ins className="adsbygoogle"
+           ref={adRef}
+           style={{ display: 'block', minWidth: '250px', minHeight: '90px' }}
+           data-ad-client="ca-pub-3216169026195971"
+           data-ad-slot={slot}
+           data-ad-format="auto"
+           data-full-width-responsive="true"></ins>
+    </div>
+  );
+};
+
 export default function App() {
   const [isHfDepleted, setIsHfDepleted] = useState(false);
 
@@ -157,6 +219,9 @@ export default function App() {
   // --- OFFLINE WARNING MODAL STATE ---
   const [showOfflineModal, setShowOfflineModal] = useState(false);
   const [offlineModalMessage, setOfflineModalMessage] = useState('');
+
+  // --- QUIZ CREATION METHOD STATE ---
+  const [quizCreationMethod, setQuizCreationMethod] = useState<'omni' | 'pdf' | 'image' | null>(null);
 
   const checkOnlineOrShowModal = (customMsg?: string): boolean => {
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
@@ -504,12 +569,10 @@ export default function App() {
   const isGeneratingSuggestions = useRef(false);
   const notifiedIds = useRef<Set<string>>(new Set());
 
-  // Native hardware back button support for Android
-  useHardwareBackButton();
-
   // Capacitor background push notifications, native permissions & offline action queue sync
   useEffect(() => {
     initPushNotifications();
+    schedulePeriodicBackgroundNotifications();
     requestAppPermissions();
     const cleanupSync = initOfflineQueueSync(async (action) => {
       console.log('Syncing queued action:', action);
@@ -519,59 +582,6 @@ export default function App() {
       if (cleanupSync) cleanupSync();
     };
   }, []);
-
-  useEffect(() => {
-    if (isSyncingFromHistory.current) return;
-
-    const currentNavState = {
-      activeTab,
-      toolsSubTab,
-      profileSubTab,
-      communitySubTab,
-      isEditingProfile,
-    };
-    window.history.pushState(currentNavState, '');
-  }, [activeTab, toolsSubTab, profileSubTab, communitySubTab, isEditingProfile]);
-
-  useEffect(() => {
-    const handlePopState = (event: PopStateEvent) => {
-      if (event.state) {
-        isSyncingFromHistory.current = true;
-        const state = event.state;
-        
-        if (state.activeTab && state.activeTab !== activeTab) {
-          setActiveTab(state.activeTab);
-        }
-        if (state.toolsSubTab !== undefined && state.toolsSubTab !== toolsSubTab) {
-          setToolsSubTab(state.toolsSubTab);
-        }
-        if (state.profileSubTab !== undefined && state.profileSubTab !== profileSubTab) {
-          setProfileSubTab(state.profileSubTab);
-        }
-        if (state.communitySubTab !== undefined && state.communitySubTab !== communitySubTab) {
-          setCommunitySubTab(state.communitySubTab);
-        }
-        if (state.isEditingProfile !== undefined && state.isEditingProfile !== isEditingProfile) {
-          setIsEditingProfile(state.isEditingProfile);
-        }
-        
-        setTimeout(() => {
-          isSyncingFromHistory.current = false;
-        }, 50);
-      } else {
-        if (isEditingProfile) {
-          setIsEditingProfile(false);
-        } else if (activeTab === 'profile') {
-          setActiveTab('home');
-        }
-      }
-    };
-
-    window.addEventListener('popstate', handlePopState);
-    return () => {
-      window.removeEventListener('popstate', handlePopState);
-    };
-  }, [activeTab, toolsSubTab, profileSubTab, communitySubTab, isEditingProfile]);
   const [readArticles, setReadArticles] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedArticle, setSelectedArticle] = useState<any | null>(null);
@@ -1620,50 +1630,19 @@ export default function App() {
         if (!notifiedIds.current.has(id)) {
           notifiedIds.current.add(id);
           
-          if (Notification.permission === 'granted') {
-            const cleanTitle = (data.title || 'NSG Academic Alert')
-              .replace(/suggestions/gi, 'Insights')
-              .replace(/suggestion/gi, 'Insight')
-              .replace(/suggests/gi, 'Guides')
-              .replace(/suggest/gi, 'Recommend');
-            const cleanMessage = (data.message || '')
-              .replace(/suggestions/gi, 'Insights')
-              .replace(/suggestion/gi, 'Insight')
-              .replace(/suggests/gi, 'Guides')
-              .replace(/suggest/gi, 'Recommend');
-            
-            if ('serviceWorker' in navigator) {
-              navigator.serviceWorker.ready.then((reg) => {
-                reg.showNotification(cleanTitle, {
-                  body: cleanMessage,
-                  icon: '/icon.svg',
-                  badge: '/icon.svg',
-                  vibrate: [100, 50, 100],
-                  data: {
-                    clickAction: '/'
-                  }
-                } as any).catch(() => {
-                  try {
-                    new Notification(cleanTitle, {
-                      body: cleanMessage,
-                      icon: '/icon.svg'
-                    });
-                  } catch (e) {
-                    console.error("Foreground notification fallback error:", e);
-                  }
-                });
-              });
-            } else {
-              try {
-                new Notification(cleanTitle, {
-                  body: cleanMessage,
-                  icon: '/icon.svg'
-                });
-              } catch (e) {
-                console.error("Standard Notification standalone error:", e);
-              }
-            }
-          }
+          const cleanTitle = (data.title || 'NSG Academic Alert')
+            .replace(/suggestions/gi, 'Insights')
+            .replace(/suggestion/gi, 'Insight')
+            .replace(/suggests/gi, 'Guides')
+            .replace(/suggest/gi, 'Recommend');
+          const cleanMessage = (data.message || '')
+            .replace(/suggestions/gi, 'Insights')
+            .replace(/suggestion/gi, 'Insight')
+            .replace(/suggests/gi, 'Guides')
+            .replace(/suggest/gi, 'Recommend');
+
+          // Triggers phone system notification bar popup on native app & Web
+          scheduleLocalNotification(cleanTitle, cleanMessage);
         }
       });
       
@@ -2656,6 +2635,167 @@ export default function App() {
   };
 
   const examTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Master Unified Back Button Navigation Handler
+  const handleGlobalBack = useCallback((): boolean => {
+    // 1. Modals & Overlays
+    if (confirmModal.isOpen) {
+      setConfirmModal(prev => ({ ...prev, isOpen: false }));
+      return true;
+    }
+    if (showOfflineModal) {
+      setShowOfflineModal(false);
+      return true;
+    }
+    if (showAuthModal) {
+      setShowAuthModal(false);
+      return true;
+    }
+    if (isEditingProfile) {
+      setIsEditingProfile(false);
+      return true;
+    }
+    if (showHelp) {
+      setShowHelp(false);
+      return true;
+    }
+
+    // 2. Active Chat Room
+    if (isChatRoomActive || selectedChatForRoom) {
+      setIsChatRoomActive(false);
+      setSelectedChatForRoom(null);
+      return true;
+    }
+
+    // 3. Tools Tab Sub-Views
+    if ((activeTab as string) === 'tools') {
+      if ((toolsSubTab as string) === 'quiz') {
+        if (quizState === 'active' || quizState === 'preview' || quizState === 'finished' || quizState === 'review') {
+          setQuizState('idle');
+          return true;
+        }
+        if (quizCreationMethod !== null) {
+          setQuizCreationMethod(null);
+          return true;
+        }
+        if ((toolsSubTab as string) !== 'menu') {
+          setToolsSubTab('menu');
+          return true;
+        }
+      }
+
+      if ((toolsSubTab as string) === 'exam') {
+        if ((examLobbyState as string) === 'exam' || (examLobbyState as string) === 'result') {
+          setExamLobbyState('hall' as any);
+          return true;
+        }
+        if ((examLobbyState as string) === 'hall' || (examLobbyState as string) === 'welcome') {
+          setExamLobbyState('login' as any);
+          return true;
+        }
+        if ((toolsSubTab as string) !== 'menu') {
+          setToolsSubTab('menu');
+          return true;
+        }
+      }
+
+      if ((toolsSubTab as string) === 'notebook') {
+        if (selectedNote) {
+          setSelectedNote(null);
+          return true;
+        }
+        if ((toolsSubTab as string) !== 'menu') {
+          setToolsSubTab('menu');
+          return true;
+        }
+      }
+
+      if ((toolsSubTab as string) === 'assignment') {
+        if (activeAssignmentSolution) {
+          setActiveAssignmentSolution(null);
+          return true;
+        }
+        if ((toolsSubTab as string) !== 'menu') {
+          setToolsSubTab('menu');
+          return true;
+        }
+      }
+
+      if ((toolsSubTab as string) !== 'menu') {
+        setToolsSubTab('menu');
+        return true;
+      }
+
+      if ((activeTab as string) !== 'home') {
+        setActiveTab('home');
+        return true;
+      }
+    } else if ((activeTab as string) !== 'home') {
+      setActiveTab('home');
+      return true;
+    }
+
+    return false;
+  }, [
+    confirmModal.isOpen, showOfflineModal, showAuthModal, isEditingProfile,
+    showHelp, isChatRoomActive, selectedChatForRoom, activeTab, toolsSubTab,
+    quizState, quizCreationMethod, examLobbyState, selectedNote, activeAssignmentSolution
+  ]);
+
+  // Native hardware back button support for Android
+  useHardwareBackButton(handleGlobalBack);
+
+  useEffect(() => {
+    if (isSyncingFromHistory.current) return;
+
+    const currentNavState = {
+      activeTab,
+      toolsSubTab,
+      quizCreationMethod,
+      quizState,
+      examLobbyState,
+      hasSelectedNote: !!selectedNote,
+      profileSubTab,
+      communitySubTab,
+      isEditingProfile,
+    };
+    window.history.pushState(currentNavState, '');
+  }, [activeTab, toolsSubTab, quizCreationMethod, quizState, examLobbyState, selectedNote, profileSubTab, communitySubTab, isEditingProfile]);
+
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+      const handled = handleGlobalBack();
+      if (!handled && event.state) {
+        isSyncingFromHistory.current = true;
+        const state = event.state;
+        
+        if (state.activeTab && state.activeTab !== activeTab) {
+          setActiveTab(state.activeTab);
+        }
+        if (state.toolsSubTab !== undefined && state.toolsSubTab !== toolsSubTab) {
+          setToolsSubTab(state.toolsSubTab);
+        }
+        if (state.profileSubTab !== undefined && state.profileSubTab !== profileSubTab) {
+          setProfileSubTab(state.profileSubTab);
+        }
+        if (state.communitySubTab !== undefined && state.communitySubTab !== communitySubTab) {
+          setCommunitySubTab(state.communitySubTab);
+        }
+        if (state.isEditingProfile !== undefined && state.isEditingProfile !== isEditingProfile) {
+          setIsEditingProfile(state.isEditingProfile);
+        }
+        
+        setTimeout(() => {
+          isSyncingFromHistory.current = false;
+        }, 50);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [handleGlobalBack, activeTab, toolsSubTab, profileSubTab, communitySubTab, isEditingProfile]);
 
   // --- \u{1F6E0}\u{FE0F} ADMIN STATE ---
   const [examStatus, setExamStatus] = useState<'active' | 'ended' | 'none'>('none');
@@ -4426,17 +4566,21 @@ export default function App() {
             }
             
             const isOwner = currentUser.email?.toLowerCase().trim() === "nuellkelechi@gmail.com";
-            setIsAdminUser(isOwner);
+            setIsAdminUser(isOwner || data.role === 'admin');
             
             const premiumUntilDate = data.premiumUntil ? new Date(data.premiumUntil) : null;
-            const isCurrentlySubscribed = (premiumUntilDate && !isNaN(premiumUntilDate.getTime())) ? (premiumUntilDate.getTime() > Date.now()) : false;
+            const isFutureSubscription = (premiumUntilDate && !isNaN(premiumUntilDate.getTime())) ? (premiumUntilDate.getTime() > Date.now()) : true;
             const isExplicitGodBypass = data.bypassAllPayments === true;
-            const userIsPremium = isOwner || ((data.isPremium === true || data.subscribed === true) && isCurrentlySubscribed) || isExplicitGodBypass;
+            const userIsPremium = Boolean(
+              isOwner ||
+              isExplicitGodBypass ||
+              data.isPremium === true ||
+              data.subscribed === true ||
+              data.plan === 'premium' ||
+              data.tier === 'premium' ||
+              (data.premiumUntil && isFutureSubscription)
+            );
             setIsPremium(userIsPremium);
-            
-            if (!isOwner && !isCurrentlySubscribed && !isExplicitGodBypass && (data.isPremium || data.subscribed || data.role === 'admin' || data.bypassTakingPayment || data.bypassHostingPayment)) {
-              fetch('/api/admin/reset-non-owners', { method: 'POST' }).catch((e) => console.error("Error triggering server reset for non-owners:", e));
-            }
 
             if (userIsPremium) {
               setShowPremiumTrial(false);
@@ -4536,7 +4680,6 @@ export default function App() {
       }
     });
 
-    // Global Data Sync
     // Check for shared quiz or exam in URL
     const urlParams = new URLSearchParams(window.location.search);
     const quizId = urlParams.get('quizId');
@@ -4632,6 +4775,62 @@ export default function App() {
     return () => {
       unsubscribeAuth();
     };
+  }, []);
+
+  // Deep Link URL Handler for Native Mobile App & Web
+  const handleDeepLinkUrl = useCallback((urlStr: string) => {
+    try {
+      let parsedUrl: URL;
+      if (urlStr.includes('://')) {
+        const fixedScheme = urlStr.replace(/^nsgscholar:\/\//i, 'https://nsg-scholar.app/').replace(/^nsg:\/\//i, 'https://nsg-scholar.app/');
+        parsedUrl = new URL(fixedScheme);
+      } else {
+        parsedUrl = new URL(urlStr, window.location.origin || 'https://nsg-scholar.app');
+      }
+      
+      const qId = parsedUrl.searchParams.get('quizId');
+      if (qId) {
+        console.log("📍 Deep link loaded quizId:", qId);
+        if (user) {
+          loadSharedQuiz(qId);
+        } else {
+          setPendingQuizId(qId);
+          sessionStorage.setItem('nsg_pending_quiz_id', qId);
+          setShowAuthModal(true);
+        }
+      }
+    } catch (e) {
+      console.error("Deep link parsing error:", e);
+    }
+  }, [user]);
+
+  // Register native Capacitor appUrlOpen listener
+  useAppUrlListener(handleDeepLinkUrl);
+
+  // On mobile web browser, if user visits a quiz link, attempt opening the mobile app if installed
+  useEffect(() => {
+    if (!isNativePlatform() && typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const quizIdParam = urlParams.get('quizId');
+      const isMobileBrowser = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      
+      if (quizIdParam && isMobileBrowser && !sessionStorage.getItem('nsg_app_redirect_attempted')) {
+        sessionStorage.setItem('nsg_app_redirect_attempted', 'true');
+        
+        // Attempt opening installed native app via Android/iOS app intent
+        const intentUrl = `intent://nsg-scholar.app?quizId=${quizIdParam}#Intent;scheme=https;package=ng.name.nuellstudyguide;end;`;
+        
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        iframe.src = intentUrl;
+        document.body.appendChild(iframe);
+        setTimeout(() => {
+          if (document.body.contains(iframe)) {
+            document.body.removeChild(iframe);
+          }
+        }, 1500);
+      }
+    }
   }, []);
 
   // Auto-sync Exam Config to Firestore
@@ -8017,68 +8216,6 @@ ${session.fullAnalysis}
     });
   };
 
-  const AdUnit = ({ slot }: { slot: string }) => {
-    const adRef = useRef<any>(null);
-    const [isSandbox, setIsSandbox] = useState(true);
-
-    useEffect(() => {
-      if (typeof window !== "undefined") {
-        const hostname = window.location.hostname;
-        const isProd = hostname.includes("nsg.studios");
-        setIsSandbox(!isProd);
-      }
-    }, []);
-
-    useEffect(() => {
-      if (isSandbox || !adRef.current) return;
-
-      const observer = new ResizeObserver((entries) => {
-        for (const entry of entries) {
-          if (entry.contentRect.width > 0) {
-            try {
-              if (adRef.current && !adRef.current.getAttribute('data-adsbygoogle-status')) {
-                const adsbygoogle = (window as any).adsbygoogle || [];
-                adsbygoogle.push({});
-                observer.disconnect();
-              }
-            } catch (e) {
-              console.error("AdSense error:", e);
-            }
-          }
-        }
-      });
-
-      observer.observe(adRef.current);
-      return () => observer.disconnect();
-    }, [isSandbox]);
-
-    if (isSandbox) {
-      // Sleek, futuristic academic tip block to avoid developer runtime errors under sandbox
-      return (
-        <div className="my-5 p-4 rounded-2xl bg-[#13111C]/40 border border-[#DC2626]/20 flex flex-col items-center justify-center text-center w-full min-h-[70px] relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-[#DC2626]/5 to-transparent rounded-full pointer-events-none" />
-          <span className="text-[7.5px] font-black text-[#DC2626] uppercase tracking-[0.3em] mb-1.5">🎓 NSG Academic Booster</span>
-          <p className="text-[9.5px] font-black text-white/70 uppercase leading-snug max-w-md font-sans">
-            "Tip: Leverage CBT Exams to evaluate course memory before major academic tests!"
-          </p>
-        </div>
-      );
-    }
-
-    return (
-      <div className="my-6 overflow-hidden flex flex-col items-center w-full min-h-[90px]">
-        <span className="text-[8px] font-black text-white/20 uppercase tracking-[0.3em] mb-2">Advertisement</span>
-        <ins className="adsbygoogle"
-             ref={adRef}
-             style={{ display: 'block', minWidth: '250px', minHeight: '90px' }}
-             data-ad-client="ca-pub-3216169026195971"
-             data-ad-slot={slot}
-             data-ad-format="auto"
-             data-full-width-responsive="true"></ins>
-      </div>
-    );
-  };
-
   // --- \u{1F5BC}\u{FE0F} IMAGE HANDLER ---
   const handleImages = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -9301,20 +9438,25 @@ CRITICAL FORMATTING & CONVERSATIONAL RULES:
         cleanId = `${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
       }
       const fullQuizId = `quiz-${cleanId}`;
-      const quizPayload = {
+      const quizPayload = sanitizeData({
         questions: quizQuestions,
         topic: quizTopic,
         difficulty: quizDifficulty || 'Medium',
         createdBy: user.uid,
         createdAt: new Date().toISOString()
-      };
+      });
 
       await Promise.all([
         setDoc(doc(db, 'quizzes', fullQuizId), quizPayload, { merge: true }),
         setDoc(doc(db, 'quizzes', cleanId), quizPayload, { merge: true })
       ]);
 
-      const link = `${window.location.origin}${window.location.pathname}?quizId=${fullQuizId}`;
+      const isNative = isNativePlatform();
+      const rawOrigin = window.location.origin || '';
+      const isLocalHost = rawOrigin.includes('localhost') || rawOrigin.includes('127.0.0.1') || rawOrigin.startsWith('file:') || rawOrigin.startsWith('capacitor:');
+      const baseUrl = (isNative || isLocalHost) ? 'https://nsg-scholar.app' : `${window.location.origin}${window.location.pathname}`;
+
+      const link = `${baseUrl}?quizId=${fullQuizId}`;
       setShareQuizLink(link);
       setShowQuizShareModal(true);
     } catch (error) {
@@ -10425,9 +10567,9 @@ Ensure these selected question types are distributed throughout the quiz questio
     legalPage ||
     (activeTab === 'tools' && toolsSubTab !== 'menu') ||
     (quizState && quizState !== 'idle') ||
-    (activeTab === 'chat' && (isChatRoomActive || activeChatSessionId)) ||
+    (activeTab === 'chat' && (isChatRoomActive || selectedChatForRoom)) ||
     activeTab === 'notifications' ||
-    activeTab === 'profile'
+    isEditingProfile
   );
 
   const isAuthView = Boolean(!user || showAuthModal || (activeTab === 'profile' && !user));
@@ -11701,11 +11843,11 @@ Ensure these selected question types are distributed throughout the quiz questio
             </motion.div>
           )}
         </AnimatePresence>
-        <AnimatePresence mode="wait">
+        <AnimatePresence mode="popLayout">
           
           {/* HOME TAB */}
           {activeTab === 'home' && (
-            <motion.div key="home" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-5 pt-2 pb-8 px-2 max-w-4xl mx-auto">
+            <div key="home" className="space-y-5 pt-2 pb-8 px-2 max-w-4xl mx-auto">
               {!isOnline && (
                 <div className="bg-[#DC2626]/10 border border-[#DC2626]/20 p-3 rounded-2xl flex items-center gap-3 mx-2">
                   <div className="w-8 h-8 bg-[#DC2626] rounded-full flex items-center justify-center text-white shrink-0">
@@ -11884,7 +12026,7 @@ Ensure these selected question types are distributed throughout the quiz questio
                   </div>
                 )}
               </div>
-            </motion.div>
+            </div>
           )}
 
           {/* QUIZ HISTORY TAB */}
@@ -12019,6 +12161,9 @@ Ensure these selected question types are distributed throughout the quiz questio
               deleteNote={deleteNote}
               quizState={quizState}
               setQuizState={setQuizState}
+              quizCreationMethod={quizCreationMethod}
+              setQuizCreationMethod={setQuizCreationMethod}
+              onGlobalBack={handleGlobalBack}
               quizTopic={quizTopic}
               setQuizTopic={setQuizTopic}
               quizQuestionCount={quizQuestionCount}
@@ -12990,7 +13135,7 @@ Ensure these selected question types are distributed throughout the quiz questio
 
           {/* NOTIFICATIONS TAB */}
           {activeTab === 'notifications' && (
-            <motion.div key="notifications" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-6">
+            <div key="notifications" className="space-y-6">
               <div className="flex items-center justify-between px-2">
                 <div className="flex items-center gap-3">
                   <button 
@@ -13202,7 +13347,7 @@ Ensure these selected question types are distributed throughout the quiz questio
                   </div>
                 </div>
               )}
-            </motion.div>
+            </div>
           )}
 
           {/* COMMUNITY TAB */}
@@ -13234,9 +13379,8 @@ Ensure these selected question types are distributed throughout the quiz questio
 
           {/* PROFILE TAB (FULL PAGE LOGIN FOR GUEST) */}
           {activeTab === 'profile' && !user && (
-            <motion.div 
+            <div 
               key="profile-guest-fullpage" 
-              initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
               className="flex-1 w-full min-h-screen overflow-y-auto custom-scrollbar flex flex-col items-center justify-start py-10 sm:py-16 px-4 sm:px-8 bg-[#0B0D14]"
             >
               <div className={`w-full m-auto text-center px-2 sm:px-6 py-6 ${authMode === 'signup' ? 'max-w-xl' : 'max-w-lg'}`}>
@@ -13572,16 +13716,13 @@ Ensure these selected question types are distributed throughout the quiz questio
                   </button>
                 </div>
               </div>
-            </motion.div>
+            </div>
           )}
 
           {/* PROFILE TAB */}
           {activeTab === 'profile' && user && (
-            <motion.div 
+            <div 
               key="profile" 
-              initial={{ opacity: 0, x: 20 }} 
-              animate={{ opacity: 1, x: 0 }} 
-              exit={{ opacity: 0, x: -20 }} 
               onTouchStart={handleProfileTouchStart}
               onTouchMove={handleProfileTouchMove}
               onTouchEnd={handleProfileTouchEnd}
@@ -13880,7 +14021,7 @@ Ensure these selected question types are distributed throughout the quiz questio
                   </div>
                 </div>
               </div>
-            </motion.div>
+            </div>
           )}
 
           {/* HOST EXAM PANEL (FORMERLY ADMIN) */}
@@ -16604,6 +16745,17 @@ Ensure these selected question types are distributed throughout the quiz questio
         isOpen={showOfflineModal} 
         onClose={() => setShowOfflineModal(false)} 
         message={offlineModalMessage} 
+      />
+
+      {/* NATIVE AUDIO RECORDER & LIVE VISUALIZER OVERLAY */}
+      <NativeAudioRecorder
+        isRecording={isRecording}
+        recordingTime={recordingTime}
+        handleToggleRecording={handleToggleRecording}
+        isProcessingFinal={isProcessingFinal}
+        isOnline={isOnline}
+        theme={theme}
+        isTranscribePage={activeTab === 'tools' && toolsSubTab === 'record'}
       />
 
       {/* QUIZ LINK LOADING POPUP OVERLAY */}

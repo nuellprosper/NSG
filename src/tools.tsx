@@ -16,6 +16,7 @@ import {
   Undo2, Redo2, Save, CornerDownRight, Menu, ExternalLink, Percent, Bookmark, AlertCircle, Book, HelpCircle, Calculator,
   Shirt, MoreVertical, CheckSquare, ListTodo, Compass, Wand2, Palette, Type, Lock, Unlock
 } from 'lucide-react';
+import { isNativePlatform } from './lib/capacitor';
 
 const WhatsAppIcon = ({ size = 24, className = "" }: { size?: number, className?: string }) => (
   <svg 
@@ -450,10 +451,14 @@ export const ToolsPage = (props: any) => {
     activeAudioNoteId,
     isAudioTranscribing,
     audioTranscribingPopup,
-    setAudioTranscribingPopup
+    setAudioTranscribingPopup,
+    onGlobalBack
   } = props;
 
-  const [quizCreationMethod, setQuizCreationMethod] = useState<'omni' | 'pdf' | 'image' | null>(null);
+  const [localQuizCreationMethod, setLocalQuizCreationMethod] = useState<'omni' | 'pdf' | 'image' | null>(null);
+  const quizCreationMethod = props.quizCreationMethod !== undefined ? props.quizCreationMethod : localQuizCreationMethod;
+  const setQuizCreationMethod = props.setQuizCreationMethod || setLocalQuizCreationMethod;
+
   const [reviewFilter, setReviewFilter] = useState<'all' | 'correct' | 'incorrect'>('all');
 
   React.useEffect(() => {
@@ -778,6 +783,26 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
   }, [toolsSubTab]);
 
   const handleToolsBack = useCallback(() => {
+    if (onGlobalBack) {
+      const handled = onGlobalBack();
+      if (handled) return;
+    }
+    if (quizCreationMethod !== null) {
+      setQuizCreationMethod(null);
+      return;
+    }
+    if (quizState === 'active' || quizState === 'preview' || quizState === 'finished' || quizState === 'review') {
+      setQuizState('idle');
+      return;
+    }
+    if (selectedNote) {
+      setSelectedNote(null);
+      return;
+    }
+    if (activeAssignmentSolution) {
+      setActiveAssignmentSolution(null);
+      return;
+    }
     if (navigationHistory.length > 1) {
       const newStack = navigationHistory.slice(0, -1);
       const previous = newStack[newStack.length - 1] || 'menu';
@@ -787,7 +812,7 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
       setNavigationHistory(['menu']);
       setToolsSubTab('menu');
     }
-  }, [navigationHistory, setToolsSubTab]);
+  }, [onGlobalBack, quizCreationMethod, setQuizCreationMethod, quizState, setQuizState, selectedNote, setSelectedNote, activeAssignmentSolution, setActiveAssignmentSolution, navigationHistory, setToolsSubTab]);
 
   const handleToolClick = useCallback((tool: any) => {
     if (tool.id === 'whatsapp') {
@@ -981,15 +1006,27 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                   )}
 
                   {!isProcessingFinal && (
-                    <button 
-                      type="button"
-                      onClick={() => document.getElementById('record-page-audio-upload')?.click()}
-                      className="px-8 py-4 bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black text-xs rounded-2xl shadow-xl shadow-[#DC2626]/20 transition-all uppercase tracking-wider flex items-center gap-2.5 cursor-pointer active:scale-95"
-                    >
-                      <Upload size={18} />
-                      <span>Upload Recorded Audio</span>
-                      <span className="text-[9px] px-2 py-0.5 rounded bg-black/20 font-mono">{isPremium ? '4HR MAX' : '30MIN MAX'}</span>
-                    </button>
+                    <div className="flex flex-col sm:flex-row items-center justify-center gap-3 w-full">
+                      {isNativePlatform() && handleToggleRecording && (
+                        <button 
+                          type="button"
+                          onClick={handleToggleRecording}
+                          className="px-6 py-3.5 bg-gradient-to-r from-[#DC2626] via-red-600 to-purple-600 hover:brightness-110 text-white font-black text-xs rounded-2xl shadow-xl shadow-[#DC2626]/30 transition-all uppercase tracking-wider flex items-center gap-2 cursor-pointer active:scale-95 border border-white/20"
+                        >
+                          <Mic size={16} className="animate-pulse" />
+                          <span>Record Lecture Audio</span>
+                        </button>
+                      )}
+                      <button 
+                        type="button"
+                        onClick={() => document.getElementById('record-page-audio-upload')?.click()}
+                        className={`px-6 py-3.5 ${isNativePlatform() ? 'bg-white/10 hover:bg-white/20 text-white border border-white/10' : 'bg-[#DC2626] hover:bg-[#DC2626]/90 text-white shadow-xl shadow-[#DC2626]/20'} font-black text-xs rounded-2xl transition-all uppercase tracking-wider flex items-center gap-2 cursor-pointer active:scale-95`}
+                      >
+                        <Upload size={16} />
+                        <span>Upload Recorded Audio</span>
+                        <span className="text-[9px] px-2 py-0.5 rounded bg-black/20 font-mono">{isPremium ? '4HR MAX' : '30MIN MAX'}</span>
+                      </button>
+                    </div>
                   )}
 
                   {isProcessingFinal && (
