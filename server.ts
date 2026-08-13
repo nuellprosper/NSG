@@ -2235,32 +2235,21 @@ app.post("/api/admin/broadcast-list", async (req, res) => {
   }
 });
 
-// --- 4. RESET ALL USERS TO NON-PREMIUM EXCEPT OWNER nuellkelechi@gmail.com ---
+// --- 4. SECURE OWNER ACCOUNT WITHOUT WIPING OTHER USERS ---
 async function resetUserAccountsExceptOwner() {
   try {
     const ownerEmail = "nuellkelechi@gmail.com";
-    console.log(`🔄 Running account reset process (preserving owner: ${ownerEmail})...`);
 
     if (!db) {
-      console.warn("⚠️ Firestore DB instance not available for account reset.");
+      console.warn("⚠️ Firestore DB instance not available for owner check.");
       return;
     }
 
-    let usersSnap;
     try {
-      usersSnap = await db.collection("users").get();
-    } catch (fetchErr: any) {
-      console.warn("⚠️ Could not fetch users collection for reset (using client-side rules or missing service credentials):", fetchErr.message);
-      return;
-    }
-
-    let resetCount = 0;
-
-    for (const docSnap of usersSnap.docs) {
-      try {
+      const usersSnap = await db.collection("users").get();
+      for (const docSnap of usersSnap.docs) {
         const data = docSnap.data();
         const userEmail = (data.email || "").toLowerCase().trim();
-
         if (userEmail === ownerEmail) {
           await docSnap.ref.update({
             isPremium: true,
@@ -2271,25 +2260,11 @@ async function resetUserAccountsExceptOwner() {
             premiumUntil: "2099-12-31T23:59:59.000Z"
           });
           console.log(`👑 Main owner account (${ownerEmail}) secured as Premium/Admin.`);
-        } else {
-          // Unconditionally reset ALL non-owner accounts to non-premium free tier
-          await docSnap.ref.update({
-            isPremium: false,
-            subscribed: false,
-            role: 'student',
-            bypassAllPayments: false,
-            bypassTakingPayment: false,
-            bypassHostingPayment: false,
-            premiumUntil: null
-          });
-          resetCount++;
         }
-      } catch (docErr: any) {
-        console.warn(`⚠️ Could not update user doc ${docSnap.id}:`, docErr.message);
       }
+    } catch (fetchErr: any) {
+      console.warn("⚠️ Owner account check skipped:", fetchErr.message);
     }
-
-    console.log(`✅ Reset complete: ${resetCount} user account(s) set to Non-Premium Free Tier (Owner ${ownerEmail} preserved).`);
   } catch (err: any) {
     console.warn("⚠️ Handled error in resetUserAccountsExceptOwner:", err.message);
   }
