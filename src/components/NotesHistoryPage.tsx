@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { ArrowLeft, BookMarked, Search, Clock, FileText, ChevronRight } from 'lucide-react';
+import { ArrowLeft, BookMarked, Search, Clock, FileText, ChevronRight, ArrowDown } from 'lucide-react';
 import { motion } from 'motion/react';
 import { formatSafeDate } from '../utils';
+import { isCapacitorNative } from '../lib/capacitor';
 
 interface NotesHistoryPageProps {
   userNotes: any[];
@@ -132,6 +133,29 @@ export const NotesHistoryPage: React.FC<NotesHistoryPageProps> = ({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* USE OMNI OFFLINE BUTTON (Only displayed in native Capacitor APK) */}
+      {isCapacitorNative() && (
+        <div className="pt-2">
+          <button
+            type="button"
+            onClick={() => setActiveTab('omni_offline')}
+            className="w-full p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-purple-950/90 via-[#190C2B] to-purple-900/90 border border-purple-500/40 hover:border-purple-400 text-left transition-all shadow-xl group cursor-pointer active:scale-[0.99] flex items-center justify-between gap-4"
+          >
+            <div className="space-y-1 min-w-0">
+              <h4 className="text-sm sm:text-base font-bold text-white tracking-tight group-hover:text-purple-300 transition-colors">
+                Use Omni Offline
+              </h4>
+              <p className="text-xs text-purple-200/70 font-normal">
+                Generate quizzes, chat with Omni and Use AI powered tools Offline
+              </p>
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-purple-500/20 border border-purple-400/30 flex items-center justify-center text-purple-300 shrink-0 group-hover:scale-105 transition-transform">
+              <ArrowDown size={20} className="text-purple-300 stroke-[2.5]" />
+            </div>
+          </button>
         </div>
       )}
     </motion.div>

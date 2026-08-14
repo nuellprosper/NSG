@@ -64,71 +64,52 @@ export const NativeAudioRecorder: React.FC<NativeAudioRecorderProps> = ({
 
       const initAudioGraph = async () => {
         try {
-          // 1. Initialize Web Audio Context
+          // 1. Initialize Web Audio Context if available
           const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-          if (!AudioContextClass) return;
-          
-          const audioCtx = new AudioContextClass();
-          audioCtxRef.current = audioCtx;
+          if (AudioContextClass) {
+            const audioCtx = new AudioContextClass();
+            audioCtxRef.current = audioCtx;
 
-          // 2. Play silent background audio loop to keep Android/iOS Webview process alive when screen is off/locked
-          try {
-            const silentOsc = audioCtx.createOscillator();
-            const silentGain = audioCtx.createGain();
-            silentOsc.type = 'sine';
-            silentOsc.frequency.setValueAtTime(440, audioCtx.currentTime);
-            silentGain.gain.setValueAtTime(0.00001, audioCtx.currentTime); // Silent
-            silentOsc.connect(silentGain);
-            silentGain.connect(audioCtx.destination);
-            silentOsc.start();
-            silentOscillatorRef.current = silentOsc;
-          } catch (e) {
-            console.warn("Silent background audio loop init warning:", e);
+            // 2. Play silent background audio loop to keep Android/iOS Webview process alive when screen is off/locked
+            try {
+              const silentOsc = audioCtx.createOscillator();
+              const silentGain = audioCtx.createGain();
+              silentOsc.type = 'sine';
+              silentOsc.frequency.setValueAtTime(440, audioCtx.currentTime);
+              silentGain.gain.setValueAtTime(0.00001, audioCtx.currentTime); // Silent
+              silentOsc.connect(silentGain);
+              silentGain.connect(audioCtx.destination);
+              silentOsc.start();
+              silentOscillatorRef.current = silentOsc;
+            } catch (e) {
+              console.warn("Silent background audio loop notice:", e);
+            }
           }
-
-          // 3. Connect microphone to AnalyserNode for live visualizer graph
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          if (isCancelled) {
-            stream.getTracks().forEach(t => t.stop());
-            return;
-          }
-          mediaStreamRef.current = stream;
-
-          const source = audioCtx.createMediaStreamSource(stream);
-          const analyser = audioCtx.createAnalyser();
-          analyser.fftSize = 128;
-          analyser.smoothingTimeConstant = 0.75;
-          source.connect(analyser);
-          analyserRef.current = analyser;
 
           // Notify native status bar / background service
           scheduleLocalNotification(
             "🎙️ NSG Lecture Recorder Active",
-            "Recording lecture audio in background. Screen can be locked safely."
+            "Recording lecture audio in background. Screen can be locked safely.",
+            Date.now(),
+            'nsg_scholar_activity'
           ).catch(() => {});
 
-          // Animation loop for frequency bars
-          const dataArray = new Uint8Array(analyser.frequencyBinCount);
-          const updateVisualizer = () => {
-            if (analyserRef.current && !isPaused) {
-              analyserRef.current.getByteFrequencyData(dataArray);
-              const bars: number[] = [];
-              const barCount = 40;
-              const step = Math.floor(dataArray.length / barCount) || 1;
-              for (let i = 0; i < barCount; i++) {
-                const val = dataArray[i * step] || 0;
-                // Scale value between 8% and 100%
-                const pct = Math.max(8, Math.min(100, Math.round((val / 255) * 100)));
-                bars.push(pct);
-              }
+          // Dynamic rhythmic soundwave generator that avoids hardware HAL collisions with MediaRecorder
+          const intervalId = setInterval(() => {
+            if (!isPaused && !isCancelled) {
+              const base = [18, 35, 62, 85, 45, 92, 70, 40, 25, 55, 78, 95, 60, 30, 80, 100, 75, 45, 20, 65];
+              const bars = Array.from({ length: 40 }, (_, idx) => {
+                const sample = base[idx % base.length];
+                const jitter = Math.floor(Math.random() * 25) - 12;
+                return Math.max(8, Math.min(100, sample + jitter));
+              });
               setAudioLevels(bars);
             }
-            animFrameRef.current = requestAnimationFrame(updateVisualizer);
-          };
+          }, 80);
 
-          updateVisualizer();
+          return () => clearInterval(intervalId);
         } catch (err) {
-          console.warn("Visualizer audio context init error:", err);
+          console.warn("Visualizer init notice:", err);
           const fallbackInterval = setInterval(() => {
             setAudioLevels(Array.from({ length: 40 }, () => Math.floor(Math.random() * 65) + 10));
           }, 100);
@@ -136,7 +117,7 @@ export const NativeAudioRecorder: React.FC<NativeAudioRecorderProps> = ({
         }
       };
 
-      initAudioGraph();
+      const cleanupPromise = initAudioGraph();
 
       return () => {
         isCancelled = true;
@@ -156,6 +137,7 @@ export const NativeAudioRecorder: React.FC<NativeAudioRecorderProps> = ({
       setFlags([]);
     }
   }, [isRecording, isPaused]);
+
 
   return (
     <div className="z-[200]">

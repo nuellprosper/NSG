@@ -1190,6 +1190,25 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
       }
     }
 
+    if (selectedChat.isOmni || selectedChat.id.startsWith('omni_')) {
+      const matchingSession = omniSessions.find(s => s.id === selectedChat.id);
+      if (matchingSession && matchingSession.messages && matchingSession.messages.length > 0) {
+        setMessages(matchingSession.messages);
+      } else {
+        const localMsgs = localStorage.getItem(`nsg_msgs_${selectedChat.id}`);
+        if (localMsgs) {
+          try {
+            setMessages(JSON.parse(localMsgs));
+          } catch (e) {
+            setMessages([]);
+          }
+        } else {
+          setMessages([]);
+        }
+      }
+      return;
+    }
+
     lastMessageIdRef.current = null; // Reset for new chat load
 
     const q = query(
@@ -1353,6 +1372,27 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     setTimeout(() => scrollToBottom(true), 50);
 
     try {
+      if (selectedChat.isOmni || selectedChat.id.startsWith('omni_')) {
+        // Omni AI session message handling
+        const updatedOmniSessions = omniSessions.map(s => {
+          if (s.id === selectedChat.id) {
+            const existingMsgs = Array.isArray(s.messages) ? s.messages : [];
+            return {
+              ...s,
+              lastMessage: text,
+              timestamp: 'Just now',
+              messages: [...existingMsgs, optimisticMsg]
+            };
+          }
+          return s;
+        });
+        saveOmniSessionsToStorage(updatedOmniSessions);
+
+        setIsOmniThinking(true);
+        onTagOmni(text, selectedChat.id);
+        return;
+      }
+
       const msgData: any = {
         senderId: user.uid,
         senderHandle: userHandle,
@@ -1365,19 +1405,17 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         replyTo: replyData
       };
 
-      const otherMembers = selectedChat.members.filter((m: string) => m !== user.uid && m !== userHandle);
+      const otherMembers = (selectedChat.members || []).filter((m: string) => m !== user.uid && m !== userHandle);
 
       // We don't await addDoc for UI responsiveness
-      addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData).then(() => {
-        // Optimistic UI will be replaced by server data in onSnapshot
-      });
+      addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData).catch(() => {});
       
       updateDoc(doc(db, 'chats', selectedChat.id), {
         lastMessage: text,
         lastMessageSender: senderName,
         updatedAt: serverTimestamp(),
         unreadBy: arrayUnion(...otherMembers)
-      });
+      }).catch(err => console.warn("Peer chat update handled:", err));
 
       otherMembers.forEach((memberUid: string) => {
         if (memberUid && memberUid !== userHandle && memberUid.length > 5) {
@@ -1395,13 +1433,12 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         }
       });
 
-      if (selectedChat.id.startsWith('omni_') || text.toLowerCase().includes('@omni')) {
+      if (text.toLowerCase().includes('@omni')) {
         setIsOmniThinking(true);
         onTagOmni(text, selectedChat.id);
       }
     } catch (err) {
       console.error("Error sending message:", err);
-      handleFirestoreError(err, FirestoreOperation.UPDATE, `chats/${selectedChat.id}`);
       // Mark as error locally
       setMessages(prev => prev.map(m => m.id === tempId ? { ...m, status: 'error' } : m));
     }
@@ -1499,12 +1536,12 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         encrypted: true,
         seenBy: [user.uid]
       };
-      await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData);
-      await updateDoc(doc(db, 'chats', selectedChat.id), {
+      await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData).catch(() => {});
+      await setDoc(doc(db, 'chats', selectedChat.id), {
         lastMessage: `📸 ${caption || 'Image'}`,
         lastMessageSender: user.displayName || userHandle,
         updatedAt: serverTimestamp()
-      });
+      }, { merge: true }).catch(() => {});
       if (selectedChat.id.startsWith('omni_') || caption.toLowerCase().includes('@omni')) {
         onTagOmni(caption || 'Analyze this image', selectedChat.id, [{ url, type: 'image', name: file.name }]);
       }
@@ -1541,11 +1578,11 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         encrypted: true
       };
 
-      await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData);
-      await updateDoc(doc(db, 'chats', selectedChat.id), {
+      await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData).catch(() => {});
+      await setDoc(doc(db, 'chats', selectedChat.id), {
         lastMessage: `📎 ${type.toUpperCase()}`,
         updatedAt: serverTimestamp()
-      });
+      }, { merge: true }).catch(() => {});
     } catch (err) {
       console.error("Upload failed", err);
     } finally {
@@ -1580,15 +1617,15 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             seenBy: [user.uid]
         };
 
-        const otherMembers = selectedChat.members.filter((m: string) => m !== user.uid && m !== userHandle);
+        const otherMembers = (selectedChat.members || []).filter((m: string) => m !== user.uid && m !== userHandle);
 
-        await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData);
-        await updateDoc(doc(db, 'chats', selectedChat.id), {
+        await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData).catch(() => {});
+        await setDoc(doc(db, 'chats', selectedChat.id), {
             lastMessage: `📸 ${caption || 'Image'}`,
             lastMessageSender: user.displayName || userHandle,
             updatedAt: serverTimestamp(),
             unreadBy: arrayUnion(...otherMembers)
-        });
+        }, { merge: true }).catch(() => {});
 
         if (selectedChat.id.startsWith('omni_') || caption.toLowerCase().includes('@omni')) {
             onTagOmni(caption || 'Analyze this image', selectedChat.id, [{ url, type: 'image', name: 'User upload' }]);
@@ -1622,11 +1659,11 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
             mediaUrl: url,
             encrypted: true
           };
-          await addDoc(collection(db, 'chats', selectedChat!.id, 'messages'), msgData);
-          await updateDoc(doc(db, 'chats', selectedChat!.id), {
+          await addDoc(collection(db, 'chats', selectedChat!.id, 'messages'), msgData).catch(() => {});
+          await setDoc(doc(db, 'chats', selectedChat!.id), {
             lastMessage: '🎤 Voice Note',
             updatedAt: serverTimestamp()
-          });
+          }, { merge: true }).catch(() => {});
         } catch (err) {
           console.error("Audio upload failed", err);
         } finally {
@@ -1907,19 +1944,23 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   };
 
   useEffect(() => {
-    if (selectedChat) {
+    if (selectedChat && !selectedChat.isOmni && !selectedChat.id.startsWith('omni_') && user?.uid) {
       const markAsRead = async () => {
         try {
-          await updateDoc(doc(db, 'chats', selectedChat.id), {
-            unreadBy: arrayRemove(user.uid)
-          });
+          const chatRef = doc(db, 'chats', selectedChat.id);
+          const snap = await getDoc(chatRef).catch(() => null);
+          if (snap && snap.exists()) {
+            await updateDoc(chatRef, {
+              unreadBy: arrayRemove(user.uid)
+            }).catch(() => {});
+          }
         } catch (err) {
-          console.error("Mark as read failed", err);
+          // Silent fallback for non-existent or local chat sessions
         }
       };
       markAsRead();
     }
-  }, [selectedChat, user.uid]);
+  }, [selectedChat, user?.uid]);
 
   const totalUnreadCount = useMemo(() => {
     return chats.filter(c => c.unreadBy && c.unreadBy.includes(user.uid)).length;
@@ -3221,12 +3262,12 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                         encrypted: true,
                         seenBy: [user.uid]
                       };
-                      await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData);
-                      updateDoc(doc(db, 'chats', selectedChat.id), {
+                      await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData).catch(() => {});
+                      setDoc(doc(db, 'chats', selectedChat.id), {
                         lastMessage: `📷 reference: ${item.title}`,
                         lastMessageSender: user.displayName || userHandle,
                         updatedAt: serverTimestamp()
-                      });
+                      }, { merge: true }).catch(() => {});
                       setUserNotification(`Sent reference ${item.title} to discussion room!`);
                     }}
                     className="relative group rounded-xl overflow-hidden border border-white/5 bg-black/40 hover:border-[#DC2626]/40 transition-all text-left flex flex-col h-28"
@@ -3339,12 +3380,12 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
                         encrypted: true,
                         seenBy: [user.uid]
                       };
-                      await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData);
-                      updateDoc(doc(db, 'chats', selectedChat.id), {
+                      await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData).catch(() => {});
+                      setDoc(doc(db, 'chats', selectedChat.id), {
                         lastMessage: `🏆 Challenge Quiz: ${quiz.title}`,
                         lastMessageSender: user.displayName || userHandle,
                         updatedAt: serverTimestamp()
-                      });
+                      }, { merge: true }).catch(() => {});
                       setUserNotification(`Successfully shared the quiz "${quiz.title}"!`);
                     }}
                     className="w-full p-3 bg-white/5 hover:bg-white/10 border border-white/5 rounded-2xl text-left flex justify-between items-center transition-all group"
@@ -3434,14 +3475,14 @@ export const SharedNotesList: React.FC<SharedNotesListProps> = ({ user, db, sele
       seenBy: [user.uid]
     };
 
-    await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData);
+    await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData).catch(() => {});
     
     // Update chat room details
-    await updateDoc(doc(db, 'chats', selectedChat.id), {
+    await setDoc(doc(db, 'chats', selectedChat.id), {
       lastMessage: `📓 Shared: ${note.title}`,
       lastMessageSender: user.displayName || "NSG Student",
       updatedAt: serverTimestamp()
-    });
+    }, { merge: true }).catch(() => {});
 
     setUserNotification(`Shared "${note.title}" notes workspace!`);
   };
