@@ -9,7 +9,7 @@ import {
   Sun, Moon, ArrowDown, PlusCircle, Copy, User, Users, Clock, Lock, Unlock, Shield, ShieldCheck, AlertTriangle, FileDown, LayoutDashboard, ListChecks, Bell, GraduationCap, LayoutGrid, Home,
   Pin, Edit3, Share2, Trophy, LogOut, Plus, Menu, Camera, Monitor, X, Activity, MessageSquare, BookOpen, Calendar, Send, Save, MicOff, Video, AtSign, Paperclip, Bookmark, Book, Percent,
   Search, Check, CheckCheck, Info, Volume2, VolumeX, Square, Mail, ArrowRight, BoxSelect, Globe, MapPin, Terminal, RefreshCw, Eye, EyeOff, HelpCircle, Calculator, Loader2,
-  BookMarked, Target, Archive, Flame, BarChart2, Gem, Award
+  BookMarked, Target, Archive, Flame, BarChart2, Gem, Award, BrainCircuit
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cleanTextForSpeech } from './lib/tts';
@@ -24,7 +24,7 @@ import { increment, deleteField } from 'firebase/firestore';
 import { toPng } from 'html-to-image';
 import axios from 'axios';
 import { 
-  auth, db, googleProvider, signInWithPopup, signOut, onAuthStateChanged,
+  auth, db, googleProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged,
   doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, onSnapshot, getDocs, addDoc, serverTimestamp, orderBy, limit, arrayUnion,
   createUserWithEmailAndPassword, signInWithEmailAndPassword,
   FirestoreOperation, handleFirestoreError, circularSafeStringify, sanitizeData,
@@ -41,6 +41,7 @@ import { ExamHistoryPage } from './components/ExamHistoryPage';
 import { NotesHistoryPage } from './components/NotesHistoryPage';
 import { GeneralHistoryPage } from './components/GeneralHistoryPage';
 import { PremiumPage } from './components/PremiumPage';
+import { OmniOfflinePage } from './components/OmniOfflinePage';
 import { ToolsPage } from './tools';
 import { 
   LoggedOutLanding as LoggedOutLandingComponent,
@@ -52,7 +53,7 @@ import {
 } from './components/AppComponent';
 import { OfflineModal } from './components/OfflineModal';
 import { NativeAudioRecorder } from './components/NativeAudioRecorder';
-import { performGoogleAuth, initOfflineQueueSync, initPushNotifications, schedulePeriodicBackgroundNotifications, useHardwareBackButton, useAppUrlListener, isNativePlatform, requestAppPermissions, runLocalQwenInference, scheduleLocalNotification } from './lib/capacitor';
+import { performGoogleAuth, initOfflineQueueSync, initPushNotifications, schedulePeriodicBackgroundNotifications, useHardwareBackButton, useAppUrlListener, isNativePlatform, isCapacitorNative, requestAppPermissions, runLocalQwenInference, scheduleLocalNotification } from './lib/capacitor';
 
 
 import { 
@@ -339,7 +340,7 @@ export default function App() {
 
   // --- \u{1F4F1} APP STATE ---
   const [isChatRoomActive, setIsChatRoomActive] = useState(false);
-  const [activeTab, setActiveTab] = useState<'home' | 'ai' | 'tools' | 'profile' | 'notifications' | 'exam' | 'chat' | 'class' | 'community' | 'quiz_history' | 'exam_history' | 'notes_history' | 'general_history' | 'premium'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'ai' | 'tools' | 'profile' | 'notifications' | 'exam' | 'chat' | 'class' | 'community' | 'quiz_history' | 'exam_history' | 'notes_history' | 'general_history' | 'premium' | 'omni_offline'>('home');
   const [nowTime, setNowTime] = useState(Date.now());
 
   useEffect(() => {
@@ -1859,11 +1860,11 @@ export default function App() {
     e.preventDefault();
     if (!editingGroup) return;
     try {
-      await updateDoc(doc(db, 'chats', editingGroup.id), {
+      await setDoc(doc(db, 'chats', editingGroup.id), {
         name: editingGroup.name || '',
         description: editingGroup.description || '',
         photoURL: editingGroup.photoURL || ''
-      });
+      }, { merge: true });
       setEditingGroup(null);
       setGodModeNotification("Group cluster reconfigured successfully");
       setTimeout(() => setGodModeNotification(null), 3000);
@@ -4538,6 +4539,16 @@ export default function App() {
     console.log("Gemini Key Found:", !!getApiKey());
     console.log("HF Key Found:", !!getHfKey());
 
+    // Resolve any pending Google Sign-In redirect from native webview or mobile browser
+    getRedirectResult(auth).then((cred) => {
+      if (cred && cred.user) {
+        console.log("Successfully resolved Google Redirect login:", cred.user.email);
+        setUserNotification("Welcome back! Signed in with Google.");
+      }
+    }).catch((redirectErr) => {
+      console.warn("getRedirectResult resolution note:", redirectErr);
+    });
+
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       // Clear any existing snapshot listener
       if (userUnsubscribeRef.current) {
@@ -5077,53 +5088,77 @@ export default function App() {
     try {
       // Uses Capacitor native account picker on native Android/iOS, or standard popup on Web
       const result = await performGoogleAuth(auth);
-      const user = result.user;
+      const user = result?.user || auth.currentUser;
       
+      if (!user) {
+        throw new Error("No user profile returned from Google sign-in.");
+      }
+
+      // Immediately set user in local React state so UI responds without delay
+      setUser(user);
+      const isOwner = user.email?.toLowerCase().trim() === 'nuellkelechi@gmail.com';
+      setCurrentUserData((prev: any) => prev || {
+        id: user.uid,
+        uid: user.uid,
+        email: user.email,
+        fullName: user.displayName || user.email?.split('@')[0] || 'Scholar',
+        displayName: user.displayName || user.email?.split('@')[0] || 'Scholar',
+        photoURL: user.photoURL || null,
+        role: isOwner ? 'admin' : 'student',
+        status: 'active'
+      });
+
       // Check if user document exists, if not create it
-      let userDoc;
       try {
-        userDoc = await getDoc(doc(db, 'users', user.uid));
-      } catch (err: any) {
-        if (err.message.includes('quota') || err.message.includes('8')) {
-          throw new Error("QUOTA_EXCEEDED");
+        const userDocRef = doc(db, 'users', user.uid);
+        const userDoc = await getDoc(userDocRef).catch(() => null);
+        
+        if (userDoc && !userDoc.exists()) {
+          await setDoc(userDocRef, {
+            uid: user.uid,
+            email: user.email,
+            fullName: user.displayName || '',
+            displayName: user.displayName,
+            photoURL: user.photoURL,
+            role: isOwner ? 'admin' : 'student',
+            createdAt: new Date().toISOString(),
+            status: 'active',
+            matric: '',
+            dob: '',
+            bypassHostingPayment: false,
+            bypassTakingPayment: false,
+            bypassAllPayments: false
+          }).catch(e => console.warn('setDoc user profile notice:', e));
+        } else if (userDoc && userDoc.exists()) {
+          // Update existing user with Google data if missing
+          const existingData = userDoc.data();
+          await updateDoc(userDocRef, {
+            photoURL: existingData.photoURL || user.photoURL,
+            displayName: existingData.displayName || user.displayName,
+            fullName: existingData.fullName || user.displayName
+          }).catch(e => console.warn('updateDoc user profile notice:', e));
         }
-        throw err;
+      } catch (docErr: any) {
+        console.warn('User profile sync note:', docErr);
       }
-      if (!userDoc.exists()) {
-        await setDoc(doc(db, 'users', user.uid), {
-          uid: user.uid,
-          email: user.email,
-          fullName: user.displayName || '',
-          displayName: user.displayName,
-          photoURL: user.photoURL,
-          role: user.email === 'nuellkelechi@gmail.com' ? 'admin' : 'student',
-          createdAt: new Date().toISOString(),
-          status: 'active',
-          matric: '',
-          dob: '',
-          bypassHostingPayment: false,
-          bypassTakingPayment: false,
-          bypassAllPayments: false
-        });
-      } else {
-        // Update existing user with Google data if missing
-        const existingData = userDoc.data();
-        await updateDoc(doc(db, 'users', user.uid), {
-          photoURL: existingData.photoURL || user.photoURL,
-          displayName: existingData.displayName || user.displayName,
-          fullName: existingData.fullName || user.displayName
-        });
-      }
-      sessionStorage.setItem('nsg_new_manual_login_session', 'true');
+
+      try {
+        sessionStorage.setItem('nsg_new_manual_login_session', 'true');
+      } catch (e) {}
+
       setShowAuthModal(false);
-      setUserNotification("Logged in with Google!");
+      setIsAuthLoading(false);
+      setUserNotification("Welcome back! Logged in with Google.");
     } catch (error: any) {
-      const errorCode = error.code || "unknown";
-      const errorMessage = error.message || String(error);
+      const errorCode = error?.code || "unknown";
+      const errorMessage = error?.message || String(error);
       
       // Specifically catch cancellation codes
-      if (errorCode === 'auth/cancelled-popup-request' || 
-          errorCode === 'auth/popup-closed-by-user') {
+      if (
+        errorCode === 'auth/cancelled-popup-request' || 
+        errorCode === 'auth/popup-closed-by-user' ||
+        errorMessage.toLowerCase().includes('cancelled')
+      ) {
         setIsAuthLoading(false);
         return;
       }
@@ -5137,9 +5172,9 @@ export default function App() {
       } else if (errorCode === 'auth/popup-blocked') {
         setUserNotification("Login failed: Popup was blocked by your browser. Please allow popups for this site.");
       } else if (errorCode.includes('timeout') || errorMessage.includes('timeout')) {
-        setUserNotification(`Login Timeout: The connection to Firebase Auth timed out. Please check your internet connection or use a different network. If this continues, the service might be down.`);
+        setUserNotification(`Login Timeout: The connection to Firebase Auth timed out. Please check your internet connection or use a different network.`);
       } else {
-        setUserNotification(`Failed to login with Google: ${errorMessage} (${errorCode})`);
+        setUserNotification(`Google Sign-In: ${errorMessage}`);
       }
       setIsAuthLoading(false);
     }
@@ -7666,7 +7701,19 @@ ${session.fullAnalysis}
       // Asynchronously initialize microphone stream and media recorder
       try {
         requestWakeLock();
-        const originalStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        let originalStream: MediaStream;
+        try {
+          originalStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true
+            }
+          });
+        } catch (mediaErr) {
+          console.warn("Advanced audio constraints failed, falling back to basic audio stream:", mediaErr);
+          originalStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        }
         
         if (isStopRequested.current) {
           originalStream.getTracks().forEach(track => track.stop());
@@ -7820,9 +7867,12 @@ ${session.fullAnalysis}
         if (isStopRequested.current) {
           recorder.stop();
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Error starting recording stream:", err);
-        setUserNotification("Failed to access microphone. Please check permissions.");
+        const isDenied = err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError' || String(err).toLowerCase().includes('permission');
+        setUserNotification(isDenied 
+          ? "Microphone access was denied. Please allow microphone permission in device settings to record lectures." 
+          : "Failed to access microphone. Please check your audio input device.");
         setIsRecording(false);
         if (timerRef.current) clearInterval(timerRef.current);
         setIsAudioTranscribing(false);
@@ -8548,9 +8598,21 @@ ${session.fullAnalysis}
   const startChatRecording = async () => {
     try {
       if ('wakeLock' in navigator) {
-        chatWakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+        chatWakeLockRef.current = await (navigator as any).wakeLock.request('screen').catch(() => null);
       }
-      const originalStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      let originalStream: MediaStream;
+      try {
+        originalStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
+        });
+      } catch (mediaErr) {
+        console.warn("Advanced chat audio constraints failed, falling back to basic stream:", mediaErr);
+        originalStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
       const enhanced = await getEnhancedStream(originalStream);
       chatAudioProcessingRef.current = enhanced;
       
@@ -8676,9 +8738,12 @@ ${session.fullAnalysis}
 
       recorder.start();
       setIsRecordingChat(true);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Mic access error:", err);
-      setUserNotification("Microphone access denied.");
+      const isDenied = err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError' || String(err).toLowerCase().includes('permission');
+      setUserNotification(isDenied 
+        ? "Microphone access was denied. Please enable microphone permission in device settings." 
+        : "Could not access microphone.");
     }
   };
 
@@ -9355,24 +9420,74 @@ CRITICAL FORMATTING & CONVERSATIONAL RULES:
         }
       }
 
-      // Save Omni's response in Firestore
-      await addDoc(collection(db, 'chats', chatId, 'messages'), {
+      const omniMsgData = {
+        id: `omni-${Date.now()}`,
         senderId: 'omni-ai',
         senderHandle: 'omni',
         senderName: 'Omni by NSG',
         text: reply,
-        timestamp: serverTimestamp(),
+        timestamp: Date.now(),
         type: 'text',
         isOmniResponse: true,
         encrypted: true
-      });
+      };
 
-      await updateDoc(doc(db, 'chats', chatId), {
-        lastMessage: reply,
-        lastMessageSender: 'Omni by NSG',
-        updatedAt: serverTimestamp(),
-        unreadBy: arrayUnion(user.uid)
-      });
+      // Save to local storage for instant offline / local Omni session access
+      try {
+        const localKey = `nsg_msgs_${chatId}`;
+        const existingLocal = localStorage.getItem(localKey);
+        const parsedLocal = existingLocal ? JSON.parse(existingLocal) : [];
+        parsedLocal.push(omniMsgData);
+        localStorage.setItem(localKey, circularSafeStringify(parsedLocal));
+
+        const omniSessionsKey = `nsg_omni_sessions_${user?.uid || 'guest'}`;
+        const existingOmniSessions = localStorage.getItem(omniSessionsKey);
+        if (existingOmniSessions) {
+          const parsedSessions = JSON.parse(existingOmniSessions);
+          const updatedSessions = parsedSessions.map((s: any) => {
+            if (s.id === chatId) {
+              const prevMsgs = Array.isArray(s.messages) ? s.messages : [];
+              return {
+                ...s,
+                lastMessage: reply,
+                timestamp: 'Just now',
+                messages: [...prevMsgs, omniMsgData]
+              };
+            }
+            return s;
+          });
+          localStorage.setItem(omniSessionsKey, JSON.stringify(updatedSessions));
+        }
+      } catch (e) {
+        console.warn("Local Omni storage update warning:", e);
+      }
+
+      // Save Omni's response in Firestore if it's a peer/cloud chat
+      if (!chatId.startsWith('omni_') || chatId === `omni_${user.uid}`) {
+        try {
+          await addDoc(collection(db, 'chats', chatId, 'messages'), {
+            senderId: 'omni-ai',
+            senderHandle: 'omni',
+            senderName: 'Omni by NSG',
+            text: reply,
+            timestamp: serverTimestamp(),
+            type: 'text',
+            isOmniResponse: true,
+            encrypted: true
+          });
+
+          await setDoc(doc(db, 'chats', chatId), {
+            name: 'Omni by NSG',
+            isOmni: true,
+            lastMessage: reply,
+            lastMessageSender: 'Omni by NSG',
+            updatedAt: serverTimestamp(),
+            unreadBy: arrayUnion(user.uid)
+          }, { merge: true });
+        } catch (dbErr) {
+          console.warn("Firestore Omni sync notice:", dbErr);
+        }
+      }
     } catch (err) {
       console.error("Omni response error:", err);
     }
@@ -11979,6 +12094,26 @@ Ensure these selected question types are distributed throughout the quiz questio
                     </div>
                   </div>
                 </div>
+
+                {/* USE OMNI OFFLINE BUTTON UNDER LAST HISTORY CONTAINER (Only visible in Capacitor native APK) */}
+                {isCapacitorNative() && (
+                  <div 
+                    onClick={() => setActiveTab('omni_offline')}
+                    className="bg-gradient-to-r from-purple-950/90 via-[#190C2B] to-purple-900/90 border border-purple-500/40 hover:border-purple-400/70 rounded-2xl p-4 sm:p-5 flex items-center justify-between cursor-pointer transition-all group shadow-xl text-left active:scale-[0.99]"
+                  >
+                    <div className="space-y-1 min-w-0 pr-2">
+                      <h4 className="text-white text-sm sm:text-base font-bold tracking-tight group-hover:text-purple-300 transition-colors">
+                        Use Omni Offline
+                      </h4>
+                      <p className="text-xs text-purple-200/70 font-normal leading-relaxed">
+                        Generate quizzes, chat with Omni and Use AI powered tools Offline
+                      </p>
+                    </div>
+                    <div className="w-10 h-10 bg-purple-500/20 border border-purple-400/30 rounded-xl flex items-center justify-center text-purple-300 shrink-0 group-hover:scale-105 transition-transform">
+                      <ArrowDown size={20} className="stroke-[2.5]" />
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* BANNERS */}
@@ -12081,6 +12216,21 @@ Ensure these selected question types are distributed throughout the quiz questio
               initializeMonthly={initializeMonthly}
               initializeYearly={initializeYearly}
               handleSubscriptionSuccess={handleSubscriptionSuccess}
+            />
+          )}
+
+          {/* OMNI OFFLINE DOWNLOAD TAB */}
+          {activeTab === 'omni_offline' && (
+            <OmniOfflinePage
+              theme={theme}
+              onBack={() => setActiveTab('home')}
+              onOpenChat={() => {
+                setActiveTab('chat');
+              }}
+              onOpenQuiz={() => {
+                setActiveTab('tools');
+                setToolsSubTab('quiz');
+              }}
             />
           )}
 
