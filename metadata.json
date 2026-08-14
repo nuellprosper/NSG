@@ -1,9 +1,12 @@
 {
   "name": "NSG (NUELL STUDY GUIDE)",
-  "description": "Premium AI-Powered Academic Companion, Lecture OS & Native Mobile App Hub (Kotlin / React Native / Flutter)",
+  "description": "Premium AI-Powered Academic Companion, Lecture OS & Native Mobile App Hub",
   "requestFramePermissions": [
     "camera",
     "microphone",
     "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]
 }
