@@ -129,7 +129,8 @@ export async function initWebLlmQwen(onProgress?: (progress: number, text: strin
  * Executes WebGPU inference via @mlc-ai/web-llm when available, or falls back seamlessly to structured generator.
  */
 export async function runLocalQwenInference(payload: AIRequestPayload): Promise<string> {
-  console.log('🤖 [On-Device Qwen Model] Processing offline request...');
+  const isOmniBrainReady = typeof localStorage !== 'undefined' && localStorage.getItem('omni_brain_ready') === 'true';
+  console.log(`🤖 [On-Device Qwen Model] Processing offline request (Omni Brain Ready: ${isOmniBrainReady})...`);
   const promptLower = payload.prompt.toLowerCase();
 
   // Audio transcription guard
