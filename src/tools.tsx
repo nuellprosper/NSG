@@ -17,6 +17,8 @@ import {
   Shirt, MoreVertical, CheckSquare, ListTodo, Compass, Wand2, Palette, Type, Lock, Unlock
 } from 'lucide-react';
 import { isNativePlatform } from './lib/capacitor';
+import { CGPACalculator } from './components/CGPACalculator';
+import { TimeTable } from './components/TimeTable';
 
 const WhatsAppIcon = ({ size = 24, className = "" }: { size?: number, className?: string }) => (
   <svg 
@@ -838,6 +840,8 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
   const isOwner = user?.email?.toLowerCase().trim() === 'nuellkelechi@gmail.com';
 
   const toolItems = useMemo(() => [
+    { id: 'cgpa', title: 'MY CGPA', icon: Award, color: 'from-amber-500 to-orange-500', desc: 'Calculate CGPA and find your target CGPA for next semester' },
+    { id: 'timetable', title: 'Time Table', icon: ClockIcon, color: 'from-blue-600 to-cyan-500', desc: 'Lecture, Reading & Exam Alarms' },
     { id: 'record', title: 'Transcribe Audio', icon: FileAudio, color: 'from-red-600 to-red-400', desc: 'Audio Transcription & Notes' },
     { id: 'quiz', title: 'Smart Quiz', icon: Zap, color: 'from-yellow-500 to-amber-400', desc: 'Test Your Knowledge' },
     { id: 'exam', title: 'CBT Exam', icon: ShieldCheck, color: 'from-orange-600 to-orange-400', desc: 'Professional Testing' },
@@ -3990,6 +3994,32 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
             checkAndIncrementUsage={checkAndIncrementUsage}
           />
         </div>
+      )}
+
+      {toolsSubTab === 'cgpa' && (
+        <CGPACalculator
+          theme={theme}
+          user={user}
+          currentUserData={currentUserData}
+          setUserNotification={setUserNotification}
+          onBack={handleToolsBack}
+          onOpenTimetable={() => setToolsSubTab('timetable')}
+        />
+      )}
+
+      {toolsSubTab === 'timetable' && (
+        <TimeTable
+          theme={theme}
+          user={user}
+          currentUserData={currentUserData}
+          setUserNotification={setUserNotification}
+          onBack={handleToolsBack}
+          onOpenQuizWithTopic={(topic) => {
+            setQuizTopic(topic);
+            setToolsSubTab('quiz');
+          }}
+          onOpenCGPATool={() => setToolsSubTab('cgpa')}
+        />
       )}
 
 

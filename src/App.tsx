@@ -479,20 +479,10 @@ export default function App() {
   
   useEffect(() => {
     safeStorage.removeItem('nsg_active_tab');
+    safeStorage.removeItem('nsg_tools_subtab');
   }, []);
 
-  const [toolsSubTab, setToolsSubTab] = useState<'menu' | 'record' | 'quiz' | 'exam' | 'faculty' | 'assignment' | 'courses' | 'notebook'>(() => {
-    const stored = safeStorage.getItem('nsg_tools_subtab');
-    const validTabs = ['menu', 'record', 'quiz', 'exam', 'faculty', 'assignment', 'courses', 'notebook'];
-    if (stored && validTabs.includes(stored)) {
-      return stored as any;
-    }
-    return 'menu';
-  });
-
-  useEffect(() => {
-    safeStorage.setItem('nsg_tools_subtab', toolsSubTab);
-  }, [toolsSubTab]);
+  const [toolsSubTab, setToolsSubTab] = useState<'menu' | 'record' | 'quiz' | 'exam' | 'faculty' | 'assignment' | 'courses' | 'notebook' | 'cgpa' | 'timetable'>('menu');
 
   // --- NATIVE PERMISSIONS DIAGNOSTICS & STATE ---
   const [permissionsState, setPermissionsState] = useState({
@@ -2660,6 +2650,27 @@ export default function App() {
       setShowHelp(false);
       return true;
     }
+    if (showGodMode) {
+      setShowGodMode(false);
+      return true;
+    }
+    if (isDeleteAccountOpen) {
+      setIsDeleteAccountOpen(false);
+      setDeleteConfirmInput("");
+      return true;
+    }
+    if (showInviteModal) {
+      setShowInviteModal(false);
+      return true;
+    }
+    if (showPremiumModal) {
+      setShowPremiumModal(false);
+      return true;
+    }
+    if (audioTranscribingPopup) {
+      setAudioTranscribingPopup(false);
+      return true;
+    }
 
     // 2. Active Chat Room
     if (isChatRoomActive || selectedChatForRoom) {
@@ -2727,11 +2738,13 @@ export default function App() {
         return true;
       }
 
+      // If on tools menu, go back to home page
       if ((activeTab as string) !== 'home') {
         setActiveTab('home');
         return true;
       }
     } else if ((activeTab as string) !== 'home') {
+      // From any other main page (chat, social/community, profile, history, premium, notifications, etc.), pressing phone back ALWAYS leads back to home page!
       setActiveTab('home');
       return true;
     }
@@ -2739,7 +2752,8 @@ export default function App() {
     return false;
   }, [
     confirmModal.isOpen, showOfflineModal, showAuthModal, isEditingProfile,
-    showHelp, isChatRoomActive, selectedChatForRoom, activeTab, toolsSubTab,
+    showHelp, showGodMode, isDeleteAccountOpen, showInviteModal, showPremiumModal,
+    audioTranscribingPopup, isChatRoomActive, selectedChatForRoom, activeTab, toolsSubTab,
     quizState, quizCreationMethod, examLobbyState, selectedNote, activeAssignmentSolution
   ]);
 
@@ -11608,7 +11622,12 @@ Ensure these selected question types are distributed throughout the quiz questio
                   ].map(item => (
                     <button
                       key={item.id}
-                      onClick={() => setActiveTab(item.id as any)}
+                      onClick={() => {
+                        if (item.id === 'tools') {
+                          setToolsSubTab('menu');
+                        }
+                        setActiveTab(item.id as any);
+                      }}
                       title={item.label}
                       className={`nav-item group relative ${activeTab === item.id ? 'active' : ''}`}
                       data-active={activeTab === item.id ? 'true' : undefined}
@@ -13924,6 +13943,40 @@ Ensure these selected question types are distributed throughout the quiz questio
                         ? 'Male'
                         : (currentUserData?.gender || 'Male')}
                     </span>
+
+                    {/* CGPA / GPA text immediately under profile picture (clean text, no container) */}
+                    {(() => {
+                      let storedCgpa: any = { cgpa: '0.00', scale: '5.0', degreeClass: 'Uncalculated', label: 'CGPA' };
+                      try {
+                        const raw = localStorage.getItem('nsg_current_user_cgpa');
+                        if (raw) storedCgpa = JSON.parse(raw);
+                      } catch (e) {}
+                      
+                      const displayLabel = storedCgpa.label || (storedCgpa.isFirstSemOnly ? 'GPA' : 'CGPA');
+
+                      if (storedCgpa.cgpa && storedCgpa.cgpa !== '0.00') {
+                        return (
+                          <div
+                            onClick={() => {
+                              setActiveTab('tools');
+                              setToolsSubTab('cgpa');
+                            }}
+                            className="text-center mt-1 cursor-pointer group"
+                            title="View Academic Grade Tracker"
+                          >
+                            <p className="text-xs font-black font-mono text-amber-400 group-hover:text-amber-300 transition-colors tracking-tight">
+                              {storedCgpa.cgpa} {displayLabel}
+                            </p>
+                            {storedCgpa.degreeClass && storedCgpa.degreeClass !== 'Uncalculated' && (
+                              <p className="text-[10px] font-semibold text-white/60 tracking-tight truncate max-w-[90px]">
+                                {storedCgpa.degreeClass}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
                   <div className="space-y-1 text-left flex-1 min-w-0">
                     <h2 className="text-xl sm:text-2xl font-bold text-white truncate">
@@ -16857,7 +16910,10 @@ Ensure these selected question types are distributed throughout the quiz questio
           {/* TOOLS */}
           <button 
             type="button"
-            onClick={() => setActiveTab('tools')} 
+            onClick={() => {
+              setActiveTab('tools');
+              setToolsSubTab('menu');
+            }} 
             className={`flex-1 flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${
               activeTab === 'tools' ? 'text-red-500' : 'text-slate-400 hover:text-white/80'
             }`}
