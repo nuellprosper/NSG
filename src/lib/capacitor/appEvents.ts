@@ -9,12 +9,17 @@ import { isNativePlatform } from './platform';
 export function useHardwareBackButton(
   onBackPress?: () => boolean | void
 ) {
+  const onBackPressRef = useRef(onBackPress);
+  useEffect(() => {
+    onBackPressRef.current = onBackPress;
+  });
+
   useEffect(() => {
     if (!isNativePlatform()) return;
 
     let backListenerPromise = App.addListener('backButton', (data) => {
-      if (onBackPress) {
-        const handled = onBackPress();
+      if (onBackPressRef.current) {
+        const handled = onBackPressRef.current();
         if (handled === true) return;
       }
 
@@ -29,7 +34,7 @@ export function useHardwareBackButton(
     return () => {
       backListenerPromise.then(l => l.remove()).catch(() => {});
     };
-  }, [onBackPress]);
+  }, []);
 }
 
 export interface LongPressOptions {
