@@ -3,7 +3,7 @@ import {
   Video, Mic, MicOff, VideoOff, PhoneOff, 
   Users, MessageSquare, Monitor, Share2, 
   Layout, Type, Image as ImageIcon, FileAudio,
-  ChevronRight, ArrowLeft, Send, Sparkles, Shield, Plus,
+  ChevronRight, ArrowLeft, Send, Shield, Plus,
   X, User, Clipboard, Check
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';

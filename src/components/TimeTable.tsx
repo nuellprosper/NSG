@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   Calendar as CalendarIcon, Clock, BookOpen, Plus, Trash2, Edit3, 
   Upload, FileText, CheckCircle2, XCircle, AlertCircle, ArrowLeft,
-  Bell, BellRing, Share2, Sparkles, Check, ChevronRight, X, AlertTriangle,
+  Bell, BellRing, Share2, Check, ChevronRight, X, AlertTriangle,
   Flame, Award, Eye, Download, Info, ChevronLeft, CalendarCheck2, ExternalLink
 } from 'lucide-react';
 import { scheduleLocalNotification } from '../lib/capacitor/notifications';
@@ -24,6 +24,7 @@ export interface LectureItem {
   color?: string;
   attendanceHistory?: { date: string; attended: boolean }[];
   missedCount?: number;
+  alarmSet?: boolean;
 }
 
 export interface ReadingItem {
@@ -35,6 +36,7 @@ export interface ReadingItem {
   durationMinutes: number;
   goal: string;
   completedHistory?: { date: string; completed: boolean }[];
+  alarmSet?: boolean;
 }
 
 export interface ExamItem {
@@ -122,6 +124,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
 
   // Modal states
   const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
+  const [editingCard, setEditingCard] = useState<{ type: TimetableType; item: LectureItem | ReadingItem | ExamItem } | null>(null);
   const [showFullExamModal, setShowFullExamModal] = useState<boolean>(false);
   const [showDeleteAllExamsConfirm, setShowDeleteAllExamsConfirm] = useState<boolean>(false);
   const [isUploadingPdf, setIsUploadingPdf] = useState<boolean>(false);
@@ -138,6 +141,8 @@ export const TimeTable: React.FC<TimeTableProps> = ({
   const [formLecturer, setFormLecturer] = useState('');
   const [formExamDate, setFormExamDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [formGoal, setFormGoal] = useState('');
+  const [formSeatNumber, setFormSeatNumber] = useState('');
+  const [formDurationMinutes, setFormDurationMinutes] = useState(60);
 
   // Load from LocalStorage on mount
   useEffect(() => {
@@ -335,6 +340,18 @@ export const TimeTable: React.FC<TimeTableProps> = ({
   // Open Calendar & Alarm for Lecture
   const handleOpenLectureCalendar = (lecture: LectureItem) => {
     try {
+      const nextAlarmState = !lecture.alarmSet;
+      const updated = lectureItems.map(item => item.id === lecture.id ? { ...item, alarmSet: nextAlarmState } : item);
+      setLectureItems(updated);
+      saveAllTimetables(updated, readingItems, examItems);
+
+      if (!nextAlarmState) {
+        if (setUserNotification) {
+          setUserNotification(`Turned off alarm for ${lecture.courseCode} lecture.`);
+        }
+        return;
+      }
+
       const startDate = getNextDateForDay(lecture.day, lecture.startTime || '08:00');
       const [endH, endM] = (lecture.endTime || '10:00').split(':').map(Number);
       const endDate = new Date(startDate);
@@ -373,6 +390,18 @@ export const TimeTable: React.FC<TimeTableProps> = ({
   // Open Calendar & Alarm for Study / Reading Routine
   const handleOpenReadingCalendar = (reading: ReadingItem) => {
     try {
+      const nextAlarmState = !reading.alarmSet;
+      const updated = readingItems.map(item => item.id === reading.id ? { ...item, alarmSet: nextAlarmState } : item);
+      setReadingItems(updated);
+      saveAllTimetables(lectureItems, updated, examItems);
+
+      if (!nextAlarmState) {
+        if (setUserNotification) {
+          setUserNotification(`Turned off alarm for ${reading.courseCode} study session.`);
+        }
+        return;
+      }
+
       const startDate = getNextDateForDay(reading.day, reading.startTime || '19:00');
       const durationMins = reading.durationMinutes || 60;
       const endDate = new Date(startDate.getTime() + durationMins * 60 * 1000);
@@ -410,6 +439,18 @@ export const TimeTable: React.FC<TimeTableProps> = ({
   // Open Calendar Page directly (NO .ics download!)
   const handleOpenCalendarEvent = (exam: ExamItem) => {
     try {
+      const nextAlarmState = !exam.alarmSet;
+      const updated = examItems.map(item => item.id === exam.id ? { ...item, alarmSet: nextAlarmState } : item);
+      setExamItems(updated);
+      saveAllTimetables(lectureItems, readingItems, updated);
+
+      if (!nextAlarmState) {
+        if (setUserNotification) {
+          setUserNotification(`Turned off alarm for ${exam.courseCode} examination.`);
+        }
+        return;
+      }
+
       const [y, m, d] = (exam.examDate || new Date().toISOString().split('T')[0]).split('-').map(Number);
       const [startH, startM] = (exam.startTime || '09:00').split(':').map(Number);
       const [endH, endM] = (exam.endTime || '12:00').split(':').map(Number);
@@ -450,6 +491,23 @@ export const TimeTable: React.FC<TimeTableProps> = ({
         setUserNotification("Opened Calendar reminder.");
       }
     }
+  };
+
+  // Open Edit Modal for any card
+  const handleOpenEditCardModal = (type: TimetableType, item: LectureItem | ReadingItem | ExamItem) => {
+    setEditingCard({ type, item });
+    setFormCourseCode(item.courseCode || '');
+    setFormCourseTitle(('courseTitle' in item ? item.courseTitle : 'title' in item ? item.title : '') || '');
+    setFormDay(item.day || selectedDay);
+    setFormStartTime(item.startTime || '08:00');
+    setFormEndTime(('endTime' in item ? item.endTime : '') || '10:00');
+    setFormVenue(('venue' in item ? item.venue : '') || '');
+    setFormLecturer(('lecturer' in item ? item.lecturer : '') || '');
+    setFormExamDate(('examDate' in item ? item.examDate : '') || new Date().toISOString().split('T')[0]);
+    setFormGoal(('goal' in item ? item.goal : '') || '');
+    setFormSeatNumber(('seatNumber' in item ? item.seatNumber : '') || '');
+    setFormDurationMinutes(('durationMinutes' in item ? item.durationMinutes : 60) || 60);
+    setShowCreateModal(true);
   };
 
   // Upload and Parse PDF Document
@@ -600,45 +658,90 @@ export const TimeTable: React.FC<TimeTableProps> = ({
     }
   };
 
-  // Add Item Manually
+  // Add or Edit Item Manually
   const handleCreateManualItem = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formCourseCode.trim()) return;
 
-    if (activeSection === 'lecture') {
-      const newItem: LectureItem = {
-        id: Date.now().toString(),
-        courseCode: formCourseCode.trim().toUpperCase(),
-        courseTitle: formCourseTitle.trim() || formCourseCode.trim().toUpperCase(),
-        day: formDay,
-        startTime: formStartTime,
-        endTime: formEndTime,
-        venue: formVenue || 'Lecture Hall',
-        lecturer: formLecturer,
-        color: PRESET_COLORS[Math.floor(Math.random() * PRESET_COLORS.length)],
-        missedCount: 0,
-        attendanceHistory: []
-      };
-      const updated = [...lectureItems, newItem];
-      setLectureItems(updated);
-      saveAllTimetables(updated, readingItems, examItems);
-      if (setUserNotification) setUserNotification(`Added ${newItem.courseCode} to Lecture Timetable!`);
-    } else if (activeSection === 'personal') {
-      const newItem: ReadingItem = {
-        id: Date.now().toString(),
-        title: formCourseTitle.trim() || `${formCourseCode.trim().toUpperCase()} Study Session`,
-        courseCode: formCourseCode.trim().toUpperCase(),
-        day: formDay,
-        startTime: formStartTime,
-        durationMinutes: 90,
-        goal: formGoal || 'Master core lecture topics & past questions',
-        completedHistory: []
-      };
-      const updated = [...readingItems, newItem];
-      setReadingItems(updated);
-      saveAllTimetables(lectureItems, updated, examItems);
-      if (setUserNotification) setUserNotification(`Added study session for ${newItem.courseCode}!`);
-    } else if (activeSection === 'exam') {
+    const currentType = editingCard ? editingCard.type : (activeSection === 'menu' ? 'lecture' : activeSection);
+
+    if (currentType === 'lecture') {
+      if (editingCard) {
+        const updated = lectureItems.map(item => {
+          if (item.id === editingCard.item.id) {
+            return {
+              ...item,
+              courseCode: formCourseCode.trim().toUpperCase(),
+              courseTitle: formCourseTitle.trim() || formCourseCode.trim().toUpperCase(),
+              day: formDay,
+              startTime: formStartTime,
+              endTime: formEndTime,
+              venue: formVenue || 'Lecture Hall',
+              lecturer: formLecturer
+            };
+          }
+          return item;
+        });
+        setLectureItems(updated);
+        saveAllTimetables(updated, readingItems, examItems);
+        if (setUserNotification) setUserNotification(`Updated ${formCourseCode.trim().toUpperCase()} lecture!`);
+      } else {
+        const newItem: LectureItem = {
+          id: Date.now().toString(),
+          courseCode: formCourseCode.trim().toUpperCase(),
+          courseTitle: formCourseTitle.trim() || formCourseCode.trim().toUpperCase(),
+          day: formDay,
+          startTime: formStartTime,
+          endTime: formEndTime,
+          venue: formVenue || 'Lecture Hall',
+          lecturer: formLecturer,
+          color: PRESET_COLORS[Math.floor(Math.random() * PRESET_COLORS.length)],
+          missedCount: 0,
+          attendanceHistory: [],
+          alarmSet: false
+        };
+        const updated = [...lectureItems, newItem];
+        setLectureItems(updated);
+        saveAllTimetables(updated, readingItems, examItems);
+        if (setUserNotification) setUserNotification(`Added ${newItem.courseCode} to Lecture Timetable!`);
+      }
+    } else if (currentType === 'personal') {
+      if (editingCard) {
+        const updated = readingItems.map(item => {
+          if (item.id === editingCard.item.id) {
+            return {
+              ...item,
+              courseCode: formCourseCode.trim().toUpperCase(),
+              title: formCourseTitle.trim() || `${formCourseCode.trim().toUpperCase()} Study Session`,
+              day: formDay,
+              startTime: formStartTime,
+              durationMinutes: Number(formDurationMinutes) || 60,
+              goal: formGoal || 'Master core lecture topics & past questions'
+            };
+          }
+          return item;
+        });
+        setReadingItems(updated);
+        saveAllTimetables(lectureItems, updated, examItems);
+        if (setUserNotification) setUserNotification(`Updated ${formCourseCode.trim().toUpperCase()} study routine!`);
+      } else {
+        const newItem: ReadingItem = {
+          id: Date.now().toString(),
+          title: formCourseTitle.trim() || `${formCourseCode.trim().toUpperCase()} Study Session`,
+          courseCode: formCourseCode.trim().toUpperCase(),
+          day: formDay,
+          startTime: formStartTime,
+          durationMinutes: Number(formDurationMinutes) || 60,
+          goal: formGoal || 'Master core lecture topics & past questions',
+          completedHistory: [],
+          alarmSet: false
+        };
+        const updated = [...readingItems, newItem];
+        setReadingItems(updated);
+        saveAllTimetables(lectureItems, updated, examItems);
+        if (setUserNotification) setUserNotification(`Added study session for ${newItem.courseCode}!`);
+      }
+    } else if (currentType === 'exam') {
       // Calculate Day of Week from chosen exam date
       let examDay: DayOfWeek = formDay;
       if (formExamDate) {
@@ -651,29 +754,55 @@ export const TimeTable: React.FC<TimeTableProps> = ({
         } catch (e) {}
       }
 
-      const newItem: ExamItem = {
-        id: Date.now().toString(),
-        courseCode: formCourseCode.trim().toUpperCase(),
-        courseTitle: formCourseTitle.trim() || `${formCourseCode.trim().toUpperCase()} Exam`,
-        day: examDay,
-        examDate: formExamDate,
-        startTime: formStartTime,
-        endTime: formEndTime,
-        venue: formVenue || 'Main Exam Hall',
-        predictedScore: 'A'
-      };
-      const updated = [...examItems, newItem];
-      setExamItems(updated);
-      saveAllTimetables(lectureItems, readingItems, updated);
-      if (setUserNotification) setUserNotification(`Added ${newItem.courseCode} Examination!`);
+      if (editingCard) {
+        const updated = examItems.map(item => {
+          if (item.id === editingCard.item.id) {
+            return {
+              ...item,
+              courseCode: formCourseCode.trim().toUpperCase(),
+              courseTitle: formCourseTitle.trim() || `${formCourseCode.trim().toUpperCase()} Exam`,
+              day: examDay,
+              examDate: formExamDate,
+              startTime: formStartTime,
+              endTime: formEndTime,
+              venue: formVenue || 'Main Exam Hall',
+              seatNumber: formSeatNumber
+            };
+          }
+          return item;
+        });
+        setExamItems(updated);
+        saveAllTimetables(lectureItems, readingItems, updated);
+        if (setUserNotification) setUserNotification(`Updated ${formCourseCode.trim().toUpperCase()} Examination!`);
+      } else {
+        const newItem: ExamItem = {
+          id: Date.now().toString(),
+          courseCode: formCourseCode.trim().toUpperCase(),
+          courseTitle: formCourseTitle.trim() || `${formCourseCode.trim().toUpperCase()} Exam`,
+          day: examDay,
+          examDate: formExamDate,
+          startTime: formStartTime,
+          endTime: formEndTime,
+          venue: formVenue || 'Main Exam Hall',
+          seatNumber: formSeatNumber,
+          predictedScore: 'A',
+          alarmSet: false
+        };
+        const updated = [...examItems, newItem];
+        setExamItems(updated);
+        saveAllTimetables(lectureItems, readingItems, updated);
+        if (setUserNotification) setUserNotification(`Added ${newItem.courseCode} Examination!`);
+      }
     }
 
     setShowCreateModal(false);
+    setEditingCard(null);
     setFormCourseCode('');
     setFormCourseTitle('');
     setFormVenue('');
     setFormLecturer('');
     setFormGoal('');
+    setFormSeatNumber('');
   };
 
   // Inline Update for Lecture
@@ -952,18 +1081,18 @@ export const TimeTable: React.FC<TimeTableProps> = ({
 
           {/* Clean Modern List: Lecture Timetable, Reading Timetable, Exam Timetable */}
           <div className="divide-y divide-white/10">
-            {/* 1. Lecture Timetable */}
+            {/* 1. Lecture Timetable - Purple Theme */}
             <button
               type="button"
               onClick={() => setActiveSection('lecture')}
               className="w-full py-4 px-2 flex items-center justify-between hover:bg-white/[0.03] transition-colors cursor-pointer group text-left"
             >
               <div className="flex items-center gap-3.5 sm:gap-4 min-w-0">
-                <div className="w-11 h-11 rounded-2xl bg-red-500/10 text-[#DC2626] border border-red-500/20 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                <div className="w-11 h-11 rounded-2xl bg-purple-500/15 text-purple-400 border border-purple-500/25 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
                   <CalendarIcon size={22} />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-base font-black uppercase tracking-tight text-white group-hover:text-[#DC2626] transition-colors">
+                  <h3 className="text-base font-black uppercase tracking-tight text-white group-hover:text-purple-400 transition-colors">
                     Lecture Timetable
                   </h3>
                   <p className="text-xs text-white/50 truncate mt-0.5">
@@ -972,25 +1101,25 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                 </div>
               </div>
               <div className="flex items-center gap-3 shrink-0 pl-3">
-                <span className="text-xs font-mono font-bold text-white/40 group-hover:text-white">
+                <span className="text-xs font-mono font-bold text-white/40 group-hover:text-purple-300">
                   {lectureItems.length} {lectureItems.length === 1 ? 'lecture' : 'lectures'}
                 </span>
-                <ChevronRight size={18} className="text-white/30 group-hover:text-[#DC2626] group-hover:translate-x-0.5 transition-all" />
+                <ChevronRight size={18} className="text-white/30 group-hover:text-purple-400 group-hover:translate-x-0.5 transition-all" />
               </div>
             </button>
 
-            {/* 2. Reading Timetable */}
+            {/* 2. Reading Timetable - Orange-Yellow Theme */}
             <button
               type="button"
               onClick={() => setActiveSection('personal')}
               className="w-full py-4 px-2 flex items-center justify-between hover:bg-white/[0.03] transition-colors cursor-pointer group text-left"
             >
               <div className="flex items-center gap-3.5 sm:gap-4 min-w-0">
-                <div className="w-11 h-11 rounded-2xl bg-purple-500/10 text-purple-400 border border-purple-500/20 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                <div className="w-11 h-11 rounded-2xl bg-amber-500/15 text-amber-400 border border-amber-500/25 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
                   <BookOpen size={22} />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-base font-black uppercase tracking-tight text-white group-hover:text-purple-400 transition-colors">
+                  <h3 className="text-base font-black uppercase tracking-tight text-white group-hover:text-amber-400 transition-colors">
                     Reading Timetable
                   </h3>
                   <p className="text-xs text-white/50 truncate mt-0.5">
@@ -999,25 +1128,25 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                 </div>
               </div>
               <div className="flex items-center gap-3 shrink-0 pl-3">
-                <span className="text-xs font-mono font-bold text-white/40 group-hover:text-white">
+                <span className="text-xs font-mono font-bold text-white/40 group-hover:text-amber-300">
                   {readingItems.length} {readingItems.length === 1 ? 'routine' : 'routines'}
                 </span>
-                <ChevronRight size={18} className="text-white/30 group-hover:text-purple-400 group-hover:translate-x-0.5 transition-all" />
+                <ChevronRight size={18} className="text-white/30 group-hover:text-amber-400 group-hover:translate-x-0.5 transition-all" />
               </div>
             </button>
 
-            {/* 3. Exam Timetable */}
+            {/* 3. Exam Timetable - Red Theme */}
             <button
               type="button"
               onClick={() => setActiveSection('exam')}
               className="w-full py-4 px-2 flex items-center justify-between hover:bg-white/[0.03] transition-colors cursor-pointer group text-left"
             >
               <div className="flex items-center gap-3.5 sm:gap-4 min-w-0">
-                <div className="w-11 h-11 rounded-2xl bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                <div className="w-11 h-11 rounded-2xl bg-red-500/15 text-red-400 border border-red-500/25 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
                   <Award size={22} />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-base font-black uppercase tracking-tight text-white group-hover:text-amber-400 transition-colors">
+                  <h3 className="text-base font-black uppercase tracking-tight text-white group-hover:text-red-400 transition-colors">
                     Exam Timetable
                   </h3>
                   <p className="text-xs text-white/50 truncate mt-0.5">
@@ -1026,10 +1155,10 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                 </div>
               </div>
               <div className="flex items-center gap-3 shrink-0 pl-3">
-                <span className="text-xs font-mono font-bold text-white/40 group-hover:text-white">
+                <span className="text-xs font-mono font-bold text-white/40 group-hover:text-red-300">
                   {examItems.length} {examItems.length === 1 ? 'exam' : 'exams'}
                 </span>
-                <ChevronRight size={18} className="text-white/30 group-hover:text-amber-400 group-hover:translate-x-0.5 transition-all" />
+                <ChevronRight size={18} className="text-white/30 group-hover:text-red-400 group-hover:translate-x-0.5 transition-all" />
               </div>
             </button>
           </div>
@@ -1195,7 +1324,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                         className="py-3 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3"
                       >
                         <div className="flex items-center gap-3 flex-1 min-w-0 w-full">
-                          <span className="text-xs font-mono font-bold text-white/40 w-5 shrink-0">{idx + 1}.</span>
+                          <span className="text-xs font-mono font-bold text-purple-400/60 w-5 shrink-0">{idx + 1}.</span>
                           
                           {/* Course Code with Underline */}
                           <div className="w-24 sm:w-28 shrink-0">
@@ -1204,7 +1333,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                               value={item.courseCode}
                               placeholder="CODE"
                               onChange={(e) => handleUpdateLecture(item.id, { courseCode: e.target.value.toUpperCase() })}
-                              className="w-full bg-transparent border-b border-white/25 hover:border-white/50 focus:border-[#DC2626] text-xs sm:text-sm font-black font-mono text-purple-300 uppercase py-0.5 outline-none tracking-wider placeholder:text-white/20"
+                              className="w-full bg-transparent border-b border-purple-500/25 hover:border-purple-500/50 focus:border-purple-400 text-xs sm:text-sm font-black font-mono text-purple-300 uppercase py-0.5 outline-none tracking-wider placeholder:text-white/20"
                             />
                           </div>
 
@@ -1215,7 +1344,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                               value={item.courseTitle}
                               placeholder="Course Title"
                               onChange={(e) => handleUpdateLecture(item.id, { courseTitle: e.target.value })}
-                              className="w-full bg-transparent border-b border-white/15 hover:border-white/40 focus:border-[#DC2626] text-xs sm:text-sm text-white py-0.5 outline-none placeholder:text-white/20 truncate"
+                              className="w-full bg-transparent border-b border-white/15 hover:border-white/40 focus:border-purple-400 text-xs sm:text-sm text-white py-0.5 outline-none placeholder:text-white/20 truncate"
                             />
                           </div>
                         </div>
@@ -1224,19 +1353,19 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                         <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap w-full lg:w-auto pl-8 lg:pl-0">
                           {/* Lecture Time */}
                           <div className="flex items-center gap-1 shrink-0 bg-white/[0.03] px-2 py-1 rounded-lg border border-white/5">
-                            <Clock size={12} className="text-red-400 shrink-0" />
+                            <Clock size={12} className="text-purple-400 shrink-0" />
                             <input
                               type="time"
                               value={item.startTime}
                               onChange={(e) => handleUpdateLecture(item.id, { startTime: e.target.value })}
-                              className="bg-transparent border-b border-white/20 hover:border-white/40 focus:border-[#DC2626] text-xs font-mono font-bold text-white py-0.5 outline-none"
+                              className="bg-transparent border-b border-white/20 hover:border-white/40 focus:border-purple-400 text-xs font-mono font-bold text-white py-0.5 outline-none"
                             />
                             <span className="text-white/40 text-xs font-mono">-</span>
                             <input
                               type="time"
                               value={item.endTime}
                               onChange={(e) => handleUpdateLecture(item.id, { endTime: e.target.value })}
-                              className="bg-transparent border-b border-white/20 hover:border-white/40 focus:border-[#DC2626] text-xs font-mono font-bold text-white py-0.5 outline-none"
+                              className="bg-transparent border-b border-white/20 hover:border-white/40 focus:border-purple-400 text-xs font-mono font-bold text-white py-0.5 outline-none"
                             />
                           </div>
 
@@ -1247,7 +1376,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                               value={item.venue}
                               placeholder="Venue"
                               onChange={(e) => handleUpdateLecture(item.id, { venue: e.target.value })}
-                              className="w-full bg-transparent border-b border-white/15 hover:border-white/40 focus:border-[#DC2626] text-xs text-white/70 py-0.5 outline-none placeholder:text-white/20 truncate"
+                              className="w-full bg-transparent border-b border-white/15 hover:border-white/40 focus:border-purple-400 text-xs text-white/70 py-0.5 outline-none placeholder:text-white/20 truncate"
                             />
                           </div>
 
@@ -1283,15 +1412,27 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                             </button>
                           </div>
 
-                          {/* Alarm & Delete */}
+                          {/* Edit, Alarm & Delete */}
                           <div className="flex items-center gap-1.5 shrink-0">
                             <button
-                              onClick={() => handleOpenLectureCalendar(item)}
-                              className="px-2.5 py-1 rounded-lg bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-purple-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all"
-                              title="Set Google / Device Calendar Alarm"
+                              onClick={() => handleOpenEditCardModal('lecture', item)}
+                              className="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 text-white/80 hover:text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all"
+                              title="Edit lecture details"
                             >
-                              <BellRing size={12} />
-                              <span className="hidden sm:inline">Alarm</span>
+                              <Edit3 size={12} className="text-purple-400" />
+                              <span className="hidden sm:inline">Edit</span>
+                            </button>
+                            <button
+                              onClick={() => handleOpenLectureCalendar(item)}
+                              className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all ${
+                                item.alarmSet
+                                  ? 'bg-purple-500/25 border-purple-400 text-purple-200 shadow-sm shadow-purple-500/20'
+                                  : 'bg-purple-500/15 hover:bg-purple-500/25 border-purple-500/30 text-purple-300'
+                              }`}
+                              title={item.alarmSet ? "Alarm active • Click to toggle" : "Set Google / Device Calendar Alarm"}
+                            >
+                              <BellRing size={12} className={item.alarmSet ? "text-purple-300 animate-pulse" : "text-purple-400"} />
+                              <span className="hidden sm:inline">{item.alarmSet ? "Alarm Set" : "Alarm"}</span>
                             </button>
                             <button
                               onClick={() => handleDeleteLecture(item.id)}
@@ -1320,15 +1461,16 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                         onClick={() => handleAddBlankReading(selectedDay)}
                         className="px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-xs font-bold text-white inline-flex items-center gap-1.5 cursor-pointer"
                       >
-                        <Plus size={13} className="text-purple-400" />
+                        <Plus size={13} className="text-amber-400" />
                         <span>Add Study Row</span>
                       </button>
                       <button
                         onClick={() => {
+                          setEditingCard(null);
                           setFormDay(selectedDay);
                           setShowCreateModal(true);
                         }}
-                        className="px-3.5 py-1.5 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 text-xs font-bold text-purple-300 inline-flex items-center gap-1.5 cursor-pointer"
+                        className="px-3.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 text-xs font-bold text-amber-300 inline-flex items-center gap-1.5 cursor-pointer"
                       >
                         <Plus size={13} />
                         <span>Plan with Form</span>
@@ -1343,7 +1485,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                         className="py-3 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3"
                       >
                         <div className="flex items-center gap-3 flex-1 min-w-0 w-full">
-                          <span className="text-xs font-mono font-bold text-white/40 w-5 shrink-0">{idx + 1}.</span>
+                          <span className="text-xs font-mono font-bold text-amber-400/60 w-5 shrink-0">{idx + 1}.</span>
                           
                           {/* Course Code with Underline */}
                           <div className="w-24 sm:w-28 shrink-0">
@@ -1352,7 +1494,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                               value={item.courseCode}
                               placeholder="CODE"
                               onChange={(e) => handleUpdateReading(item.id, { courseCode: e.target.value.toUpperCase() })}
-                              className="w-full bg-transparent border-b border-white/25 hover:border-white/50 focus:border-purple-400 text-xs sm:text-sm font-black font-mono text-purple-300 uppercase py-0.5 outline-none tracking-wider placeholder:text-white/20"
+                              className="w-full bg-transparent border-b border-amber-500/25 hover:border-amber-500/50 focus:border-amber-400 text-xs sm:text-sm font-black font-mono text-amber-300 uppercase py-0.5 outline-none tracking-wider placeholder:text-white/20"
                             />
                           </div>
 
@@ -1363,7 +1505,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                               value={item.title}
                               placeholder="Study Topic / Title"
                               onChange={(e) => handleUpdateReading(item.id, { title: e.target.value })}
-                              className="w-full bg-transparent border-b border-white/15 hover:border-white/40 focus:border-purple-400 text-xs sm:text-sm text-white py-0.5 outline-none placeholder:text-white/20 truncate"
+                              className="w-full bg-transparent border-b border-white/15 hover:border-white/40 focus:border-amber-400 text-xs sm:text-sm text-white py-0.5 outline-none placeholder:text-white/20 truncate"
                             />
                           </div>
                         </div>
@@ -1399,7 +1541,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                               value={item.goal}
                               placeholder="Study Goal"
                               onChange={(e) => handleUpdateReading(item.id, { goal: e.target.value })}
-                              className="w-full bg-transparent border-b border-white/15 hover:border-white/40 focus:border-purple-400 text-xs text-purple-200/80 py-0.5 outline-none placeholder:text-white/20 truncate"
+                              className="w-full bg-transparent border-b border-white/15 hover:border-white/40 focus:border-amber-400 text-xs text-amber-200/80 py-0.5 outline-none placeholder:text-white/20 truncate"
                             />
                           </div>
 
@@ -1409,20 +1551,31 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                               onClick={() => onOpenQuizWithTopic(item.courseCode)}
                               className="px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-black uppercase flex items-center gap-1 active:scale-95 transition-all cursor-pointer"
                             >
-                              <Sparkles size={12} />
                               <span>Quiz</span>
                             </button>
                           )}
 
-                          {/* Alarm & Delete */}
+                          {/* Edit, Alarm & Delete */}
                           <div className="flex items-center gap-1.5 shrink-0">
                             <button
-                              onClick={() => handleOpenReadingCalendar(item)}
-                              className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all"
-                              title="Set Google / Device Calendar Alarm"
+                              onClick={() => handleOpenEditCardModal('personal', item)}
+                              className="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 text-white/80 hover:text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all"
+                              title="Edit study routine details"
                             >
-                              <BellRing size={12} />
-                              <span className="hidden sm:inline">Alarm</span>
+                              <Edit3 size={12} className="text-amber-400" />
+                              <span className="hidden sm:inline">Edit</span>
+                            </button>
+                            <button
+                              onClick={() => handleOpenReadingCalendar(item)}
+                              className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all ${
+                                item.alarmSet
+                                  ? 'bg-amber-500/25 border-amber-400 text-amber-200 shadow-sm shadow-amber-500/20'
+                                  : 'bg-amber-500/15 hover:bg-amber-500/25 border-amber-500/30 text-amber-300'
+                              }`}
+                              title={item.alarmSet ? "Alarm active • Click to toggle" : "Set Google / Device Calendar Alarm"}
+                            >
+                              <BellRing size={12} className={item.alarmSet ? "text-amber-300 animate-pulse" : "text-amber-400"} />
+                              <span className="hidden sm:inline">{item.alarmSet ? "Alarm Set" : "Alarm"}</span>
                             </button>
                             <button
                               onClick={() => handleDeleteReading(item.id)}
@@ -1449,7 +1602,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                     <div className="flex flex-wrap items-center justify-center gap-2">
                       <button
                         onClick={() => setShowFullExamModal(true)}
-                        className="px-3.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-xs font-bold text-amber-300 inline-flex items-center gap-1.5 cursor-pointer"
+                        className="px-3.5 py-1.5 rounded-xl bg-red-500/15 hover:bg-red-500/25 border border-red-500/30 text-xs font-bold text-red-300 inline-flex items-center gap-1.5 cursor-pointer"
                       >
                         <Eye size={13} />
                         <span>View All {examItems.length} Exams</span>
@@ -1461,6 +1614,17 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                         <Plus size={13} />
                         <span>Add Exam on {selectedDay}</span>
                       </button>
+                      <button
+                        onClick={() => {
+                          setEditingCard(null);
+                          setFormDay(selectedDay);
+                          setShowCreateModal(true);
+                        }}
+                        className="px-3.5 py-1.5 rounded-xl bg-red-600/20 hover:bg-red-600/30 border border-red-500/30 text-xs font-bold text-red-200 inline-flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Plus size={13} />
+                        <span>Add with Form</span>
+                      </button>
                     </div>
                   </div>
                 ) : (
@@ -1471,7 +1635,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                         className="py-3 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3"
                       >
                         <div className="flex items-center gap-3 flex-1 min-w-0 w-full">
-                          <span className="text-xs font-mono font-bold text-white/40 w-5 shrink-0">{idx + 1}.</span>
+                          <span className="text-xs font-mono font-bold text-red-400/60 w-5 shrink-0">{idx + 1}.</span>
                           
                           {/* Course Code with Underline */}
                           <div className="w-24 sm:w-28 shrink-0">
@@ -1480,7 +1644,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                               value={exam.courseCode}
                               placeholder="CODE"
                               onChange={(e) => handleUpdateExam(exam.id, { courseCode: e.target.value.toUpperCase() })}
-                              className="w-full bg-transparent border-b border-white/25 hover:border-white/50 focus:border-[#DC2626] text-xs sm:text-sm font-black font-mono text-amber-300 uppercase py-0.5 outline-none tracking-wider placeholder:text-white/20"
+                              className="w-full bg-transparent border-b border-red-500/25 hover:border-red-500/50 focus:border-red-400 text-xs sm:text-sm font-black font-mono text-red-300 uppercase py-0.5 outline-none tracking-wider placeholder:text-white/20"
                             />
                           </div>
 
@@ -1491,7 +1655,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                               value={exam.courseTitle}
                               placeholder="Course Title"
                               onChange={(e) => handleUpdateExam(exam.id, { courseTitle: e.target.value })}
-                              className="w-full bg-transparent border-b border-white/15 hover:border-white/40 focus:border-[#DC2626] text-xs sm:text-sm text-white py-0.5 outline-none placeholder:text-white/20 truncate"
+                              className="w-full bg-transparent border-b border-white/15 hover:border-white/40 focus:border-red-400 text-xs sm:text-sm text-white py-0.5 outline-none placeholder:text-white/20 truncate"
                             />
                           </div>
                         </div>
@@ -1500,19 +1664,19 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                         <div className="flex items-center gap-3 flex-wrap w-full lg:w-auto pl-8 lg:pl-0">
                           {/* Prominent Exam Time */}
                           <div className="flex items-center gap-1 shrink-0 bg-white/[0.03] px-2 py-1 rounded-lg border border-white/5">
-                            <Clock size={12} className="text-amber-400 shrink-0" />
+                            <Clock size={12} className="text-red-400 shrink-0" />
                             <input
                               type="time"
                               value={exam.startTime}
                               onChange={(e) => handleUpdateExam(exam.id, { startTime: e.target.value })}
-                              className="bg-transparent border-b border-white/20 hover:border-white/40 focus:border-[#DC2626] text-xs font-mono font-bold text-amber-300 py-0.5 outline-none"
+                              className="bg-transparent border-b border-white/20 hover:border-white/40 focus:border-red-400 text-xs font-mono font-bold text-red-300 py-0.5 outline-none"
                             />
                             <span className="text-white/40 text-xs font-mono">-</span>
                             <input
                               type="time"
                               value={exam.endTime}
                               onChange={(e) => handleUpdateExam(exam.id, { endTime: e.target.value })}
-                              className="bg-transparent border-b border-white/20 hover:border-white/40 focus:border-[#DC2626] text-xs font-mono font-bold text-amber-300 py-0.5 outline-none"
+                              className="bg-transparent border-b border-white/20 hover:border-white/40 focus:border-red-400 text-xs font-mono font-bold text-red-300 py-0.5 outline-none"
                             />
                           </div>
 
@@ -1523,19 +1687,31 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                               value={exam.venue}
                               placeholder="Venue"
                               onChange={(e) => handleUpdateExam(exam.id, { venue: e.target.value })}
-                              className="w-full bg-transparent border-b border-white/15 hover:border-white/40 focus:border-[#DC2626] text-xs text-white/70 py-0.5 outline-none placeholder:text-white/20 truncate"
+                              className="w-full bg-transparent border-b border-white/15 hover:border-white/40 focus:border-red-400 text-xs text-white/70 py-0.5 outline-none placeholder:text-white/20 truncate"
                             />
                           </div>
 
-                          {/* Actions */}
+                          {/* Edit, Alarm & Delete */}
                           <div className="flex items-center gap-2 shrink-0">
                             <button
-                              onClick={() => handleOpenCalendarEvent(exam)}
-                              className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all"
-                              title="Set Google / Device Calendar Alarm"
+                              onClick={() => handleOpenEditCardModal('exam', exam)}
+                              className="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 text-white/80 hover:text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all"
+                              title="Edit exam details"
                             >
-                              <BellRing size={12} />
-                              <span className="hidden sm:inline">Alarm</span>
+                              <Edit3 size={12} className="text-red-400" />
+                              <span className="hidden sm:inline">Edit</span>
+                            </button>
+                            <button
+                              onClick={() => handleOpenCalendarEvent(exam)}
+                              className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all ${
+                                exam.alarmSet
+                                  ? 'bg-red-500/25 border-red-400 text-red-200 shadow-sm shadow-red-500/20'
+                                  : 'bg-red-500/15 hover:bg-red-500/25 border-red-500/30 text-red-300'
+                              }`}
+                              title={exam.alarmSet ? "Alarm active • Click to toggle" : "Set Google / Device Calendar Alarm"}
+                            >
+                              <BellRing size={12} className={exam.alarmSet ? "text-red-300 animate-pulse" : "text-red-400"} />
+                              <span className="hidden sm:inline">{exam.alarmSet ? "Alarm Set" : "Alarm"}</span>
                             </button>
                             <button
                               onClick={() => handleDeleteExam(exam.id)}
@@ -1570,14 +1746,14 @@ export const TimeTable: React.FC<TimeTableProps> = ({
               <div className="p-4 sm:p-5 border-b border-white/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div>
                   <h3 className="text-sm sm:text-base font-black text-white uppercase tracking-tight flex items-center gap-2">
-                    <CalendarCheck2 size={18} className="text-amber-400" />
+                    <CalendarCheck2 size={18} className="text-red-400" />
                     <span>Examination Timetable</span>
                     <span className="text-xs font-mono font-normal text-white/50">
                       ({sortedAllExams.length} {sortedAllExams.length === 1 ? 'Exam' : 'Exams'})
                     </span>
                   </h3>
                   <p className="text-[11px] text-white/40 font-mono mt-0.5">
-                    {currentAcademicInfo.level}L {currentAcademicInfo.semester === 'first' ? '1st' : '2nd'} Semester • Click underlined fields to edit
+                    {currentAcademicInfo.level}L {currentAcademicInfo.semester === 'first' ? '1st' : '2nd'} Semester • Click underlined fields or Edit button to modify
                   </p>
                 </div>
 
@@ -1586,7 +1762,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                     onClick={handleAddBlankExam}
                     className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-xs font-bold text-white flex items-center gap-1.5 transition-all cursor-pointer"
                   >
-                    <Plus size={13} className="text-amber-400" />
+                    <Plus size={13} className="text-red-400" />
                     <span>Add Exam</span>
                   </button>
 
@@ -1653,7 +1829,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                         onClick={handleAddBlankExam}
                         className="px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-xs font-bold text-white inline-flex items-center gap-1.5 cursor-pointer"
                       >
-                        <Plus size={13} className="text-amber-400" />
+                        <Plus size={13} className="text-red-400" />
                         <span>Add First Exam Row</span>
                       </button>
                       <button
@@ -1661,7 +1837,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                           setShowFullExamModal(false);
                           fileInputRef.current?.click();
                         }}
-                        className="px-3.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-xs font-bold text-amber-300 inline-flex items-center gap-1.5 cursor-pointer"
+                        className="px-3.5 py-1.5 rounded-xl bg-red-500/15 hover:bg-red-500/25 border border-red-500/30 text-xs font-bold text-red-300 inline-flex items-center gap-1.5 cursor-pointer"
                       >
                         <Upload size={13} />
                         <span>Upload PDF Timetable</span>
@@ -1677,7 +1853,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                       >
                         {/* Course Code & Title */}
                         <div className="flex items-center gap-3 flex-1 min-w-0 w-full">
-                          <span className="text-xs font-mono font-bold text-white/40 w-5 shrink-0">{idx + 1}.</span>
+                          <span className="text-xs font-mono font-bold text-red-400/60 w-5 shrink-0">{idx + 1}.</span>
                           
                           {/* Course Code with Underline */}
                           <div className="w-24 sm:w-28 shrink-0">
@@ -1686,7 +1862,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                               value={exam.courseCode}
                               placeholder="CODE"
                               onChange={(e) => handleUpdateExam(exam.id, { courseCode: e.target.value.toUpperCase() })}
-                              className="w-full bg-transparent border-b border-white/25 hover:border-white/50 focus:border-[#DC2626] text-xs sm:text-sm font-black font-mono text-amber-300 uppercase py-0.5 outline-none tracking-wider placeholder:text-white/20"
+                              className="w-full bg-transparent border-b border-red-500/25 hover:border-red-500/50 focus:border-red-400 text-xs sm:text-sm font-black font-mono text-red-300 uppercase py-0.5 outline-none tracking-wider placeholder:text-white/20"
                             />
                           </div>
 
@@ -1697,7 +1873,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                               value={exam.courseTitle}
                               placeholder="Course Title"
                               onChange={(e) => handleUpdateExam(exam.id, { courseTitle: e.target.value })}
-                              className="w-full bg-transparent border-b border-white/15 hover:border-white/40 focus:border-[#DC2626] text-xs sm:text-sm text-white py-0.5 outline-none placeholder:text-white/20 truncate"
+                              className="w-full bg-transparent border-b border-white/15 hover:border-white/40 focus:border-red-400 text-xs sm:text-sm text-white py-0.5 outline-none placeholder:text-white/20 truncate"
                             />
                           </div>
                         </div>
@@ -1710,19 +1886,19 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                               type="date"
                               value={exam.examDate}
                               onChange={(e) => handleUpdateExam(exam.id, { examDate: e.target.value })}
-                              className="bg-transparent border-b border-white/20 hover:border-white/40 focus:border-[#DC2626] text-xs font-mono font-semibold text-white/80 py-0.5 outline-none"
+                              className="bg-transparent border-b border-white/20 hover:border-white/40 focus:border-red-400 text-xs font-mono font-semibold text-white/80 py-0.5 outline-none"
                             />
                             <span className="text-[11px] font-mono text-white/40">({exam.day?.slice(0, 3)})</span>
                           </div>
 
                           {/* Prominent Exam Time Display & Inputs */}
                           <div className="flex items-center gap-1 shrink-0 bg-white/[0.03] px-2 py-1 rounded-lg border border-white/5">
-                            <Clock size={12} className="text-amber-400 shrink-0" />
+                            <Clock size={12} className="text-red-400 shrink-0" />
                             <input
                               type="time"
                               value={exam.startTime}
                               onChange={(e) => handleUpdateExam(exam.id, { startTime: e.target.value })}
-                              className="bg-transparent border-b border-white/20 hover:border-white/40 focus:border-[#DC2626] text-xs font-mono font-bold text-amber-300 py-0.5 outline-none"
+                              className="bg-transparent border-b border-white/20 hover:border-white/40 focus:border-red-400 text-xs font-mono font-bold text-red-300 py-0.5 outline-none"
                               title="Exam Start Time"
                             />
                             <span className="text-white/40 text-xs font-mono">-</span>
@@ -1730,7 +1906,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                               type="time"
                               value={exam.endTime}
                               onChange={(e) => handleUpdateExam(exam.id, { endTime: e.target.value })}
-                              className="bg-transparent border-b border-white/20 hover:border-white/40 focus:border-[#DC2626] text-xs font-mono font-bold text-amber-300 py-0.5 outline-none"
+                              className="bg-transparent border-b border-white/20 hover:border-white/40 focus:border-red-400 text-xs font-mono font-bold text-red-300 py-0.5 outline-none"
                               title="Exam End Time"
                             />
                           </div>
@@ -1742,7 +1918,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                               value={exam.venue}
                               placeholder="Venue"
                               onChange={(e) => handleUpdateExam(exam.id, { venue: e.target.value })}
-                              className="w-full bg-transparent border-b border-white/15 hover:border-white/40 focus:border-[#DC2626] text-xs text-white/70 py-0.5 outline-none placeholder:text-white/20 truncate"
+                              className="w-full bg-transparent border-b border-white/15 hover:border-white/40 focus:border-red-400 text-xs text-white/70 py-0.5 outline-none placeholder:text-white/20 truncate"
                             />
                           </div>
 
@@ -1753,19 +1929,32 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                               value={exam.seatNumber || ''}
                               placeholder="Seat #"
                               onChange={(e) => handleUpdateExam(exam.id, { seatNumber: e.target.value })}
-                              className="w-full bg-transparent border-b border-white/15 hover:border-white/40 focus:border-[#DC2626] text-xs text-white/50 py-0.5 outline-none placeholder:text-white/20"
+                              className="w-full bg-transparent border-b border-white/15 hover:border-white/40 focus:border-red-400 text-xs text-white/50 py-0.5 outline-none placeholder:text-white/20"
                             />
                           </div>
 
-                          {/* Row Actions: Alarm & Delete */}
+                          {/* Row Actions: Edit, Alarm & Delete */}
                           <div className="flex items-center gap-2 shrink-0">
                             <button
-                              onClick={() => handleOpenCalendarEvent(exam)}
-                              className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all"
-                              title="Set Google / Device Calendar Alarm with 2-hour pre-exam reminder"
+                              onClick={() => handleOpenEditCardModal('exam', exam)}
+                              className="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 text-white/80 hover:text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all"
+                              title="Edit exam details"
                             >
-                              <BellRing size={12} />
-                              <span className="hidden sm:inline">Alarm</span>
+                              <Edit3 size={12} className="text-red-400" />
+                              <span className="hidden sm:inline">Edit</span>
+                            </button>
+
+                            <button
+                              onClick={() => handleOpenCalendarEvent(exam)}
+                              className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all ${
+                                exam.alarmSet
+                                  ? 'bg-red-500/25 border-red-400 text-red-200 shadow-sm shadow-red-500/20'
+                                  : 'bg-red-500/15 hover:bg-red-500/25 border-red-500/30 text-red-300'
+                              }`}
+                              title={exam.alarmSet ? "Alarm active • Click to toggle" : "Set Google / Device Calendar Alarm with 2-hour pre-exam reminder"}
+                            >
+                              <BellRing size={12} className={exam.alarmSet ? "text-red-300 animate-pulse" : "text-red-400"} />
+                              <span className="hidden sm:inline">{exam.alarmSet ? "Alarm Set" : "Alarm"}</span>
                             </button>
 
                             <button
@@ -1795,13 +1984,39 @@ export const TimeTable: React.FC<TimeTableProps> = ({
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="w-full max-w-md bg-[#1A1826] border border-white/10 rounded-3xl shadow-2xl overflow-hidden p-6 space-y-4"
+              className="w-full max-w-md bg-[#161424] border border-white/10 rounded-3xl shadow-2xl overflow-hidden p-6 space-y-4"
             >
               <div className="flex items-center justify-between border-b border-white/5 pb-3">
-                <h3 className="text-base font-black text-white uppercase tracking-tight">
-                  Add to {activeSection === 'lecture' ? 'Lecture Timetable' : activeSection === 'personal' ? 'Reading Schedule' : 'Exam Timetable'}
-                </h3>
-                <button onClick={() => setShowCreateModal(false)} className="text-white/40 hover:text-white">
+                <div className="flex items-center gap-2">
+                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
+                    (editingCard ? editingCard.type : activeSection) === 'lecture'
+                      ? 'bg-purple-500/20 text-purple-400'
+                      : (editingCard ? editingCard.type : activeSection) === 'personal'
+                      ? 'bg-amber-500/20 text-amber-400'
+                      : 'bg-red-500/20 text-red-400'
+                  }`}>
+                    <CalendarIcon size={16} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-white uppercase tracking-tight">
+                      {editingCard ? 'Edit Schedule Item' : 'Add New Schedule Item'}
+                    </h3>
+                    <p className="text-[10px] text-white/50 uppercase font-mono">
+                      {(editingCard ? editingCard.type : activeSection) === 'lecture' 
+                        ? 'Lecture Timetable' 
+                        : (editingCard ? editingCard.type : activeSection) === 'personal' 
+                        ? 'Reading Schedule' 
+                        : 'Examination Timetable'}
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => {
+                    setShowCreateModal(false);
+                    setEditingCard(null);
+                  }} 
+                  className="p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/5"
+                >
                   <X size={18} />
                 </button>
               </div>
@@ -1817,7 +2032,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                     placeholder="e.g. MTH 101"
                     value={formCourseCode}
                     onChange={(e) => setFormCourseCode(e.target.value.toUpperCase())}
-                    className="w-full bg-[#12111A] border border-white/10 focus:border-[#DC2626] rounded-xl px-3.5 py-2.5 text-xs font-bold text-white uppercase focus:outline-none"
+                    className="w-full bg-[#100E1A] border border-white/10 focus:border-purple-400 rounded-xl px-3.5 py-2.5 text-xs font-bold text-white uppercase focus:outline-none"
                   />
                 </div>
 
@@ -1830,7 +2045,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                     placeholder="e.g. Elementary Mathematics I"
                     value={formCourseTitle}
                     onChange={(e) => setFormCourseTitle(e.target.value)}
-                    className="w-full bg-[#12111A] border border-white/10 focus:border-[#DC2626] rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none"
+                    className="w-full bg-[#100E1A] border border-white/10 focus:border-purple-400 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none"
                   />
                 </div>
 
@@ -1842,7 +2057,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                     <select
                       value={formDay}
                       onChange={(e) => setFormDay(e.target.value as DayOfWeek)}
-                      className="w-full bg-[#12111A] border border-white/10 focus:border-[#DC2626] rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none"
+                      className="w-full bg-[#100E1A] border border-white/10 focus:border-purple-400 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none"
                     >
                       {DAYS_OF_WEEK.map((d) => (
                         <option key={d} value={d}>{d}</option>
@@ -1850,7 +2065,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                     </select>
                   </div>
 
-                  {activeSection === 'exam' ? (
+                  {(editingCard ? editingCard.type : activeSection) === 'exam' ? (
                     <div>
                       <label className="text-[10px] font-black uppercase tracking-wider text-white/50 block mb-1">
                         Exam Date
@@ -1859,7 +2074,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                         type="date"
                         value={formExamDate}
                         onChange={(e) => setFormExamDate(e.target.value)}
-                        className="w-full bg-[#12111A] border border-white/10 focus:border-[#DC2626] rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none"
+                        className="w-full bg-[#100E1A] border border-white/10 focus:border-red-400 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none"
                       />
                     </div>
                   ) : (
@@ -1869,14 +2084,89 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                       </label>
                       <input
                         type="text"
-                        placeholder="e.g. Hall 1"
+                        placeholder="e.g. Science Hall 3"
                         value={formVenue}
                         onChange={(e) => setFormVenue(e.target.value)}
-                        className="w-full bg-[#12111A] border border-white/10 focus:border-[#DC2626] rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                        className="w-full bg-[#100E1A] border border-white/10 focus:border-purple-400 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
                       />
                     </div>
                   )}
                 </div>
+
+                {/* Additional fields depending on type */}
+                {(editingCard ? editingCard.type : activeSection) === 'lecture' && (
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-wider text-white/50 block mb-1">
+                      Lecturer Name (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Prof. Adeleke"
+                      value={formLecturer}
+                      onChange={(e) => setFormLecturer(e.target.value)}
+                      className="w-full bg-[#100E1A] border border-white/10 focus:border-purple-400 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none"
+                    />
+                  </div>
+                )}
+
+                {(editingCard ? editingCard.type : activeSection) === 'personal' && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] font-black uppercase tracking-wider text-white/50 block mb-1">
+                        Duration (Minutes)
+                      </label>
+                      <input
+                        type="number"
+                        min={15}
+                        max={300}
+                        value={formDurationMinutes}
+                        onChange={(e) => setFormDurationMinutes(parseInt(e.target.value) || 60)}
+                        className="w-full bg-[#100E1A] border border-white/10 focus:border-amber-400 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black uppercase tracking-wider text-white/50 block mb-1">
+                        Study Goal
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Module 3 Past Questions"
+                        value={formGoal}
+                        onChange={(e) => setFormGoal(e.target.value)}
+                        className="w-full bg-[#100E1A] border border-white/10 focus:border-amber-400 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {(editingCard ? editingCard.type : activeSection) === 'exam' && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] font-black uppercase tracking-wider text-white/50 block mb-1">
+                        Venue
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Multipurpose Hall A"
+                        value={formVenue}
+                        onChange={(e) => setFormVenue(e.target.value)}
+                        className="w-full bg-[#100E1A] border border-white/10 focus:border-red-400 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black uppercase tracking-wider text-white/50 block mb-1">
+                        Seat Number (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Seat #42"
+                        value={formSeatNumber}
+                        onChange={(e) => setFormSeatNumber(e.target.value)}
+                        className="w-full bg-[#100E1A] border border-white/10 focus:border-red-400 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -1887,7 +2177,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                       type="time"
                       value={formStartTime}
                       onChange={(e) => setFormStartTime(e.target.value)}
-                      className="w-full bg-[#12111A] border border-white/10 focus:border-[#DC2626] rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none"
+                      className="w-full bg-[#100E1A] border border-white/10 focus:border-purple-400 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none"
                     />
                   </div>
 
@@ -1899,17 +2189,35 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                       type="time"
                       value={formEndTime}
                       onChange={(e) => setFormEndTime(e.target.value)}
-                      className="w-full bg-[#12111A] border border-white/10 focus:border-[#DC2626] rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none"
+                      className="w-full bg-[#100E1A] border border-white/10 focus:border-purple-400 rounded-xl px-3 py-2 text-xs font-bold text-white focus:outline-none"
                     />
                   </div>
                 </div>
 
-                <button
-                  type="submit"
-                  className="w-full py-3 rounded-xl bg-[#DC2626] hover:bg-red-700 text-white font-black text-xs uppercase tracking-wider shadow-lg active:scale-95 transition-all"
-                >
-                  Save to Schedule
-                </button>
+                <div className="pt-2 flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCreateModal(false);
+                      setEditingCard(null);
+                    }}
+                    className="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white/80 font-bold text-xs uppercase tracking-wider transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className={`flex-1 py-3 rounded-xl text-white font-black text-xs uppercase tracking-wider shadow-lg active:scale-95 transition-all ${
+                      (editingCard ? editingCard.type : activeSection) === 'lecture'
+                        ? 'bg-purple-600 hover:bg-purple-700'
+                        : (editingCard ? editingCard.type : activeSection) === 'personal'
+                        ? 'bg-amber-600 hover:bg-amber-700 text-slate-950 font-black'
+                        : 'bg-red-600 hover:bg-red-700'
+                    }`}
+                  >
+                    {editingCard ? 'Update Schedule' : 'Save to Schedule'}
+                  </button>
+                </div>
               </form>
             </motion.div>
           </div>

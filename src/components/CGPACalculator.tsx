@@ -2,9 +2,9 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Calculator, ChevronRight, ArrowLeft, Plus, Minus, Download, RotateCcw, 
-  Sparkles, Check, ChevronDown, BookOpen, AlertCircle, Trophy, TrendingUp,
+  Check, ChevronDown, BookOpen, AlertCircle, Trophy, TrendingUp,
   Award, FileText, CheckCircle2, Search, Sliders, Zap, ShieldAlert, X,
-  Upload, Image as ImageIcon, CheckSquare, Layers, Calendar, Trash2, Filter
+  Upload, Image as ImageIcon, CheckSquare, Layers, Calendar, Trash2, Filter, Target
 } from 'lucide-react';
 import { scheduleLocalNotification } from '../lib/capacitor/notifications';
 import { extractPdfDetails } from '../utils';
@@ -319,7 +319,7 @@ export const CGPACalculator: React.FC<CGPACalculatorProps> = ({
       if (normalized >= 4.50) {
         degreeClass = 'First Class Honours';
         degreeClassShort = 'First Class';
-        badgeColor = 'from-amber-500 to-yellow-400';
+        badgeColor = 'from-amber-500 to-orange-500';
       } else if (normalized >= 3.50) {
         degreeClass = 'Second Class Honours (Upper Division)';
         degreeClassShort = 'Second Class Upper (2:1)';
@@ -860,9 +860,37 @@ Official Academic Result Summary • NSG Academic Suite
   const totalSecondSemUnits = secondSemRegistered.reduce((sum, c) => sum + (c.credits || 0), 0);
   const totalCombinedUnits = totalFirstSemUnits + totalSecondSemUnits;
 
-  // AI Target Simulator Calculations
+  // AI Target Simulator Calculations (Weighted by Course Credit Units)
   const advisorSim = useMemo(() => {
-    const totalNextUnits = totalCombinedUnits > 0 ? totalCombinedUnits : 20;
+    const allCourses = [...(currentStanding.firstSemesterCourses || []), ...(currentStanding.secondSemesterCourses || [])];
+    
+    // Normalize or construct courses with their credit units
+    let coursesToSimulate: { id: string; code: string; title: string; credits: number }[] = [];
+    if (allCourses.length > 0) {
+      coursesToSimulate = allCourses.map(c => ({
+        id: c.id,
+        code: c.code,
+        title: c.title || c.code,
+        credits: Math.max(1, Number(c.credits) || 3)
+      }));
+    } else {
+      const targetUnits = totalCombinedUnits > 0 ? totalCombinedUnits : 20;
+      let rem = targetUnits;
+      let idx = 1;
+      while (rem > 0) {
+        const u = rem >= 4 ? 4 : rem >= 3 ? 3 : rem >= 2 ? 2 : rem;
+        coursesToSimulate.push({
+          id: `sim-${idx}`,
+          code: `Course ${idx}`,
+          title: `Registered Course ${idx}`,
+          credits: u
+        });
+        rem -= u;
+        idx++;
+      }
+    }
+
+    const totalNextUnits = coursesToSimulate.reduce((sum, c) => sum + c.credits, 0);
     const currentUnits = overallStats.totalUnits;
     const currentPoints = overallStats.totalPoints;
     const futureTotalUnits = currentUnits + totalNextUnits;
@@ -872,49 +900,122 @@ Official Academic Result Summary • NSG Academic Suite
     if (advisorTargetClass === 'lower') targetCgpa = 2.40;
 
     const targetOnScale = (targetCgpa / 5.0) * scale;
+    const totalTargetPointsNeeded = targetOnScale * futureTotalUnits;
+    const requiredQualityPoints = Math.max(0, totalTargetPointsNeeded - currentPoints);
 
     let requiredSemGPA = 0;
     let isAttainableThisSemester = true;
 
     if (totalNextUnits > 0) {
-      const requiredPoints = targetOnScale * futureTotalUnits - currentPoints;
-      requiredSemGPA = requiredPoints / totalNextUnits;
+      requiredSemGPA = requiredQualityPoints / totalNextUnits;
       if (requiredSemGPA > scale) {
         isAttainableThisSemester = false;
       }
-      if (requiredSemGPA < 0) {
-        requiredSemGPA = 0;
+    }
+
+    const ptsA = scale === 4 ? 4.0 : 5.0;
+    const ptsB = scale === 4 ? 3.0 : 4.0;
+    const ptsC = scale === 4 ? 2.0 : 3.0;
+    const ptsD = scale === 4 ? 1.0 : 2.0;
+
+    // Weight allocation: sort descending by credit units to prioritize high-unit courses for top grades
+    const sortedCourses = [...coursesToSimulate].sort((a, b) => b.credits - a.credits);
+
+    const assignments = sortedCourses.map(c => ({
+      ...c,
+      grade: 'A' as 'A' | 'B' | 'C' | 'D',
+      points: c.credits * ptsA
+    }));
+
+    let currentSimulatedPoints = assignments.reduce((s, c) => s + c.points, 0);
+
+    // Step down from A to B starting from smaller credit units if target points are met
+    for (let i = assignments.length - 1; i >= 0; i--) {
+      const c = assignments[i];
+      const diff = c.credits * (ptsA - ptsB);
+      if (currentSimulatedPoints - diff >= requiredQualityPoints) {
+        c.grade = 'B';
+        c.points = c.credits * ptsB;
+        currentSimulatedPoints -= diff;
       }
     }
 
-    const numCourses = (currentStanding.courses || []).length || 6;
-    let recommendedAs = 0;
-    let allowedBs = 0;
-    let allowedCs = 0;
-
-    if (requiredSemGPA >= (4.5 / 5.0) * scale) {
-      const ratio = (requiredSemGPA - (4.0 / 5.0) * scale) / ((1.0 / 5.0) * scale);
-      recommendedAs = Math.min(numCourses, Math.max(1, Math.ceil(numCourses * Math.max(0, ratio))));
-      allowedBs = Math.max(0, numCourses - recommendedAs);
-    } else if (requiredSemGPA >= (3.5 / 5.0) * scale) {
-      recommendedAs = Math.max(0, Math.floor(numCourses * 0.4));
-      allowedBs = Math.max(0, Math.ceil(numCourses * 0.5));
-      allowedCs = Math.max(0, numCourses - recommendedAs - allowedBs);
-    } else {
-      allowedBs = Math.floor(numCourses * 0.6);
-      allowedCs = Math.max(0, numCourses - allowedBs);
+    // Step down from B to C starting from smaller credit units if target points are met
+    for (let i = assignments.length - 1; i >= 0; i--) {
+      const c = assignments[i];
+      if (c.grade === 'B') {
+        const diff = c.credits * (ptsB - ptsC);
+        if (currentSimulatedPoints - diff >= requiredQualityPoints) {
+          c.grade = 'C';
+          c.points = c.credits * ptsC;
+          currentSimulatedPoints -= diff;
+        }
+      }
     }
+
+    // Step down from C to D if target points are met
+    for (let i = assignments.length - 1; i >= 0; i--) {
+      const c = assignments[i];
+      if (c.grade === 'C') {
+        const diff = c.credits * (ptsC - ptsD);
+        if (currentSimulatedPoints - diff >= requiredQualityPoints) {
+          c.grade = 'D';
+          c.points = c.credits * ptsD;
+          currentSimulatedPoints -= diff;
+        }
+      }
+    }
+
+    const aCourses = assignments.filter(c => c.grade === 'A');
+    const bCourses = assignments.filter(c => c.grade === 'B');
+    const cCourses = assignments.filter(c => c.grade === 'C');
+    const dCourses = assignments.filter(c => c.grade === 'D');
+
+    const recommendedAs = aCourses.length;
+    const unitsAs = aCourses.reduce((s, c) => s + c.credits, 0);
+    const pointsAs = unitsAs * ptsA;
+
+    const allowedBs = bCourses.length;
+    const unitsBs = bCourses.reduce((s, c) => s + c.credits, 0);
+    const pointsBs = unitsBs * ptsB;
+
+    const allowedCs = cCourses.length;
+    const unitsCs = cCourses.reduce((s, c) => s + c.credits, 0);
+    const pointsCs = unitsCs * ptsC;
+
+    const allowedDs = dCourses.length;
+    const unitsDs = dCourses.reduce((s, c) => s + c.credits, 0);
+    const pointsDs = unitsDs * ptsD;
+
+    const totalSimulatedPoints = pointsAs + pointsBs + pointsCs + pointsDs;
+    const simulatedGPA = totalNextUnits > 0 ? totalSimulatedPoints / totalNextUnits : 0;
 
     return {
       totalNextUnits,
       targetOnScale,
+      requiredQualityPoints: Number(requiredQualityPoints.toFixed(2)),
       requiredSemGPA: Number(requiredSemGPA.toFixed(2)),
       isAttainableThisSemester,
       recommendedAs,
+      unitsAs,
+      pointsAs,
       allowedBs,
-      allowedCs
+      unitsBs,
+      pointsBs,
+      allowedCs,
+      unitsCs,
+      pointsCs,
+      allowedDs,
+      unitsDs,
+      pointsDs,
+      simulatedGPA: Number(simulatedGPA.toFixed(2)),
+      totalSimulatedPoints,
+      courseAssignments: assignments,
+      ptsA,
+      ptsB,
+      ptsC
     };
-  }, [totalCombinedUnits, overallStats, scale, advisorTargetClass, currentStanding.courses]);
+  }, [totalCombinedUnits, overallStats, scale, advisorTargetClass, currentStanding.firstSemesterCourses, currentStanding.secondSemesterCourses]);
 
   return (
     <div className={`w-full max-w-4xl mx-auto space-y-6 pb-20 ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
@@ -960,11 +1061,7 @@ Official Academic Result Summary • NSG Academic Suite
                 : 'MY CGPA'
               }
             </h1>
-            <p className="text-xs font-mono text-white/50 flex items-center gap-2 pt-0.5">
-              <span className="text-purple-400 font-bold">{currentStanding.level}L Standing</span>
-              <span className="text-white/20">•</span>
-              <span className="text-white/60 font-semibold">{scale.toFixed(1)} Scale System</span>
-            </p>
+            {/* Subtitle / Header details */}
           </div>
         </div>
 
@@ -1417,11 +1514,11 @@ Official Academic Result Summary • NSG Academic Suite
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30">
-                  <Sparkles size={20} />
+                  <Target size={20} />
                 </div>
                 <div>
-                  <h2 className="text-base sm:text-lg font-black text-white tracking-tight">Calculate CGPA</h2>
-                  <p className="text-xs text-white/50">Find your target CGPA for next semester ({currentStanding.level}L • {totalCombinedUnits} registered units)</p>
+                  <h2 className="text-base sm:text-lg font-black text-white tracking-tight">CGPA Target Simulator</h2>
+                  <p className="text-xs text-white/50">Weighted credit-unit breakdown for next semester ({currentStanding.level}L • {advisorSim.totalNextUnits} Total Units)</p>
                 </div>
               </div>
               <div className="text-right">
@@ -1469,24 +1566,97 @@ Official Academic Result Summary • NSG Academic Suite
             </div>
           </div>
 
-          <div className="p-4 bg-white/[0.02] border border-white/10 rounded-2xl space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-mono font-bold text-white/70">Semester GPA Required:</span>
-              <span className={`text-xl font-black font-mono ${advisorSim.isAttainableThisSemester ? 'text-amber-400' : 'text-red-400'}`}>
+          <div className="p-4 bg-white/[0.02] border border-white/10 rounded-2xl space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <span className="text-xs font-mono font-bold text-white/70 block">Target GPA Required:</span>
+                <span className="text-[11px] text-white/50 font-mono">
+                  {advisorSim.requiredQualityPoints.toFixed(1)} Quality Points needed across {advisorSim.totalNextUnits} Units
+                </span>
+              </div>
+              <span className={`text-xl sm:text-2xl font-black font-mono ${advisorSim.isAttainableThisSemester ? 'text-amber-400' : 'text-red-400'}`}>
                 {advisorSim.requiredSemGPA.toFixed(2)} / {scale.toFixed(1)}
               </span>
             </div>
-            <p className="text-xs text-white/80 leading-relaxed">
+
+            <div className="text-xs text-white/80 leading-relaxed border-t border-white/10 pt-2.5 space-y-2">
               {advisorSim.isAttainableThisSemester ? (
                 <>
-                  To reach or maintain your target across your <strong className="text-white font-bold">{advisorSim.totalNextUnits} registered units</strong>, you can afford at least <strong className="text-purple-300 font-black">{advisorSim.recommendedAs} A&apos;s</strong> and at most <strong className="text-orange-400 font-black">{advisorSim.allowedBs} B&apos;s</strong>.
+                  <p>
+                    To achieve your target with credit-unit weighting across <strong className="text-white font-bold">{advisorSim.totalNextUnits} units</strong>, target the following distribution:
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                    {advisorSim.recommendedAs > 0 && (
+                      <div className="p-2.5 rounded-xl bg-purple-950/40 border border-purple-500/30">
+                        <div className="flex justify-between text-xs">
+                          <span className="font-black text-purple-300">Grade A ({advisorSim.ptsA.toFixed(1)} pts)</span>
+                          <span className="font-mono font-bold text-white">{advisorSim.recommendedAs} courses</span>
+                        </div>
+                        <p className="text-[11px] text-purple-200/70 font-mono mt-1">
+                          {advisorSim.unitsAs} Units × {advisorSim.ptsA} = <strong className="text-white font-bold">{advisorSim.pointsAs.toFixed(1)} pts</strong>
+                        </p>
+                      </div>
+                    )}
+                    {advisorSim.allowedBs > 0 && (
+                      <div className="p-2.5 rounded-xl bg-amber-950/30 border border-amber-500/30">
+                        <div className="flex justify-between text-xs">
+                          <span className="font-black text-amber-300">Grade B ({advisorSim.ptsB.toFixed(1)} pts)</span>
+                          <span className="font-mono font-bold text-white">{advisorSim.allowedBs} courses</span>
+                        </div>
+                        <p className="text-[11px] text-amber-200/70 font-mono mt-1">
+                          {advisorSim.unitsBs} Units × {advisorSim.ptsB} = <strong className="text-white font-bold">{advisorSim.pointsBs.toFixed(1)} pts</strong>
+                        </p>
+                      </div>
+                    )}
+                    {advisorSim.allowedCs > 0 && (
+                      <div className="p-2.5 rounded-xl bg-orange-950/30 border border-orange-500/30">
+                        <div className="flex justify-between text-xs">
+                          <span className="font-black text-orange-300">Grade C ({advisorSim.ptsC.toFixed(1)} pts)</span>
+                          <span className="font-mono font-bold text-white">{advisorSim.allowedCs} courses</span>
+                        </div>
+                        <p className="text-[11px] text-orange-200/70 font-mono mt-1">
+                          {advisorSim.unitsCs} Units × {advisorSim.ptsC} = <strong className="text-white font-bold">{advisorSim.pointsCs.toFixed(1)} pts</strong>
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Course by course weighted breakdown */}
+                  {advisorSim.courseAssignments && advisorSim.courseAssignments.length > 0 && (
+                    <div className="pt-2 space-y-1.5">
+                      <span className="text-[11px] font-bold text-white/50 uppercase tracking-wider block">Course Weighting Recommendation</span>
+                      <div className="space-y-1 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
+                        {advisorSim.courseAssignments.map((c, idx) => (
+                          <div key={idx} className="flex items-center justify-between p-2 rounded-lg bg-white/5 border border-white/5 text-xs">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-white">{c.code}</span>
+                              <span className="text-white/50 text-[11px] truncate max-w-[150px] sm:max-w-[220px]">{c.title}</span>
+                            </div>
+                            <div className="flex items-center gap-2.5 shrink-0 font-mono text-[11px]">
+                              <span className="text-white/60">{c.credits} Units</span>
+                              <span className={`px-2 py-0.5 rounded font-black ${
+                                c.grade === 'A' ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' :
+                                c.grade === 'B' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
+                                'bg-orange-500/20 text-orange-300 border border-orange-500/30'
+                              }`}>
+                                Target {c.grade} ({c.points.toFixed(1)} pts)
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </>
               ) : (
-                <>
-                  <span className="text-red-400 font-bold">Multiple sessions needed:</span> To attain this class, maintain a 5.00 GPA this semester and sustained high performance.
-                </>
+                <div className="p-3 bg-red-950/30 border border-red-500/30 rounded-xl space-y-1">
+                  <span className="text-red-400 font-bold block">Multiple Sessions Required</span>
+                  <p className="text-xs text-white/70">
+                    The required quality points exceed maximum attainable GPA this semester. Aim for straight A&apos;s ({scale.toFixed(1)} GPA) this semester and maintain high performance across subsequent sessions to reach this target.
+                  </p>
+                </div>
               )}
-            </p>
+            </div>
           </div>
         </motion.div>
       ) : (
@@ -1498,15 +1668,9 @@ Official Academic Result Summary • NSG Academic Suite
               <span className="text-xs font-black uppercase tracking-wider text-white/70">
                 {gpaFullTitle}
               </span>
-              <p className="text-xs font-mono font-semibold flex items-center gap-2">
-                <span className="text-purple-400 font-bold">{currentStanding.level}L Standing</span>
-                <span className="text-white/20">•</span>
-                <span className="text-white/60 font-semibold">{scale.toFixed(1)} Scale System</span>
-              </p>
-              <div className="pt-1">
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wide bg-purple-500/20 border border-purple-500/30 text-purple-300">
-                  <Award size={13} className="text-[#DC2626]" />
-                  <span>{overallStats.degreeClassShort}</span>
+              <div className="pt-0.5">
+                <span className="text-xs font-black uppercase tracking-wide text-purple-300">
+                  {overallStats.degreeClassShort}
                 </span>
               </div>
             </div>
@@ -1537,7 +1701,7 @@ Official Academic Result Summary • NSG Academic Suite
               onClick={() => setShowAdvisor(true)}
               className="px-3.5 py-2 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 text-xs font-bold text-purple-300 flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer"
             >
-              <Sparkles size={13} className="text-amber-400" />
+              <Target size={13} className="text-amber-400" />
               <span>Target Simulator</span>
             </button>
 

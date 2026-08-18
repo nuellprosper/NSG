@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { CoursesTool } from '../subComponents';
 export { CoursesTool };
 import { 
-  Search, RefreshCcw, Sparkles, X, Zap, ShieldCheck, BookOpen, ChevronRight, 
+  Search, RefreshCcw, X, Zap, ShieldCheck, BookOpen, ChevronRight, 
   Trash2, Camera, Upload, History, Volume2, Square, Send, Image as ImageIcon, Mic, Brain 
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -196,7 +196,6 @@ const OldCoursesToolDuplicate = ({ theme, user, getAiInstance, getHfInstance, se
               >
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-[#DC2626] font-mono text-[10px] font-black">{c.code}</span>
-                  <Sparkles size={12} className="text-yellow-500" />
                 </div>
                 <h4 className={`text-xs font-black truncate ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>{c.name}</h4>
               </button>
@@ -789,7 +788,7 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, setUse
             disabled={isSolving || (images.length === 0 && !assignmentText.trim())}
             className="w-full bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black py-5 rounded-2xl text-xs uppercase tracking-widest shadow-xl shadow-[#DC2626]/20 transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:grayscale"
           >
-            {isSolving ? <><RefreshCcw size={18} className="animate-spin" /> Analyzing...</> : <><Sparkles size={18} /> Solve Assignment</>}
+            {isSolving ? <><RefreshCcw size={18} className="animate-spin" /> Analyzing...</> : "Solve Assignment"}
           </button>
         </div>
       </div>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { 
-  Globe, Activity, Sparkles, Trophy, User, Users, Calendar, X, Edit3, ShieldCheck
+  Globe, Activity, Trophy, User, Users, Calendar, X, Edit3, ShieldCheck
 } from 'lucide-react';
 import { motion } from 'motion/react';
 // @ts-ignore

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Paperclip, Mic, Send, StopCircle, ArrowLeft, 
-  Sparkles, Copy, User, BookOpen, FileText, X,
+  Copy, User, BookOpen, FileText, X,
   Plus, Image as ImageIcon, ArrowDown, Loader2, Maximize2,
   Menu, ChevronDown, SquarePen, MoreHorizontal, ArrowUp, ArrowRight,
   Pin, Trash2, Edit3, Check, MoreVertical, MessageSquare, Zap, Trophy
@@ -166,7 +166,7 @@ const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniRepl
         <div className="mt-4 p-4 rounded-2xl bg-[#1A162B] border border-red-500/30 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 w-full">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 to-red-600 flex items-center justify-center text-white shadow-md shrink-0">
-              <Sparkles size={18} className="text-amber-300 animate-pulse" />
+              <FileText size={18} className="text-white" />
             </div>
             <div>
               <p className="text-xs font-bold text-white">{quizMatch[2]}</p>
@@ -550,7 +550,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
               <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-4">
                 <div className="flex items-center gap-2">
                   <div className="w-8 h-8 rounded-lg bg-[#DC2626]/20 border border-[#DC2626]/40 flex items-center justify-center text-[#DC2626]">
-                    <Sparkles size={16} />
+                    <MessageSquare size={16} />
                   </div>
                   <h3 className="text-sm font-black uppercase text-white tracking-wider">Omni Chat History</h3>
                 </div>

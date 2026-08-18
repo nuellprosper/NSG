@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { 
   ArrowLeft, Download, CheckCircle2, Pause, Play, ArrowDown,
-  Sparkles, Wifi, WifiOff, HardDrive, ShieldCheck, RefreshCw, Trash2, Cpu
+  Wifi, WifiOff, HardDrive, ShieldCheck, RefreshCw, Trash2, Cpu
 } from 'lucide-react';
 import { 
   subscribeOmniBrainState, 
@@ -236,7 +236,6 @@ export const OmniOfflinePage: React.FC<OmniOfflinePageProps> = ({
                 onClick={onOpenChat}
                 className="w-full py-3 px-4 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 border border-purple-400/40 text-purple-200 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95"
               >
-                <Sparkles size={15} />
                 <span>Test Offline Chat</span>
               </button>
             )}

@@ -29,7 +29,6 @@ import {
   TrendingDown,
   Newspaper,
   RefreshCcw,
-  Sparkles,
   Plus,
   Copy,
   Check,

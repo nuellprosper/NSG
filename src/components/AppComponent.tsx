@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  Brain, Sparkles, XCircle, CheckCircle2, Cpu, Zap, ShieldCheck, User, RefreshCcw 
+  Brain, XCircle, CheckCircle2, Cpu, Zap, ShieldCheck, User, RefreshCcw 
 } from 'lucide-react';
 import { PremiumPage } from './PremiumPage';
 
