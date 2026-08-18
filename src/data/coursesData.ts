@@ -9,22 +9,20 @@ export interface StandardCourse {
 
 export const COMPREHENSIVE_COURSE_LIST: StandardCourse[] = [
   // ================= 100 LEVEL - FIRST SEMESTER =================
-  { code: 'GST 101', title: 'Communication In English', credits: 2, level: 100, semester: 'first', category: 'General Studies (GST)' },[span_0](start_span)[span_0](end_span)
-  { code: 'GST 102', title: 'Philosophy, Logic And Human Existence', credits: 2, level: 100, semester: 'first', category: 'General Studies (GST)' },[span_1](start_span)[span_1](end_span)
-  { code: 'D/GST 103', title: 'DELSU Culture And Ethics', credits: 2, level: 100, semester: 'first', category: 'General Studies (GST)' },[span_2](start_span)[span_2](end_span)
-  { code: 'CHM 101', title: 'General Chemistry I (General And Physical Chemistry)', credits: 2, level: 100, semester: 'first', category: 'Sciences' },[span_3](start_span)[span_3](end_span)
-  { code: 'CHM 102', title: 'General Chemistry Practical I', credits: 1, level: 100, semester: 'first', category: 'Sciences' },[span_4](start_span)[span_4](end_span)
-  { code: 'MTH 101', title: 'Elementary Mathematics I (Algebra And Trigonometry)', credits: 2, level: 100, semester: 'first', category: 'Sciences' },[span_5](start_span)[span_5](end_span)
-  { code: 'MTH 102', title: 'Elementary Mathematics II (Calculus)', credits: 2, level: 100, semester: 'first', category: 'Sciences' },[span_6](start_span)[span_6](end_span)
-  { code: 'PHY 101', title: 'General Physics I (Mechanics)', credits: 2, level: 100, semester: 'first', category: 'Sciences' },[span_7](start_span)[span_7](end_span)
-  { code: 'PHY 102', title: 'General Physics II (Behaviour Of Matter)', credits: 2, level: 100, semester: 'first', category: 'Sciences' },[span_8](start_span)[span_8](end_span)
-  { code: 'PHY 103', title: 'General Practical Physical I', credits: 1, level: 100, semester: 'first', category: 'Sciences' },[span_9](start_span)[span_9](end_span)
-  { code: 'ENG 101', title: 'Engineer In Society', credits: 2, level: 100, semester: 'first', category: 'Engineering' },[span_10](start_span)[span_10](end_span)
-  { code: 'EEE 101', title: 'Introduction To Electrical And Electronic Engineering', credits: 2, level: 100, semester: 'first', category: 'Engineering' },[span_11](start_span)[span_11](end_span)
+  { code: 'GST 101', title: 'Use of English and Communication Skills I', credits: 2, level: 100, semester: 'first', category: 'General Studies (GST)' },
+  { code: 'GST 102', title: 'Philosophy and Logic', credits: 2, level: 100, semester: 'first', category: 'General Studies (GST)' },
+  { code: 'GST 103', title: 'Nigerian Peoples and Culture', credits: 2, level: 100, semester: 'first', category: 'General Studies (GST)' },
+  { code: 'GST 107', title: 'Use of Library and Study Skills', credits: 2, level: 100, semester: 'first', category: 'General Studies (GST)' },
+  { code: 'MTH 101', title: 'Elementary Mathematics I (Algebra & Trigonometry)', credits: 3, level: 100, semester: 'first', category: 'Sciences' },
   { code: 'MTH 103', title: 'Vectors and Coordinate Geometry', credits: 2, level: 100, semester: 'first', category: 'Sciences' },
+  { code: 'PHY 101', title: 'General Physics I (Mechanics, Thermal Physics & Waves)', credits: 3, level: 100, semester: 'first', category: 'Sciences' },
+  { code: 'PHY 107', title: 'General Physics Practical I', credits: 1, level: 100, semester: 'first', category: 'Sciences' },
+  { code: 'CHM 101', title: 'General Chemistry I (Physical and Inorganic)', credits: 3, level: 100, semester: 'first', category: 'Sciences' },
+  { code: 'CHM 107', title: 'General Chemistry Practical I', credits: 1, level: 100, semester: 'first', category: 'Sciences' },
   { code: 'BIO 101', title: 'General Biology I (Cell Biology and Diversity of Plants)', credits: 3, level: 100, semester: 'first', category: 'Sciences' },
   { code: 'BIO 107', title: 'General Biology Practical I', credits: 1, level: 100, semester: 'first', category: 'Sciences' },
   { code: 'CSC 101', title: 'Introduction to Computer Science & Information Tech', credits: 3, level: 100, semester: 'first', category: 'Computer Science & IT' },
+  { code: 'ENG 101', title: 'Basic Engineering Mathematics I', credits: 3, level: 100, semester: 'first', category: 'Engineering' },
   { code: 'ENG 103', title: 'Technical Drawing I', credits: 2, level: 100, semester: 'first', category: 'Engineering' },
   { code: 'ACC 101', title: 'Introduction to Financial Accounting I', credits: 3, level: 100, semester: 'first', category: 'Management & Social Sciences' },
   { code: 'BUS 101', title: 'Introduction to Business Administration I', credits: 3, level: 100, semester: 'first', category: 'Management & Social Sciences' },
@@ -33,28 +31,20 @@ export const COMPREHENSIVE_COURSE_LIST: StandardCourse[] = [
   { code: 'POL 101', title: 'Introduction to Political Science', credits: 2, level: 100, semester: 'first', category: 'Management & Social Sciences' },
   { code: 'LAW 101', title: 'Nigerian Legal System I', credits: 4, level: 100, semester: 'first', category: 'Law & Humanities' },
   { code: 'ANA 101', title: 'Gross Anatomy of Upper & Lower Limbs', credits: 3, level: 100, semester: 'first', category: 'Medical & Health' },
-  { code: 'GEO 101', title: 'Introduction to Physical Geography', credits: 3, level: 100, semester: 'first', category: 'Sciences' },
-  { code: 'STA 101', title: 'Introductory Statistics I', credits: 2, level: 100, semester: 'first', category: 'Sciences' },
-  { code: 'PSY 101', title: 'Introduction to Psychology I', credits: 2, level: 100, semester: 'first', category: 'Management & Social Sciences' },
-  { code: 'PHM 101', title: 'Orientation to Pharmacy & Health Professions', credits: 2, level: 100, semester: 'first', category: 'Medical & Health' },
 
   // ================= 100 LEVEL - SECOND SEMESTER =================
-  { code: 'ENG 112', title: 'Engineering Graphics And Solid Modelling I', credits: 2, level: 100, semester: 'second', category: 'Engineering' },[span_12](start_span)[span_12](end_span)
-  { code: 'GST 111', title: 'Nigerian Peoples And Culture', credits: 2, level: 100, semester: 'second', category: 'General Studies (GST)' },[span_13](start_span)[span_13](end_span)
-  { code: 'GST 112', title: 'Everyday Science And Technology', credits: 2, level: 100, semester: 'second', category: 'General Studies (GST)' },[span_14](start_span)[span_14](end_span)
-  { code: 'GST 113', title: 'Peace And Conflict Resolution', credits: 2, level: 100, semester: 'second', category: 'General Studies (GST)' },[span_15](start_span)[span_15](end_span)
-  { code: 'CHM 111', title: 'General Chemistry II (Organic And Inorganic Chemistry)', credits: 2, level: 100, semester: 'second', category: 'Sciences' },[span_16](start_span)[span_16](end_span)
-  { code: 'CHM 112', title: 'General Chemistry Practical II', credits: 1, level: 100, semester: 'second', category: 'Sciences' },[span_17](start_span)[span_17](end_span)
-  { code: 'MTH 111', title: 'Elementary Mathematics III (Vector Coordinate Geometry And Dynamics)', credits: 2, level: 100, semester: 'second', category: 'Sciences' },[span_18](start_span)[span_18](end_span)
-  { code: 'MTH 112', title: 'Introduction To Statistics And Probability', credits: 2, level: 100, semester: 'second', category: 'Sciences' },[span_19](start_span)[span_19](end_span)
-  { code: 'PHY 111', title: 'General Physics III (Electricity And Magnetism)', credits: 2, level: 100, semester: 'second', category: 'Sciences' },[span_20](start_span)[span_20](end_span)
-  { code: 'PHY 112', title: 'General Physics IV (Vibration, Waves And Optics)', credits: 2, level: 100, semester: 'second', category: 'Sciences' },[span_21](start_span)[span_21](end_span)
-  { code: 'PHY 113', title: 'General Practical Physics II', credits: 1, level: 100, semester: 'second', category: 'Sciences' },[span_22](start_span)[span_22](end_span)
-  { code: 'ENG 111', title: 'Workshop Practice I', credits: 1, level: 100, semester: 'second', category: 'Engineering' },[span_23](start_span)[span_23](end_span)
   { code: 'GST 104', title: 'History and Philosophy of Science', credits: 2, level: 100, semester: 'second', category: 'General Studies (GST)' },
   { code: 'GST 105', title: 'Communication Skills in English II', credits: 2, level: 100, semester: 'second', category: 'General Studies (GST)' },
+  { code: 'GST 106', title: 'Peace Studies and Conflict Resolution', credits: 2, level: 100, semester: 'second', category: 'General Studies (GST)' },
+  { code: 'MTH 102', title: 'Elementary Mathematics II (Calculus & Integration)', credits: 3, level: 100, semester: 'second', category: 'Sciences' },
+  { code: 'PHY 102', title: 'General Physics II (Electricity, Magnetism & Optics)', credits: 3, level: 100, semester: 'second', category: 'Sciences' },
+  { code: 'PHY 108', title: 'General Physics Practical II', credits: 1, level: 100, semester: 'second', category: 'Sciences' },
+  { code: 'CHM 102', title: 'General Chemistry II (Organic Chemistry)', credits: 3, level: 100, semester: 'second', category: 'Sciences' },
+  { code: 'CHM 108', title: 'General Chemistry Practical II', credits: 1, level: 100, semester: 'second', category: 'Sciences' },
   { code: 'BIO 102', title: 'General Biology II (Diversity of Animals & Ecology)', credits: 3, level: 100, semester: 'second', category: 'Sciences' },
   { code: 'CSC 102', title: 'Computer Programming I (Python/C/Java)', credits: 3, level: 100, semester: 'second', category: 'Computer Science & IT' },
+  { code: 'ENG 102', title: 'Engineering Mechanics (Statics & Dynamics)', credits: 3, level: 100, semester: 'second', category: 'Engineering' },
+  { code: 'ENG 104', title: 'General Engineering Workshop Practice', credits: 2, level: 100, semester: 'second', category: 'Engineering' },
   { code: 'ACC 102', title: 'Introduction to Financial Accounting II', credits: 3, level: 100, semester: 'second', category: 'Management & Social Sciences' },
   { code: 'BUS 102', title: 'Introduction to Business Administration II', credits: 3, level: 100, semester: 'second', category: 'Management & Social Sciences' },
   { code: 'ECO 102', title: 'Principles of Economics II (Macroeconomics)', credits: 3, level: 100, semester: 'second', category: 'Management & Social Sciences' },
@@ -62,12 +52,6 @@ export const COMPREHENSIVE_COURSE_LIST: StandardCourse[] = [
   { code: 'POL 102', title: 'Introduction to African Politics', credits: 2, level: 100, semester: 'second', category: 'Management & Social Sciences' },
   { code: 'LAW 102', title: 'Legal Methods and Research Writing', credits: 4, level: 100, semester: 'second', category: 'Law & Humanities' },
   { code: 'PHS 102', title: 'Introductory Medical Physiology', credits: 3, level: 100, semester: 'second', category: 'Medical & Health' },
-  { code: 'GEO 102', title: 'Introduction to Human Geography', credits: 3, level: 100, semester: 'second', category: 'Sciences' },
-  { code: 'STA 102', title: 'Introductory Statistics II', credits: 2, level: 100, semester: 'second', category: 'Sciences' },
-  { code: 'PSY 102', title: 'Basic Concepts in Psychology II', credits: 2, level: 100, semester: 'second', category: 'Management & Social Sciences' },
-  { code: 'BCH 102', title: 'Introduction to Medical Biochemistry', credits: 3, level: 100, semester: 'second', category: 'Medical & Health' },
-  { code: 'MLS 102', title: 'Introduction to Medical Laboratory Science', credits: 2, level: 100, semester: 'second', category: 'Medical & Health' },
-  { code: 'NUR 102', title: 'Fundamentals and Foundations of Nursing', credits: 3, level: 100, semester: 'second', category: 'Medical & Health' },
 
   // ================= 200 LEVEL - FIRST SEMESTER =================
   { code: 'GST 201', title: 'Peace Studies and Conflict Management', credits: 2, level: 200, semester: 'first', category: 'General Studies (GST)' },
@@ -90,21 +74,6 @@ export const COMPREHENSIVE_COURSE_LIST: StandardCourse[] = [
   { code: 'BFN 201', title: 'Introduction to Money and Banking', credits: 3, level: 200, semester: 'first', category: 'Management & Social Sciences' },
   { code: 'LAW 201', title: 'Constitutional Law I', credits: 4, level: 200, semester: 'first', category: 'Law & Humanities' },
   { code: 'LAW 203', title: 'Law of Contract I', credits: 4, level: 200, semester: 'first', category: 'Law & Humanities' },
-  { code: 'CPE 201', title: 'Digital Logic Circuits Design', credits: 3, level: 200, semester: 'first', category: 'Engineering' },
-  { code: 'MEE 203', title: 'Engineering Materials Laboratory', credits: 1, level: 200, semester: 'first', category: 'Engineering' },
-  { code: 'ENG 201', title: 'Engineering Mathematics III', credits: 3, level: 200, semester: 'first', category: 'Engineering' },
-  { code: 'PET 201', title: 'Introduction to Petroleum Engineering', credits: 2, level: 200, semester: 'first', category: 'Engineering' },
-  { code: 'CHE 201', title: 'Chemical Process Principles I', credits: 3, level: 200, semester: 'first', category: 'Engineering' },
-  { code: 'MKT 201', title: 'Fundamentals of Marketing', credits: 3, level: 200, semester: 'first', category: 'Management & Social Sciences' },
-  { code: 'PAD 201', title: 'Introduction to Public Administration', credits: 3, level: 200, semester: 'first', category: 'Management & Social Sciences' },
-  { code: 'IRD 201', title: 'Introduction to International Relations', credits: 3, level: 200, semester: 'first', category: 'Management & Social Sciences' },
-  { code: 'SOC 201', title: 'Social Structure of Society', credits: 3, level: 200, semester: 'first', category: 'Management & Social Sciences' },
-  { code: 'PSY 201', title: 'Developmental Psychology I', credits: 3, level: 200, semester: 'first', category: 'Management & Social Sciences' },
-  { code: 'LAW 205', title: 'Nigerian Legal System II', credits: 4, level: 200, semester: 'first', category: 'Law & Humanities' },
-  { code: 'HIS 201', title: 'History of West Africa since 1500', credits: 3, level: 200, semester: 'first', category: 'Law & Humanities' },
-  { code: 'ENG 203', title: 'Introduction to Literature in English', credits: 3, level: 200, semester: 'first', category: 'Law & Humanities' },
-  { code: 'PHL 201', title: 'Introduction to Ethics', credits: 2, level: 200, semester: 'first', category: 'Law & Humanities' },
-  { code: 'ANA 201', title: 'Gross Anatomy of Head, Neck, and Neuroanatomy', credits: 4, level: 200, semester: 'first', category: 'Medical & Health' },
 
   // ================= 200 LEVEL - SECOND SEMESTER =================
   { code: 'GST 202', title: 'Fundamentals of Entrepreneurship Studies I', credits: 2, level: 200, semester: 'second', category: 'General Studies (GST)' },
@@ -124,18 +93,6 @@ export const COMPREHENSIVE_COURSE_LIST: StandardCourse[] = [
   { code: 'MKT 202', title: 'Principles of Marketing', credits: 3, level: 200, semester: 'second', category: 'Management & Social Sciences' },
   { code: 'LAW 202', title: 'Constitutional Law II', credits: 4, level: 200, semester: 'second', category: 'Law & Humanities' },
   { code: 'LAW 204', title: 'Law of Contract II', credits: 4, level: 200, semester: 'second', category: 'Law & Humanities' },
-  { code: 'PHS 201', title: 'Blood, Cardiovascular & Respiratory Physiology', credits: 3, level: 200, semester: 'second', category: 'Medical & Health' },
-  { code: 'BCH 204', title: 'Biochemical Methods & Techniques', credits: 2, level: 200, semester: 'second', category: 'Medical & Health' },
-  { code: 'PCO 202', title: 'Introductory Pharmacology & Toxicology', credits: 3, level: 200, semester: 'second', category: 'Medical & Health' },
-  { code: 'MLS 202', title: 'Clinical Chemistry Fundamentals', credits: 3, level: 200, semester: 'second', category: 'Medical & Health' },
-  { code: 'NUR 202', title: 'Medical-Surgical Nursing I', credits: 3, level: 200, semester: 'second', category: 'Medical & Health' },
-  { code: 'ENG 202', title: 'Engineering Mathematics IV', credits: 3, level: 200, semester: 'second', category: 'Engineering' },
-  { code: 'CPE 202', title: 'Assembly Language Programming', credits: 3, level: 200, semester: 'second', category: 'Computer Science & IT' },
-  { code: 'MEE 204', title: 'Machine Drawing and CAD', credits: 2, level: 200, semester: 'second', category: 'Engineering' },
-  { code: 'CVE 204', title: 'Surveying for Engineers I', credits: 3, level: 200, semester: 'second', category: 'Engineering' },
-  { code: 'PET 202', title: 'Petroleum Geology & Exploration', credits: 3, level: 200, semester: 'second', category: 'Engineering' },
-  { code: 'CHE 202', title: 'Chemical Process Principles II', credits: 3, level: 200, semester: 'second', category: 'Engineering' },
-  { code: 'BFN 202', title: 'Financial Systems & Markets', credits: 3, level: 200, semester: 'second', category: 'Management & Social Sciences' },
 
   // ================= 300 LEVEL - FIRST SEMESTER =================
   { code: 'GST 301', title: 'Entrepreneurship and Innovation Project', credits: 2, level: 300, semester: 'first', category: 'General Studies (GST)' },
@@ -155,33 +112,6 @@ export const COMPREHENSIVE_COURSE_LIST: StandardCourse[] = [
   { code: 'ECO 301', title: 'Econometrics I', credits: 3, level: 300, semester: 'first', category: 'Management & Social Sciences' },
   { code: 'LAW 301', title: 'Criminal Law I', credits: 4, level: 300, semester: 'first', category: 'Law & Humanities' },
   { code: 'LAW 303', title: 'Law of Torts I', credits: 4, level: 300, semester: 'first', category: 'Law & Humanities' },
-  { code: 'CSC 309', title: 'Survey of Programming Languages', credits: 3, level: 300, semester: 'first', category: 'Computer Science & IT' },
-  { code: 'CSC 311', title: 'Computer Graphics & Visualization', credits: 3, level: 300, semester: 'first', category: 'Computer Science & IT' },
-  { code: 'ITM 301', title: 'IT Infrastructure & Cloud Services', credits: 3, level: 300, semester: 'first', category: 'Computer Science & IT' },
-  { code: 'CPE 301', title: 'Microprocessor Systems Design', credits: 3, level: 300, semester: 'first', category: 'Engineering' },
-  { code: 'EEE 305', title: 'Electrical Machines I', credits: 3, level: 300, semester: 'first', category: 'Engineering' },
-  { code: 'EEE 307', title: 'Analog Electronic Circuits', credits: 3, level: 300, semester: 'first', category: 'Engineering' },
-  { code: 'MEE 301', title: 'Applied Thermodynamics II', credits: 3, level: 300, semester: 'first', category: 'Engineering' },
-  { code: 'MEE 303', title: 'Fluid Mechanics II', credits: 3, level: 300, semester: 'first', category: 'Engineering' },
-  { code: 'CVE 303', title: 'Soil Mechanics I', credits: 3, level: 300, semester: 'first', category: 'Engineering' },
-  { code: 'CVE 305', title: 'Civil Engineering Materials', credits: 3, level: 300, semester: 'first', category: 'Engineering' },
-  { code: 'PET 301', title: 'Drilling Engineering I', credits: 3, level: 300, semester: 'first', category: 'Engineering' },
-  { code: 'CHE 301', title: 'Chemical Engineering Thermodynamics I', credits: 3, level: 300, semester: 'first', category: 'Engineering' },
-  { code: 'BUS 301', title: 'Corporate Finance & Valuation', credits: 3, level: 300, semester: 'first', category: 'Management & Social Sciences' },
-  { code: 'MKT 301', title: 'Consumer Behaviour Analysis', credits: 3, level: 300, semester: 'first', category: 'Management & Social Sciences' },
-  { code: 'PAD 301', title: 'Public Personnel Administration', credits: 3, level: 300, semester: 'first', category: 'Management & Social Sciences' },
-  { code: 'IRD 301', title: 'International Law and Diplomacy', credits: 3, level: 300, semester: 'first', category: 'Management & Social Sciences' },
-  { code: 'SOC 301', title: 'Sociological Theory & Methods', credits: 3, level: 300, semester: 'first', category: 'Management & Social Sciences' },
-  { code: 'PSY 301', title: 'Research Methods in Psychology', credits: 3, level: 300, semester: 'first', category: 'Management & Social Sciences' },
-  { code: 'LAW 305', title: 'Commercial Law I', credits: 4, level: 300, semester: 'first', category: 'Law & Humanities' },
-  { code: 'HIS 301', title: 'Diplomatic History of the 20th Century', credits: 3, level: 300, semester: 'first', category: 'Law & Humanities' },
-  { code: 'ENG 301', title: 'Literary Theory and Criticism', credits: 3, level: 300, semester: 'first', category: 'Law & Humanities' },
-  { code: 'PHL 301', title: 'Epistemology and Theory of Knowledge', credits: 3, level: 300, semester: 'first', category: 'Law & Humanities' },
-  { code: 'PTH 301', title: 'General Pathology & Histopathology', credits: 4, level: 300, semester: 'first', category: 'Medical & Health' },
-  { code: 'PHM 301', title: 'Pharmacology of Systemic Therapeutics I', credits: 3, level: 300, semester: 'first', category: 'Medical & Health' },
-  { code: 'MLS 301', title: 'Medical Parasitology & Entomology', credits: 3, level: 300, semester: 'first', category: 'Medical & Health' },
-  { code: 'NUR 301', title: 'Maternal and Child Health Nursing', credits: 3, level: 300, semester: 'first', category: 'Medical & Health' },
-  { code: 'ANA 301', title: 'Clinical Anatomy and Neurobiology', credits: 3, level: 300, semester: 'first', category: 'Medical & Health' },
 
   // ================= 300 LEVEL - SECOND SEMESTER =================
   { code: 'CSC 302', title: 'Web Application Development & Cloud Architecture', credits: 3, level: 300, semester: 'second', category: 'Computer Science & IT' },
@@ -196,14 +126,6 @@ export const COMPREHENSIVE_COURSE_LIST: StandardCourse[] = [
   { code: 'ECO 302', title: 'Public Sector Economics', credits: 3, level: 300, semester: 'second', category: 'Management & Social Sciences' },
   { code: 'LAW 302', title: 'Criminal Law II', credits: 4, level: 300, semester: 'second', category: 'Law & Humanities' },
   { code: 'LAW 304', title: 'Law of Torts II', credits: 4, level: 300, semester: 'second', category: 'Law & Humanities' },
-  { code: 'CSC 308', title: 'Mobile Application Engineering', credits: 3, level: 300, semester: 'second', category: 'Computer Science & IT' },
-  { code: 'CPE 302', title: 'Embedded Systems Architecture', credits: 3, level: 300, semester: 'second', category: 'Engineering' },
-  { code: 'EEE 304', title: 'Electrical Machines II', credits: 3, level: 300, semester: 'second', category: 'Engineering' },
-  { code: 'EEE 306', title: 'Telecommunication Principles', credits: 3, level: 300, semester: 'second', category: 'Engineering' },
-  { code: 'MEE 304', title: 'Theory of Machines II', credits: 3, level: 300, semester: 'second', category: 'Engineering' },
-  { code: 'CVE 302', title: 'Structural Analysis II', credits: 3, level: 300, semester: 'second', category: 'Engineering' },
-  { code: 'CVE 304', title: 'Highway & Transportation Engineering I', credits: 3, level: 300, semester: 'second', category: 'Engineering' },
-  { code: 'PET 302', title: 'Reservoir Engineering I', credits: 3, level: 300, semester: 'second', category: 'Engineering' },
 
   // ================= 400 LEVEL - FIRST SEMESTER =================
   { code: 'CSC 401', title: 'Artificial Intelligence & Machine Learning', credits: 3, level: 400, semester: 'first', category: 'Computer Science & IT' },
@@ -219,24 +141,6 @@ export const COMPREHENSIVE_COURSE_LIST: StandardCourse[] = [
   { code: 'LAW 401', title: 'Jurisprudence and Legal Theory I', credits: 4, level: 400, semester: 'first', category: 'Law & Humanities' },
   { code: 'LAW 403', title: 'Company Law and Commercial Practice I', credits: 4, level: 400, semester: 'first', category: 'Law & Humanities' },
   { code: 'LAW 405', title: 'Land Law and Property Transactions I', credits: 4, level: 400, semester: 'first', category: 'Law & Humanities' },
-  { code: 'CSC 409', title: 'Bioinformatics & Computational Biology', credits: 3, level: 400, semester: 'first', category: 'Computer Science & IT' },
-  { code: 'CSC 411', title: 'Natural Language Processing', credits: 3, level: 400, semester: 'first', category: 'Computer Science & IT' },
-  { code: 'CPE 401', title: 'Real-Time Operating Systems', credits: 3, level: 400, semester: 'first', category: 'Engineering' },
-  { code: 'CPE 403', title: 'Computer Networks & Security', credits: 3, level: 400, semester: 'first', category: 'Engineering' },
-  { code: 'EEE 405', title: 'Power Electronics & Drives', credits: 3, level: 400, semester: 'first', category: 'Engineering' },
-  { code: 'EEE 407', title: 'Control Engineering II', credits: 3, level: 400, semester: 'first', category: 'Engineering' },
-  { code: 'MEE 403', title: 'Refrigeration and Air Conditioning', credits: 3, level: 400, semester: 'first', category: 'Engineering' },
-  { code: 'MEE 405', title: 'Manufacturing Technology II', credits: 3, level: 400, semester: 'first', category: 'Engineering' },
-  { code: 'CVE 401', title: 'Reinforced Concrete Design', credits: 3, level: 400, semester: 'first', category: 'Engineering' },
-  { code: 'CVE 403', title: 'Hydrology and Water Resources', credits: 3, level: 400, semester: 'first', category: 'Engineering' },
-  { code: 'PET 401', title: 'Well Logging and Formation Evaluation', credits: 3, level: 400, semester: 'first', category: 'Engineering' },
-  { code: 'CHE 401', title: 'Separation Processes I', credits: 3, level: 400, semester: 'first', category: 'Engineering' },
-  { code: 'BUS 401', title: 'Business Strategy & Policy I', credits: 3, level: 400, semester: 'first', category: 'Management & Social Sciences' },
-  { code: 'ACC 403', title: 'Public Sector Accounting & Finance', credits: 3, level: 400, semester: 'first', category: 'Management & Social Sciences' },
-  { code: 'ECO 403', title: 'Monetary Economics', credits: 3, level: 400, semester: 'first', category: 'Management & Social Sciences' },
-  { code: 'MKT 401', title: 'International Marketing Strategy', credits: 3, level: 400, semester: 'first', category: 'Management & Social Sciences' },
-  { code: 'BFN 401', title: 'Investment & Portfolio Management', credits: 3, level: 400, semester: 'first', category: 'Management & Social Sciences' },
-  { code: 'LAW 407', title: 'Law of Equity and Trusts I', credits: 4, level: 400, semester: 'first', category: 'Law & Humanities' },
 
   // ================= 400 LEVEL - SECOND SEMESTER =================
   { code: 'CSC 402', title: 'Software Project Management & Quality Assurance', credits: 3, level: 400, semester: 'second', category: 'Computer Science & IT' },
@@ -248,10 +152,6 @@ export const COMPREHENSIVE_COURSE_LIST: StandardCourse[] = [
   { code: 'LAW 402', title: 'Jurisprudence and Legal Theory II', credits: 4, level: 400, semester: 'second', category: 'Law & Humanities' },
   { code: 'LAW 404', title: 'Company Law and Commercial Practice II', credits: 4, level: 400, semester: 'second', category: 'Law & Humanities' },
   { code: 'SIWES 400', title: 'Industrial Training & Attachment (6 Months)', credits: 6, level: 400, semester: 'second', category: 'Engineering' },
-  { code: 'CSC 406', title: 'Data Mining and Warehousing', credits: 3, level: 400, semester: 'second', category: 'Computer Science & IT' },
-  { code: 'CSC 408', title: 'Ethical Hacking & Information Assurance', credits: 3, level: 400, semester: 'second', category: 'Computer Science & IT' },
-  { code: 'BUS 402', title: 'Business Strategy & Policy II', credits: 3, level: 400, semester: 'second', category: 'Management & Social Sciences' },
-  { code: 'LAW 406', title: 'Land Law and Property Transactions II', credits: 4, level: 400, semester: 'second', category: 'Law & Humanities' },
 
   // ================= 500 LEVEL - FIRST SEMESTER =================
   { code: 'ENG 501', title: 'Engineering Management and Law', credits: 3, level: 500, semester: 'first', category: 'Engineering' },
@@ -259,51 +159,18 @@ export const COMPREHENSIVE_COURSE_LIST: StandardCourse[] = [
   { code: 'EEE 501', title: 'Advanced Control Systems & Robotics', credits: 3, level: 500, semester: 'first', category: 'Engineering' },
   { code: 'EEE 503', title: 'High Voltage and Substation Engineering', credits: 3, level: 500, semester: 'first', category: 'Engineering' },
   { code: 'CPE 501', title: 'Embedded Systems Design and Internet of Things', credits: 3, level: 500, semester: 'first', category: 'Computer Science & IT' },
-  { code: 'EEE 505', title: 'Power System Protection and Control', credits: 3, level: 500, semester: 'first', category: 'Engineering' },
-  { code: 'EEE 507', title: 'Telecommunication Networks & Protocols', credits: 3, level: 500, semester: 'first', category: 'Engineering' },
-  { code: 'EEE 509', title: 'Reliability and Maintainability Engineering', credits: 2, level: 500, semester: 'first', category: 'Engineering' },
-  { code: 'CPE 503', title: 'VLSI Systems Design', credits: 3, level: 500, semester: 'first', category: 'Engineering' },
-  { code: 'CPE 505', title: 'Computer Vision & Pattern Recognition', credits: 3, level: 500, semester: 'first', category: 'Engineering' },
-  { code: 'MEE 501', title: 'Energy Conversion & Power Plant Engineering', credits: 3, level: 500, semester: 'first', category: 'Engineering' },
-  { code: 'MEE 503', title: 'Fracture Mechanics & Fatigue', credits: 3, level: 500, semester: 'first', category: 'Engineering' },
-  { code: 'MEE 505', title: 'Mechatronics Systems Engineering', credits: 3, level: 500, semester: 'first', category: 'Engineering' },
-  { code: 'CVE 501', title: 'Structural Design of Steel & Timber', credits: 3, level: 500, semester: 'first', category: 'Engineering' },
-  { code: 'CVE 503', title: 'Foundation Engineering II', credits: 3, level: 500, semester: 'first', category: 'Engineering' },
-  { code: 'CVE 505', title: 'Environmental Engineering & Sanitation', credits: 3, level: 500, semester: 'first', category: 'Engineering' },
-  { code: 'PET 501', title: 'Enhanced Oil Recovery Methods', credits: 3, level: 500, semester: 'first', category: 'Engineering' },
-  { code: 'PET 503', title: 'Natural Gas Engineering', credits: 3, level: 500, semester: 'first', category: 'Engineering' },
-  { code: 'CHE 501', title: 'Chemical Reactor Design II', credits: 3, level: 500, semester: 'first', category: 'Engineering' },
-  { code: 'CHE 503', title: 'Biochemical Engineering Fundamentals', credits: 3, level: 500, semester: 'first', category: 'Engineering' },
-  { code: 'LAW 501', title: 'Jurisprudence & Legal Philosophy', credits: 4, level: 500, semester: 'first', category: 'Law & Humanities' },
-  { code: 'LAW 503', title: 'Law of Evidence I', credits: 4, level: 500, semester: 'first', category: 'Law & Humanities' },
-  { code: 'LAW 505', title: 'Civil Procedure I', credits: 4, level: 500, semester: 'first', category: 'Law & Humanities' },
-  { code: 'LAW 507', title: 'Conflict of Laws (Private International Law)', credits: 3, level: 500, semester: 'first', category: 'Law & Humanities' },
-  { code: 'PHA 501', title: 'Advanced Clinical Pharmacology I', credits: 3, level: 500, semester: 'first', category: 'Medical & Health' },
-  { code: 'PHA 503', title: 'Industrial Pharmacy & Drug Formulation', credits: 3, level: 500, semester: 'first', category: 'Medical & Health' },
-  { code: 'MED 501', title: 'Obstetrics and Gynecology I', credits: 5, level: 500, semester: 'first', category: 'Medical & Health' },
-  { code: 'MED 503', title: 'Paediatrics and Child Health I', credits: 5, level: 500, semester: 'first', category: 'Medical & Health' },
+  { code: 'CVE 501', title: 'Advanced Structural Engineering and Design', credits: 3, level: 500, semester: 'first', category: 'Engineering' },
+  { code: 'MEE 501', title: 'Power Plant Engineering & Renewable Energy', credits: 3, level: 500, semester: 'first', category: 'Engineering' },
+  { code: 'LAW 501', title: 'Law of Evidence I', credits: 4, level: 500, semester: 'first', category: 'Law & Humanities' },
+  { code: 'LAW 503', title: 'Conveyancing and Legal Drafting', credits: 4, level: 500, semester: 'first', category: 'Law & Humanities' },
 
   // ================= 500 LEVEL - SECOND SEMESTER =================
-  { code: 'ENG 502', title: 'Engineering Professional Ethics and Practice', credits: 2, level: 500, semester: 'second', category: 'Engineering' },
-  { code: 'ENG 599', title: 'Final Year Engineering Project & Defense', credits: 6, level: 500, semester: 'second', category: 'Engineering' },
-  { code: 'EEE 502', title: 'Power System Operation and Control', credits: 3, level: 500, semester: 'second', category: 'Engineering' },
-  { code: 'EEE 504', title: 'Wireless and Mobile Communications', credits: 3, level: 500, semester: 'second', category: 'Engineering' },
-  { code: 'EEE 506', title: 'Optoelectronics and Optical Fiber Communication', credits: 3, level: 500, semester: 'second', category: 'Engineering' },
-  { code: 'CPE 502', title: 'Robotics and Automation Systems', credits: 3, level: 500, semester: 'second', category: 'Engineering' },
-  { code: 'CPE 504', title: 'Distributed and Parallel Computing', credits: 3, level: 500, semester: 'second', category: 'Engineering' },
-  { code: 'MEE 502', title: 'Automotive Engineering & Power Systems', credits: 3, level: 500, semester: 'second', category: 'Engineering' },
-  { code: 'MEE 504', title: 'Tribology & Maintenance Engineering', credits: 3, level: 500, semester: 'second', category: 'Engineering' },
-  { code: 'CVE 502', title: 'Water & Wastewater Engineering', credits: 3, level: 500, semester: 'second', category: 'Engineering' },
-  { code: 'CVE 504', title: 'Coastline & Offshore Engineering', credits: 3, level: 500, semester: 'second', category: 'Engineering' },
-  { code: 'PET 502', title: 'Offshore Petroleum Engineering', credits: 3, level: 500, semester: 'second', category: 'Engineering' },
-  { code: 'PET 504', title: 'Reservoir Simulation & Economics', credits: 3, level: 500, semester: 'second', category: 'Engineering' },
-  { code: 'CHE 502', title: 'Process Control and Dynamics II', credits: 3, level: 500, semester: 'second', category: 'Engineering' },
-  { code: 'CHE 504', title: 'Plant Design & Economics', credits: 3, level: 500, semester: 'second', category: 'Engineering' },
+  { code: 'ENG 502', title: 'Engineering Economics and Feasibility Studies', credits: 3, level: 500, semester: 'second', category: 'Engineering' },
+  { code: 'EEE 502', title: 'Power Electronics and Electric Drives', credits: 3, level: 500, semester: 'second', category: 'Engineering' },
+  { code: 'CPE 502', title: 'Cybersecurity and Cryptographic Protocols', credits: 3, level: 500, semester: 'second', category: 'Computer Science & IT' },
+  { code: 'CVE 502', title: 'Geotechnical and Foundation Engineering', credits: 3, level: 500, semester: 'second', category: 'Engineering' },
+  { code: 'MEE 502', title: 'Automotive Engineering and Tribology', credits: 3, level: 500, semester: 'second', category: 'Engineering' },
   { code: 'LAW 502', title: 'Law of Evidence II', credits: 4, level: 500, semester: 'second', category: 'Law & Humanities' },
-  { code: 'LAW 504', title: 'Criminal Procedure II', credits: 4, level: 500, semester: 'second', category: 'Law & Humanities' },
-  { code: 'LAW 506', title: 'Intellectual Property Law', credits: 3, level: 500, semester: 'second', category: 'Law & Humanities' },
-  { code: 'LAW 599', title: 'Final Year Law Dissertation/Project', credits: 6, level: 500, semester: 'second', category: 'Law & Humanities' },
-  { code: 'PHA 502', title: 'Advanced Clinical Pharmacology II', credits: 3, level: 500, semester: 'second', category: 'Medical & Health' },
-  { code: 'MED 502', title: 'Obstetrics and Gynecology II', credits: 5, level: 500, semester: 'second', category: 'Medical & Health' },
-  { code: 'MED 504', title: 'Paediatrics and Child Health II', credits: 5, level: 500, semester: 'second', category: 'Medical & Health' }
+  { code: 'LAW 504', title: 'Intellectual Property and Cyber Law', credits: 4, level: 500, semester: 'second', category: 'Law & Humanities' },
+  { code: 'ENG 599', title: 'Final Year Engineering Capstone Project & Defense', credits: 6, level: 500, semester: 'second', category: 'Engineering' }
 ];
