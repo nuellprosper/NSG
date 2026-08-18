@@ -8,7 +8,7 @@ import rehypeKatex from 'rehype-katex';
 import { 
   Mic, StopCircle, Upload, FileAudio, Image as ImageIcon, 
   Brain, History, Download, Play, 
-  ChevronRight, Sparkles, Trash2, Settings, UserPlus, CreditCard, Edit2, FilePlus,
+  ChevronRight, Trash2, Settings, UserPlus, CreditCard, Edit2, FilePlus,
   ChevronUp, ChevronDown, Bold, ThumbsUp, Volume2, VolumeX, Square, Send, Pin, CreditCard as Clock,
   ArrowLeft, RefreshCcw, Camera, Award, ShieldCheck, BookOpen, FileText, Zap, Info, AlertTriangle, Loader2,
   Share2, Trophy, Search, Check, X, ArrowLeft as ChevronLeft, GraduationCap, Users, User, Clock as ClockIcon,
@@ -19,6 +19,8 @@ import {
 import { isNativePlatform } from './lib/capacitor';
 import { CGPACalculator } from './components/CGPACalculator';
 import { TimeTable } from './components/TimeTable';
+import { CoursesPage } from './components/CoursesPage';
+import { NotesVaultHome } from './components/NotesVaultHome';
 
 const WhatsAppIcon = ({ size = 24, className = "" }: { size?: number, className?: string }) => (
   <svg 
@@ -364,6 +366,7 @@ export const ToolsPage = (props: any) => {
     handleQuizImageUpload,
     removeQuizImage,
     quizDocuments = [],
+    setQuizDocuments = props.setQuizDocuments,
     handleQuizDocumentUpload,
     removeQuizDocument,
     isGeneratingQuiz,
@@ -840,6 +843,7 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
   const isOwner = user?.email?.toLowerCase().trim() === 'nuellkelechi@gmail.com';
 
   const toolItems = useMemo(() => [
+    { id: 'courses', title: 'Courses', icon: BookOpen, color: 'from-purple-600 to-indigo-500', desc: 'Lecture Notes, PDFs & Study Materials' },
     { id: 'cgpa', title: 'MY CGPA', icon: Award, color: 'from-amber-500 to-orange-500', desc: 'Calculate CGPA and find your target CGPA for next semester' },
     { id: 'timetable', title: 'Time Table', icon: ClockIcon, color: 'from-blue-600 to-cyan-500', desc: 'Lecture, Reading & Exam Alarms' },
     { id: 'record', title: 'Transcribe Audio', icon: FileAudio, color: 'from-red-600 to-red-400', desc: 'Audio Transcription & Notes' },
@@ -852,7 +856,6 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
   ], [setActiveTab]);
 
   const comingSoonTools = useMemo(() => [
-    { id: 'courses', title: 'Courses Tool', icon: BookOpen, color: 'from-emerald-600/60 to-teal-400/60', desc: 'Coming Soon' },
     { id: 'class', title: 'Live Classroom', icon: Video, color: 'from-pink-600/60 to-rose-400/60', desc: 'Coming Soon' },
     { id: 'gst', title: 'Study GST Tool', icon: GraduationCap, color: 'from-teal-600/60 to-cyan-400/60', desc: 'Coming Soon' }
   ], []);
@@ -1163,29 +1166,7 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
       )}
 
       {toolsSubTab === 'notebook' && (
-        <motion.div key="notebook" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={selectedNote ? "w-full flex-1 flex flex-col h-full min-h-0 overflow-hidden" : "w-full flex-1 flex flex-col h-full min-h-0 overflow-y-auto px-4 py-4 space-y-6 custom-scrollbar"}>
-          {!selectedNote && (
-            <div className="flex items-center justify-between px-2 sticky top-0 z-40 bg-transparent py-2">
-              <button onClick={() => { setSelectedNote(null); handleToolsBack(); }} className="text-white/40 hover:text-[#DC2626] transition-all flex items-center gap-1.5 text-xs font-black uppercase cursor-pointer">
-                <ArrowLeft size={14} /> Back
-              </button>
-              
-              <div className="flex items-center gap-2">
-                <button 
-                  onClick={() => {
-                    setSelectedNote({ title: '', content: '', attachments: [], createdAt: new Date() });
-                    if (typeof setNotePreviewMode === 'function') {
-                      setNotePreviewMode(false);
-                    }
-                  }} 
-                  className="px-3.5 py-1.5 bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black text-[10px] rounded-xl shadow-lg shadow-[#DC2626]/20 transition-all uppercase tracking-wider flex items-center gap-1 cursor-pointer"
-                >
-                  <PlusCircle size={12} /> New
-                </button>
-              </div>
-            </div>
-          )}
-
+        <motion.div key="notebook" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full flex-1 flex flex-col h-full min-h-0 overflow-hidden">
           {selectedNote ? (
             isPodcastActive ? (
               // FULL SCREEN PODCAST PAGE SEAMLESSLY INTEGRATED
@@ -1538,7 +1519,9 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                                             extractedText: att.extractedText || att.text || (att.url ? `Document: ${att.name}` : ''),
                                             pageImages: att.pageImages || []
                                           }));
-                                          if ((props as any).setQuizDocuments) {
+                                          if (setQuizDocuments) {
+                                            setQuizDocuments(docItems);
+                                          } else if ((props as any).setQuizDocuments) {
                                             (props as any).setQuizDocuments(docItems);
                                           }
                                         }
@@ -1803,7 +1786,7 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                         ? 'bg-[#E5DFFA]/95 border-purple-300 text-purple-950'
                         : 'bg-[#18122B]/95 border-purple-500/30 text-white'
                     }`}>
-                      {/* 1. AI Sparkles / Generator */}
+                      {/* 1. AI Summary / Generator */}
                       <button 
                         onClick={() => {
                           if (setNotePreviewMode) setNotePreviewMode(false);
@@ -1812,7 +1795,7 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                         className="p-2.5 rounded-2xl hover:bg-purple-500/20 transition-all cursor-pointer hover:scale-110 active:scale-95"
                         title="AI Assistant"
                       >
-                        <Sparkles size={22} className="text-purple-400" />
+                        <Brain size={22} className="text-purple-400" />
                       </button>
 
                       {/* 2. Camera / Image Attachment */}
@@ -1859,13 +1842,13 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                       ? 'bg-[#EFEAF7]/95 border-[#D8CEEB] text-[#1D1235]'
                       : 'bg-[#120D24]/95 border-white/10 text-white'
                   }`}>
-                    {/* 1. AI Sparkles */}
+                    {/* 1. AI Prompt */}
                     <button 
                       onClick={() => insertText('**AI Note:** ', '')}
                       className="p-2 rounded-xl hover:bg-purple-500/20 transition-all cursor-pointer"
                       title="AI Prompt"
                     >
-                      <Sparkles size={18} className="text-purple-400" />
+                      <Brain size={18} className="text-purple-400" />
                     </button>
 
                     {/* 2. Aa Formatting Menu */}
@@ -1940,126 +1923,39 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                 </div>
             )
           ) : (
-            <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 custom-scrollbar bg-[#13111C]">
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 pb-20">
-                {userNotes.length === 0 ? (
-                  <div className="col-span-full py-20 text-center opacity-10 space-y-6">
-                    <FileText size={64} className="mx-auto" />
-                    <p className="text-[10px] font-black uppercase tracking-[0.4em]">Notebook Empty</p>
-                  </div>
-                ) : (
-                  userNotes.map((note: any) => {
-                    let pressTimer: any = null;
-                    const startPress = () => {
-                      pressTimer = setTimeout(() => {
-                        setNoteToDelete(note);
-                      }, 700);
-                    };
-                    const cancelPress = () => {
-                      if (pressTimer) clearTimeout(pressTimer);
-                    };
-                    return (
-                      <motion.div 
-                        key={note.id} 
-                        onClick={() => {
-                          setSelectedNote(note);
-                          setNoteHistory([]);
-                          setRedoStack([]);
-                          setIsPodcastActive(false);
-                          setActiveNotebookTab('write');
-                          if (setNotePreviewMode) setNotePreviewMode(false);
-                        }}
-                        onMouseDown={startPress}
-                        onMouseUp={cancelPress}
-                        onMouseLeave={cancelPress}
-                        onTouchStart={startPress}
-                        onTouchEnd={cancelPress}
-                        className={`p-4 rounded-xl border transition-all cursor-pointer relative group overflow-hidden ${theme === 'dark' ? 'bg-[#151B2B] border-white/5 hover:border-[#DC2626]/50 shadow-xl' : 'bg-white border-slate-200 shadow-sm'}`}
-                      >
-                        {(note.isTranscribing || note.id === activeAudioNoteId) && (
-                          <div className="absolute top-2.5 left-2.5 z-30 flex items-center justify-center">
-                            <span className="relative flex h-2.5 w-2.5">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#DC2626]"></span>
-                            </span>
-                          </div>
-                        )}
-                        {note.attachments?.length > 0 && (
-                          <div className="absolute top-0 right-0 p-1 text-[5px] font-black text-[#DC2626] bg-[#DC2626]/10 rounded-bl-lg border-l border-b border-white/10 uppercase">
-                            {note.attachments.length}
-                          </div>
-                        )}
-                        <div className="flex items-start justify-between relative z-10 w-full h-full">
-                          <div className="space-y-1 w-full">
-                            {(note.isTranscribing || note.id === activeAudioNoteId) && (
-                              <div className="mb-1 pl-4 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#DC2626]/15 border border-[#DC2626]/30 text-[#DC2626] text-[8px] font-black uppercase tracking-widest">
-                                <RefreshCcw size={9} className="animate-spin" /> IN PROGRESS
-                              </div>
-                            )}
-                            <h4 className="text-[10px] font-black text-white uppercase tracking-tight line-clamp-1 group-hover:text-[#DC2626] transition-colors font-sans">
-                              {note.title || 'Untitled Source'}
-                            </h4>
-                            <p className="text-[9px] text-white/40 line-clamp-2 leading-tight">
-                              {note.content ? note.content.replace(/[#*`_!\[\]\(\)]/g, '').substring(0, 50) : '...'}
-                            </p>
-                            <div className="flex items-center justify-between mt-1 pt-1 border-t border-white/5 font-sans">
-                              <p className="text-[7px] font-bold text-white/10 uppercase tracking-widest">{note.updatedAt?.toDate ? note.updatedAt.toDate().toLocaleDateString() : 'Now'}</p>
-                              <div 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setNoteToDelete(note);
-                                }} 
-                                className="p-1 opacity-0 group-hover:opacity-100 text-white/20 hover:text-red-500 transition-all bg-white/5 rounded-md"
-                              >
-                                <Trash2 size={8} />
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </motion.div>
-                    );
-                  })
-                )}
-              </div>
-
-              {/* Note Deletion Custom Inline Confirmation Dialog */}
-              {noteToDelete && (
-                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-                  <motion.div 
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="w-full max-w-sm p-6 bg-[#0E0B16] border border-white/10 rounded-3xl shadow-2xl text-center space-y-4"
-                  >
-                    <div className="w-12 h-12 bg-red-500/10 rounded-2xl flex items-center justify-center mx-auto text-red-500">
-                      <Trash2 size={24} />
-                    </div>
-                    <div className="space-y-1">
-                      <h3 className="font-extrabold text-white text-base uppercase tracking-tight font-sans">Delete Source Note?</h3>
-                      <p className="text-xs text-white/40 leading-relaxed font-sans font-medium">Are you sure you want to permanently delete "{noteToDelete.title || 'Untitled Source'}"? This action cannot be undone.</p>
-                    </div>
-                    <div className="flex gap-3 pt-2 font-sans">
-                      <button 
-                        onClick={() => setNoteToDelete(null)}
-                        className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-white/60 hover:text-white font-black text-[10px] uppercase tracking-wider rounded-xl transition-all"
-                      >
-                        Cancel
-                      </button>
-                      <button 
-                        onClick={() => {
-                          if (noteToDelete.id) {
-                            deleteNote(noteToDelete.id);
-                          }
-                          setNoteToDelete(null);
-                        }}
-                        className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white font-black text-[10px] uppercase tracking-wider rounded-xl shadow-lg shadow-red-600/20 transition-all"
-                      >
-                        Yes, Delete
-                      </button>
-                    </div>
-                  </motion.div>
-                </div>
-              )}
-            </div>
+            <NotesVaultHome
+              theme={theme}
+              user={user}
+              currentUserData={currentUserData}
+              userNotes={userNotes || []}
+              onSelectNote={(note) => {
+                setSelectedNote(note);
+                setNoteHistory([]);
+                setRedoStack([]);
+                setIsPodcastActive(false);
+                setActiveNotebookTab('write');
+                if (typeof setNotePreviewMode === 'function') setNotePreviewMode(false);
+              }}
+              onCreateNote={(initialData) => {
+                setSelectedNote({
+                  title: initialData?.title || '',
+                  content: initialData?.content || '',
+                  attachments: initialData?.attachments || [],
+                  createdAt: new Date()
+                });
+                if (typeof setNotePreviewMode === 'function') setNotePreviewMode(false);
+              }}
+              onDeleteNote={(noteId) => {
+                if (deleteNote) {
+                  deleteNote(noteId);
+                }
+              }}
+              onBack={() => {
+                setSelectedNote(null);
+                handleToolsBack();
+              }}
+              setUserNotification={setUserNotification}
+            />
           )}
         </motion.div>
       )}
@@ -2088,7 +1984,7 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
 
               {(isPremium || (user?.email?.toLowerCase().trim() === 'nuellkelechi@gmail.com')) ? (
                 <span className="text-[10px] font-black px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
-                  <Sparkles size={11} className="text-amber-400" /> Premium
+                  Premium
                 </span>
               ) : (
                 <span className={`text-[10px] font-black px-2.5 py-1 rounded-full border ${
@@ -2173,7 +2069,7 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                             : 'bg-[#EAE5FE] border-purple-200 text-slate-900 hover:bg-[#E0D8FD] shadow-xs'
                         }`}
                       >
-                        <Sparkles className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                        <Brain className="w-5 h-5 text-purple-600 dark:text-purple-400" />
                         <span>Create with AI</span>
                       </button>
 
@@ -2567,8 +2463,7 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
               <div className="relative flex items-center justify-center">
                 <div className="w-16 h-20 sm:w-20 sm:h-24 rounded-2xl bg-white border border-purple-200/80 shadow-2xl flex items-center justify-center animate-pulse">
                   <div className="relative">
-                    <Sparkles size={32} className="text-amber-400 fill-amber-300 animate-spin-slow" />
-                    <Sparkles size={16} className="text-sky-400 fill-sky-300 absolute -top-1 -right-2 animate-bounce" />
+                    <Brain size={32} className="text-amber-400 fill-amber-300 animate-pulse" />
                   </div>
                 </div>
               </div>
@@ -3016,7 +2911,6 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                         onClick={() => setShowReviewWithOmniModal(true)}
                         className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-black uppercase tracking-wider transition-all cursor-pointer shadow-md flex items-center gap-1.5"
                       >
-                        <Sparkles size={14} />
                         <span>Review with Omni</span>
                       </button>
 
@@ -3223,7 +3117,6 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                     }`}>
                       <div className="flex items-center justify-between pb-2 border-b border-white/10">
                         <h3 className="text-base font-black flex items-center gap-2">
-                          <Sparkles size={18} className="text-purple-400" />
                           <span>Review Quiz with Omni</span>
                         </h3>
                         <button
@@ -3925,52 +3818,22 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
       )}
 
       {toolsSubTab === 'courses' && (
-        !isOwner ? (
-          <div className="p-8 text-center space-y-4 my-8 rounded-3xl bg-white/[0.03] border border-white/10 max-w-lg mx-auto backdrop-blur-xl">
-            <div className="inline-flex p-4 rounded-2xl bg-amber-500/10 text-amber-500 border border-amber-500/20 mb-2">
-              <Lock size={28} />
-            </div>
-            <h3 className={`text-base font-black uppercase tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>Courses Tool — Coming Soon</h3>
-            <p className={`text-xs leading-relaxed max-w-md mx-auto ${theme === 'dark' ? 'text-white/60' : 'text-slate-600'}`}>
-              This tool is currently under active development. Access is reserved for site administrator preview.
-            </p>
-            <button 
-              onClick={handleToolsBack} 
-              className="mt-2 px-5 py-2.5 bg-[#DC2626] hover:bg-red-700 rounded-2xl text-xs font-bold uppercase text-white shadow-md transition-all active:scale-95"
-            >
-              Back to Tools
-            </button>
-          </div>
-        ) : (
-          <motion.div key="courses" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
-            <div className="flex items-center justify-between px-2">
-              <button onClick={handleToolsBack} className="text-white/40 hover:text-[#DC2626] transition-colors flex items-center gap-1.5 text-xs font-black uppercase">
-                <ArrowLeft size={14} /> Back to Tools
-              </button>
-              <div className="flex items-center gap-2">
-                <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-                  <Unlock size={10} /> Owner Access
-                </span>
-                <span className={`text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-white/20' : 'text-slate-400'}`}>Courses Tool</span>
-                <BookOpen size={20} className="text-[#DC2626]" />
-              </div>
-            </div>
-            <CoursesTool 
-              theme={theme}
-              user={user}
-              getAiInstance={getAiInstance}
-              getHfInstance={getHfInstance}
-              setUserNotification={setUserNotification}
-              setQuizTopic={setQuizTopic}
-              setQuizQuestionCount={setQuizQuestionCount}
-              setQuizDifficulty={setQuizDifficulty}
-              generateQuiz={generateQuiz}
-              setToolsSubTab={setToolsSubTab}
-              setQuizState={setQuizState}
-              checkAndIncrementUsage={checkAndIncrementUsage}
-            />
-          </motion.div>
-        )
+        <motion.div key="courses" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
+          <CoursesPage 
+            theme={theme}
+            user={user}
+            userNotes={userNotes}
+            setUserNotification={setUserNotification}
+            generateQuiz={generateQuiz}
+            setActiveTab={setActiveTab}
+            setToolsSubTab={setToolsSubTab}
+            setSelectedNote={setSelectedNote}
+            setImportedQuizNote={setImportedQuizNote}
+            setQuizTopic={setQuizTopic}
+            setQuizDocuments={setQuizDocuments}
+            onBack={handleToolsBack}
+          />
+        </motion.div>
       )}
 
       {toolsSubTab === 'faculty' && (
@@ -4143,7 +4006,7 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
               <div className="flex items-center justify-between border-b border-white/10 pb-4">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-purple-600 to-rose-600 flex items-center justify-center text-white shadow-lg">
-                    <Sparkles size={20} className="animate-pulse text-amber-300" />
+                    <Brain size={20} className="animate-pulse text-amber-300" />
                   </div>
                   <div>
                     <h3 className="text-base font-black uppercase tracking-tight">Discuss Quiz with Omni AI</h3>

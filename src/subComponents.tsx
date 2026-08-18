@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   Mic, StopCircle, Upload, FileAudio, Image as ImageIcon, 
   Brain, History, Download, Play, 
-  ChevronRight, Sparkles, Trash2, Settings, UserPlus, CreditCard, Edit2, FilePlus,
+  ChevronRight, Trash2, Settings, UserPlus, CreditCard, Edit2, FilePlus,
   ChevronUp, ChevronDown, Bold, Italic, List, CornerDownRight,
   Database, Zap, Cpu, CheckCircle2, XCircle, RefreshCcw, ArrowLeft, FileText, AlertCircle, RotateCcw,
   Sun, Moon, ArrowDown, PlusCircle, Copy, User, Users, Clock, Lock, Shield, ShieldCheck, AlertTriangle, FileDown, LayoutDashboard, ListChecks, Bell, GraduationCap, LayoutGrid, Home,
@@ -650,8 +650,8 @@ export const CoursesTool = ({ theme, user, getAiInstance, getHfInstance, setUser
               <span className="text-[10px] font-black uppercase tracking-widest text-[#DC2626] bg-[#DC2626]/10 px-2.5 py-1 rounded-full border border-[#DC2626]/20">
                 Official NOUN e-Courseware
               </span>
-              <span className="text-[10px] font-bold text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20 flex items-center gap-1">
-                <Sparkles size={10} /> AI Study Engine
+              <span className="text-[10px] font-bold text-amber-500 bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/20 flex items-center gap-1">
+                AI Study Engine
               </span>
             </div>
             <h2 className={`text-2xl font-black tracking-tight ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
@@ -803,7 +803,6 @@ export const CoursesTool = ({ theme, user, getAiInstance, getHfInstance, setUser
             <div className="space-y-6">
               <div className="flex items-center justify-between px-2">
                 <h3 className="text-xs font-black text-[#DC2626] uppercase tracking-[0.2em] flex items-center gap-2">
-                  <Sparkles size={14} className="text-yellow-500" /> 
                   Generated Chapter Breakdown ({generatedChapters.length} / {totalChapters || generatedChapters.length} Chapters)
                 </h3>
               </div>
@@ -881,7 +880,7 @@ export const CoursesTool = ({ theme, user, getAiInstance, getHfInstance, setUser
                   {isGeneratingGlobalQuiz ? (
                     <><RefreshCcw size={16} className="animate-spin" /> Generating Full Course Exam...</>
                   ) : (
-                    <><Sparkles size={16} /> Generate Quiz for Full Course</>
+                    "Generate Quiz for Full Course"
                   )}
                 </button>
               </div>
@@ -1730,7 +1729,7 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, fileTo
                 disabled={isSolving || !assignmentText.trim()}
                 className="w-full bg-[#7E22CE] hover:bg-[#6B21A8] text-white font-black py-4 rounded-2xl text-sm shadow-xl shadow-purple-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
               >
-                {isSolving ? <><RefreshCcw size={18} className="animate-spin" /> Solving...</> : <><Sparkles size={18} /> Solve Problem</>}
+                {isSolving ? <><RefreshCcw size={18} className="animate-spin" /> Solving...</> : "Solve Problem"}
               </button>
             </div>
           )}
@@ -1850,7 +1849,7 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, fileTo
                 disabled={isSolving || images.length === 0}
                 className="w-full bg-[#7E22CE] hover:bg-[#6B21A8] text-white font-black py-4 rounded-2xl text-sm shadow-xl shadow-purple-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
               >
-                {isSolving ? <><RefreshCcw size={18} className="animate-spin" /> Solving...</> : <><Sparkles size={18} /> Solve Uploaded File</>}
+                {isSolving ? <><RefreshCcw size={18} className="animate-spin" /> Solving...</> : "Solve Uploaded File"}
               </button>
             </div>
           )}
@@ -1865,7 +1864,7 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, fileTo
               <div className="space-y-3 min-h-[140px] flex flex-col justify-between p-4 rounded-2xl bg-[#080514] border border-purple-500/20 shadow-inner">
                 <div className="flex items-center justify-between text-xs font-bold text-purple-300/80">
                   <span className="flex items-center gap-1.5 font-mono uppercase tracking-wider text-[10px] text-amber-400">
-                    <Sparkles size={12} /> AI Math Workspace
+                    AI Math Workspace
                   </span>
                   {calcInput && (
                     <button 
@@ -2164,7 +2163,7 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, fileTo
                 disabled={isSolving || !calcInput.trim()}
                 className="w-full bg-gradient-to-r from-purple-700 via-purple-600 to-amber-500 hover:from-purple-600 hover:to-amber-400 text-white font-extrabold py-4 rounded-2xl text-sm shadow-xl shadow-purple-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-2"
               >
-                {isSolving ? <><RefreshCcw size={18} className="animate-spin" /> Calculating Steps...</> : <><Sparkles size={18} /> Solve Step-by-Step with AI</>}
+                {isSolving ? <><RefreshCcw size={18} className="animate-spin" /> Calculating Steps...</> : "Solve Step-by-Step with AI"}
               </button>
             </div>
           )}

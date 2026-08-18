@@ -1,5 +1,6 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
+import { MotionConfig } from 'motion/react';
 import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';
 import { DevicePlatformProvider } from './lib/capacitor';
@@ -12,7 +13,9 @@ if (rootElement) {
     <StrictMode>
       <ErrorBoundary>
         <DevicePlatformProvider>
-          <App />
+          <MotionConfig reducedMotion="always" transition={{ duration: 0, delay: 0 }}>
+            <App />
+          </MotionConfig>
         </DevicePlatformProvider>
       </ErrorBoundary>
     </StrictMode>,

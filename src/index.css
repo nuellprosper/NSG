@@ -87,7 +87,13 @@
 }
 
 /* ── BASE ── */
-*, *::before, *::after { box-sizing: border-box; }
+*, *::before, *::after { 
+  box-sizing: border-box;
+  animation-duration: 0.001ms !important;
+  animation-delay: 0ms !important;
+  transition-duration: 0.001ms !important;
+  transition-delay: 0ms !important;
+}
 
 html { font-family: var(--font-body); }
 

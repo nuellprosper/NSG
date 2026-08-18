@@ -3,13 +3,13 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { 
   Mic, StopCircle, Upload, FileAudio, Image as ImageIcon, 
   Brain, History, Download, Play, 
-  ChevronLeft, ChevronRight, Sparkles, Trash2, Settings, UserPlus, CreditCard, Edit2, FilePlus,
+  ChevronLeft, ChevronRight, Trash2, Settings, UserPlus, CreditCard, Edit2, FilePlus,
   ChevronUp, ChevronDown, Bold, Italic, List, CornerDownRight,
   Database, Zap, Cpu, CheckCircle2, XCircle, RefreshCcw, ArrowLeft, FileText, AlertCircle, RotateCcw,
   Sun, Moon, ArrowDown, PlusCircle, Copy, User, Users, Clock, Lock, Unlock, Shield, ShieldCheck, AlertTriangle, FileDown, LayoutDashboard, ListChecks, Bell, GraduationCap, LayoutGrid, Home,
   Pin, Edit3, Share2, Trophy, LogOut, Plus, Menu, Camera, Monitor, X, Activity, MessageSquare, BookOpen, Calendar, Send, Save, MicOff, Video, AtSign, Paperclip, Bookmark, Book, Percent,
   Search, Check, CheckCheck, Info, Volume2, VolumeX, Square, Mail, ArrowRight, BoxSelect, Globe, MapPin, Terminal, RefreshCw, Eye, EyeOff, HelpCircle, Calculator, Loader2,
-  BookMarked, Target, Archive, Flame, BarChart2, Gem, Award, BrainCircuit
+  BookMarked, Target, Archive, Flame, BarChart2, Gem, Award, BrainCircuit, Heart, Compass
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cleanTextForSpeech } from './lib/tts';
@@ -31,6 +31,7 @@ import {
   triggerQuotaErrorModal, checkIsQuotaError
 } from './firebase';
 
+import { HomePage } from './components/HomePage';
 import { AILibrary } from './components/AILibrary';
 import { speakText } from './lib/tts';
 import { ChatRoom } from './components/ChatRoom';
@@ -42,6 +43,7 @@ import { NotesHistoryPage } from './components/NotesHistoryPage';
 import { GeneralHistoryPage } from './components/GeneralHistoryPage';
 import { PremiumPage } from './components/PremiumPage';
 import { OmniOfflinePage } from './components/OmniOfflinePage';
+import { CoursesPage } from './components/CoursesPage';
 import { ToolsPage } from './tools';
 import { 
   LoggedOutLanding as LoggedOutLandingComponent,
@@ -340,8 +342,23 @@ export default function App() {
 
   // --- \u{1F4F1} APP STATE ---
   const [isChatRoomActive, setIsChatRoomActive] = useState(false);
-  const [activeTab, setActiveTab] = useState<'home' | 'ai' | 'tools' | 'profile' | 'notifications' | 'exam' | 'chat' | 'class' | 'community' | 'quiz_history' | 'exam_history' | 'notes_history' | 'general_history' | 'premium' | 'omni_offline'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'ai' | 'tools' | 'courses' | 'profile' | 'notifications' | 'exam' | 'chat' | 'class' | 'community' | 'quiz_history' | 'exam_history' | 'notes_history' | 'general_history' | 'premium' | 'omni_offline'>('home');
   const [nowTime, setNowTime] = useState(Date.now());
+  const [homeSelectedCourse, setHomeSelectedCourse] = useState<any>(null);
+  const [coursesFacultyFilter, setCoursesFacultyFilter] = useState<string | null>(null);
+  const [coursesDepartmentFilter, setCoursesDepartmentFilter] = useState<string | null>(null);
+
+  const openCoursePreviewFromHome = (course: any) => {
+    setHomeSelectedCourse(course);
+    setActiveTab('courses');
+  };
+
+  const openCoursesWithFilterFromHome = (faculty: string, department: string) => {
+    setHomeSelectedCourse(null);
+    setCoursesFacultyFilter(faculty || 'ALL');
+    setCoursesDepartmentFilter(department || '');
+    setActiveTab('courses');
+  };
 
   useEffect(() => {
     const timer = setInterval(() => setNowTime(Date.now()), 10000);
@@ -379,7 +396,13 @@ export default function App() {
 
   const [communitySubTab, setCommunitySubTab] = useState<'quests' | 'rankings'>('quests');
   const [totalUnreadMessages, setTotalUnreadMessages] = useState(0);
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    try {
+      const saved = localStorage.getItem('omni_theme');
+      if (saved === 'dark' || saved === 'light') return saved;
+    } catch (e) {}
+    return 'dark';
+  });
 
   // --- QUOTA LIMIT EXCEEDED MODAL STATE ---
   const [showQuotaModal, setShowQuotaModal] = useState(false);
@@ -5352,13 +5375,8 @@ export default function App() {
           await signInWithEmailAndPassword(auth, loginEmail, authPassword);
           setUserNotification("Logged in successfully!");
         } catch (err: any) {
-          if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
-            setUserNotification("Account not registered or incorrect credentials.");
-          } else if (err.code === 'auth/wrong-password') {
-            setUserNotification("Incorrect password. Please try again.");
-          } else {
-            setUserNotification("Authentication failed. Please check your details.");
-          }
+          console.warn("Sign-in authentication error:", err);
+          setUserNotification("Wrong password or username. Please check your credentials and try again.");
           setIsAuthLoading(false);
           return;
         }
@@ -8773,12 +8791,14 @@ ${session.fullAnalysis}
     const textToSend = msgOverride || chatInput;
     if (!textToSend.trim() && uploadedImages.length === 0) return;
     
-    if (!getApiKey()) {
-      setUserNotification("API Key is missing. Please set VITE_GEMINI_API_KEY in your environment.");
+    const isOfflineBrainActive = !isOnline || (typeof navigator !== 'undefined' && !navigator.onLine) || localStorage.getItem('omni_brain_ready') === 'true';
+
+    if (!isOfflineBrainActive && !getApiKey() && !getHfKey()) {
+      setUserNotification("API Key is missing. Please set VITE_GEMINI_API_KEY in your environment or download the offline model.");
       return;
     }
 
-    if (!user) {
+    if (!user && !isOfflineBrainActive) {
       setShowAuthModal(true);
       return;
     }
@@ -8845,8 +8865,8 @@ ${session.fullAnalysis}
           }
         }
       } else {
-        if (!getHfKey()) {
-          setUserNotification("HuggingFace API Key is missing. Please set VITE_HUGGINGFACE_API_KEY in your environment.");
+        if (!isOfflineBrainActive && !getHfKey() && !getApiKey()) {
+          setUserNotification("AI API Key is missing. Please set VITE_GEMINI_API_KEY or download the offline model.");
           return;
         }
 
@@ -9018,13 +9038,24 @@ ${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\nopt
             });
           };
 
-          responseText = await runWithTimeout("Gemini", askGemini) 
-                       || await runWithTimeout("Groq", askGroq) 
-                       || await runWithTimeout("Together", askTogether)
-                       || await runWithTimeout("HF", askHF) 
-                       || await runWithTimeout("OpenRouter", askOpenRouter)
-                       || await askLocalQwen()
-                       || "I'm sorry, all AI providers are currently unavailable. Please try again in a moment.";
+          if (isOfflineBrainActive) {
+            try {
+              responseText = await askLocalQwen() || "";
+            } catch (err: any) {
+              console.warn("Local Qwen inference note:", err);
+              setUserNotification(`Offline AI: ${err?.message || "Running local model..."}`);
+            }
+          }
+
+          if (!responseText) {
+            responseText = await runWithTimeout("Gemini", askGemini) 
+                         || await runWithTimeout("Groq", askGroq) 
+                         || await runWithTimeout("Together", askTogether)
+                         || await runWithTimeout("HF", askHF) 
+                         || await runWithTimeout("OpenRouter", askOpenRouter)
+                         || await askLocalQwen()
+                         || "I'm sorry, all AI providers are currently unavailable. Please try again in a moment.";
+          }
 
           if (responseText.includes('[[GENERATE_QUIZ:')) {
             const aiQuizMatch = responseText.match(/\[\[GENERATE_QUIZ:\s*([^,\]]+),\s*(\d+)\s*\]\]/i);
@@ -10203,7 +10234,22 @@ Ensure these selected question types are distributed throughout the quiz questio
         }
       };
 
-      const responseText = await askGemini() || await askTogether() || await askOpenRouter() || await askLocalQwen() || "{}";
+      let responseText = "";
+      const isOfflineMode = !isOnline || (typeof navigator !== 'undefined' && !navigator.onLine) || localStorage.getItem('omni_brain_ready') === 'true';
+
+      if (isOfflineMode) {
+        try {
+          console.log("⚡ Immediately switching to downloaded offline Qwen model for quiz generation...");
+          responseText = await askLocalQwen() || "";
+        } catch (localErr: any) {
+          console.error("Local Qwen error during quiz generation:", localErr);
+          setUserNotification(`Offline AI Quiz Error: ${localErr?.message || "Local inference error"}`);
+        }
+      }
+
+      if (!responseText) {
+        responseText = await askGemini() || await askTogether() || await askOpenRouter() || await askLocalQwen() || "{}";
+      }
       let data = robustJSONParse(responseText);
 
       const docTitles = quizDocuments.map(d => d.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ")).join(" & ");
@@ -10280,6 +10326,7 @@ Ensure these selected question types are distributed throughout the quiz questio
         triggerQuotaErrorModal();
       }
       console.error("Quiz Generation Error, falling back to offline practice quiz:", error);
+      setUserNotification(`Quiz Generation Error: ${error?.message || "Failed to generate quiz from online AI. Generating from local practice generator."}`);
       const docTitles = quizDocuments.map(d => d.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ")).join(" & ");
       const finalQuizTopic = activeTopic.trim() || docTitles || (importedQuizNote ? importedQuizNote.title : "Practice Quiz");
       const fallbackQuestions = buildFallbackQuizQuestions(finalQuizTopic, activeCount);
@@ -10768,7 +10815,7 @@ Ensure these selected question types are distributed throughout the quiz questio
 
                   <div className="bg-white/5 border border-white/5 p-3.5 rounded-2xl space-y-1">
                     <div className="flex items-center gap-2 text-blue-400 font-bold text-xs">
-                      <Sparkles size={16} />
+                      <Brain size={16} />
                       <span>2. Omni AI Academic Oracle</span>
                     </div>
                     <p className="text-[11px] text-white/70">
@@ -11124,7 +11171,7 @@ Ensure these selected question types are distributed throughout the quiz questio
               <div className="text-center mb-6 pt-2">
                 {(pendingQuizId || sessionStorage.getItem('nsg_pending_quiz_id')) && (
                   <div className="mb-5 p-3.5 bg-purple-500/15 border border-purple-500/30 rounded-2xl flex items-center justify-center gap-2.5 text-purple-200 text-xs font-bold text-center shadow-lg shadow-purple-900/20">
-                    <Sparkles size={16} className="text-amber-400 shrink-0 animate-spin" />
+                    <Loader2 size={16} className="text-amber-400 shrink-0 animate-spin" />
                     <span>Please log in or sign up to view and attempt this quiz!</span>
                   </div>
                 )}
@@ -11722,9 +11769,8 @@ Ensure these selected question types are distributed throughout the quiz questio
             )}
             
             <div className="flex flex-col flex-1 h-full overflow-hidden">
-            {/* HEADER - Only visible on Home tab or if mobile */}
-            {/* HEADER - Restructured with profile avatar on left, NSG brand center, notifications on right */}
-            {activeTab === 'home' && (
+            {/* HEADER - Only visible when not on Home, Courses, or Profile tabs */}
+            {activeTab !== 'home' && activeTab !== 'courses' && activeTab !== 'profile' && !isAuthView && !isSecondaryPage && (
               <header
                 className="px-4 sm:px-6 py-3.5 flex justify-between items-center shrink-0"
                 style={{
@@ -11831,7 +11877,7 @@ Ensure these selected question types are distributed throughout the quiz questio
         className={`flex-1 ${
           isAuthView 
             ? 'w-full max-w-full p-0 overflow-y-auto' 
-            : ((activeTab === 'chat' || activeTab === 'class' || activeTab === 'ai' || (activeTab === 'tools' && toolsSubTab === 'notebook') || isDesktop) 
+            : ((activeTab === 'home' || activeTab === 'chat' || activeTab === 'class' || activeTab === 'ai' || (activeTab === 'tools' && toolsSubTab === 'notebook') || isDesktop) 
                 ? 'w-full' 
                 : 'max-w-4xl w-full mx-auto px-2 sm:px-4')
         } ${
@@ -11839,9 +11885,9 @@ Ensure these selected question types are distributed throughout the quiz questio
             ? 'p-0 overflow-y-auto' 
             : ((activeTab === 'tools' && toolsSubTab === 'notebook')
                 ? 'p-0 overflow-hidden'
-                : ((activeTab === 'chat' || activeTab === 'class' || activeTab === 'ai' || isSecondaryPage) ? 'pb-2 overflow-y-auto pt-0' : 'pb-24 overflow-y-auto pt-4'))
+                : ((activeTab === 'home' || activeTab === 'chat' || activeTab === 'class' || activeTab === 'ai' || isSecondaryPage) ? 'pb-2 overflow-y-auto pt-0' : 'pb-24 overflow-y-auto pt-4'))
         } flex flex-col custom-scrollbar ${
-          (activeTab === 'tools' && toolsSubTab === 'notebook') ? 'px-0' : (isDesktop && !isAuthView ? 'px-8' : '')
+          (activeTab === 'home' || (activeTab === 'tools' && toolsSubTab === 'notebook')) ? 'px-0' : (isDesktop && !isAuthView ? 'px-8' : '')
         }`}
         style={{
           backgroundColor: 'var(--bg-base)',
@@ -11981,206 +12027,25 @@ Ensure these selected question types are distributed throughout the quiz questio
           
           {/* HOME TAB */}
           {activeTab === 'home' && (
-            <div key="home" className="space-y-5 pt-2 pb-8 px-2 max-w-4xl mx-auto">
-              {!isOnline && (
-                <div className="bg-[#DC2626]/10 border border-[#DC2626]/20 p-3 rounded-2xl flex items-center gap-3 mx-2">
-                  <div className="w-8 h-8 bg-[#DC2626] rounded-full flex items-center justify-center text-white shrink-0">
-                    <AlertCircle size={16} />
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-black text-white uppercase tracking-tight">Offline Mode Active</p>
-                    <p className="text-[8px] font-bold text-white/40 uppercase tracking-widest">You can still record lectures. They will sync when online.</p>
-                  </div>
-                </div>
-              )}
-
-              {/* OVERVIEW SECTION */}
-              <div className="space-y-2">
-                <h2 className="text-lg font-black text-white tracking-tight px-1" style={{ fontFamily: 'var(--font-display)' }}>
-                  Overview
-                </h2>
-
-                <div className="p-5 sm:p-6 rounded-[2rem] bg-gradient-to-r from-[#5B1366] via-[#3B0764] to-[#1E1B2E] border border-purple-500/30 text-white shadow-xl relative overflow-hidden flex items-center justify-between group">
-                  <div className="absolute top-0 right-1/3 w-32 h-32 bg-purple-500/10 blur-3xl rounded-full pointer-events-none" />
-                  
-                  <div className="space-y-1.5 z-10 max-w-[75%] text-left">
-                    <p className="text-xs text-purple-200/80 font-medium tracking-wide">
-                      All in One Space...
-                    </p>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-xs font-bold text-purple-100/90 uppercase tracking-wider">
-                        My Academic Overview
-                      </p>
-                      {isPremium && (
-                        <span className="inline-flex items-center gap-1.5 bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border border-amber-400/40 text-amber-300 font-black text-[10px] px-2.5 py-0.5 rounded-full shadow-sm">
-                          <Zap size={11} className="text-amber-400 animate-pulse shrink-0" />
-                          {getPremiumDaysInfo()?.text || 'Premium Active'}
-                        </span>
-                      )}
-                    </div>
-                    <div className="pt-1">
-                      <div className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight flex items-baseline gap-2">
-                        <span>{finishedHistory.filter(h => h.type === 'quiz').length || 0}</span>
-                        <span className="text-xs font-semibold text-purple-200/90 tracking-normal">Completed Quizzes</span>
-                      </div>
-                      <p className="text-[10px] text-purple-300/80 font-medium mt-1.5 flex flex-wrap items-center gap-1.5">
-                        <span className="inline-flex items-center gap-1 bg-purple-500/20 px-2.5 py-0.5 rounded-full border border-purple-400/20">
-                          📚 {userNotes.length || 0} Saved Note{(userNotes.length || 0) === 1 ? '' : 's'}
-                        </span>
-                        <span className="inline-flex items-center gap-1 bg-purple-500/20 px-2.5 py-0.5 rounded-full border border-purple-400/20">
-                          🎧 {sessions.length || 0} Recorded Session{(sessions.length || 0) === 1 ? '' : 's'}
-                        </span>
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Right side graphic: Styled 3D Book Container */}
-                  <div className="relative shrink-0 z-10">
-                    <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-purple-500/30 via-indigo-600/20 to-purple-900/40 border border-purple-400/40 rounded-2xl flex flex-col items-center justify-center relative shadow-lg backdrop-blur-md group-hover:scale-105 transition-all">
-                      <BookOpen size={32} className="text-purple-200 drop-shadow-[0_4px_12px_rgba(168,85,247,0.6)]" />
-                      <span className="text-[7.5px] font-black uppercase tracking-widest text-purple-300/80 mt-1">Notes</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* RECENT SECTION */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between px-1">
-                  <h3 className="text-base font-bold text-white tracking-tight" style={{ fontFamily: 'var(--font-display)' }}>
-                    Recent
-                  </h3>
-                  <button 
-                    onClick={() => setActiveTab('general_history')} 
-                    className="text-xs font-bold text-purple-400 hover:text-purple-300 transition-colors cursor-pointer"
-                  >
-                    See All History
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {/* Container 1: Quiz & Mocks -> leads to Quiz History */}
-                  <div 
-                    onClick={() => setActiveTab('quiz_history')}
-                    className="bg-[#2B1416] border border-red-500/30 rounded-2xl p-4 flex items-center justify-between cursor-pointer hover:border-red-400/60 hover:bg-[#381B1D] transition-all group shadow-lg text-left"
-                  >
-                    <div className="space-y-1 min-w-0 pr-1">
-                      <span className="text-red-400 text-xs sm:text-sm font-black block tracking-tight group-hover:translate-x-0.5 transition-transform truncate">
-                        Recent Quiz History
-                      </span>
-                      <span className="text-[9.5px] text-red-300/70 font-bold block uppercase tracking-wider">
-                        {finishedHistory.filter(h => h.type === 'quiz').length} Records • Tap to view
-                      </span>
-                    </div>
-                    <div className="w-10 h-10 bg-red-500/20 border border-red-400/30 rounded-xl flex items-center justify-center text-red-300 shrink-0">
-                      <Target size={20} />
-                    </div>
-                  </div>
-
-                  {/* Container 2: CBT Exams -> leads to Exam History */}
-                  <div 
-                    onClick={() => setActiveTab('exam_history')}
-                    className="bg-[#181636] border border-indigo-500/30 rounded-2xl p-4 flex items-center justify-between cursor-pointer hover:border-indigo-400/60 hover:bg-[#201E45] transition-all group shadow-lg text-left"
-                  >
-                    <div className="space-y-1 min-w-0 pr-1">
-                      <span className="text-indigo-400 text-xs sm:text-sm font-black block tracking-tight group-hover:translate-x-0.5 transition-transform truncate">
-                        Recent CBT History
-                      </span>
-                      <span className="text-[9.5px] text-indigo-300/70 font-bold block uppercase tracking-wider">
-                        {finishedHistory.filter((h: any) => h.type === 'cbt' || h.type === 'exam' || h.isCbt).length} Records • Tap to view
-                      </span>
-                    </div>
-                    <div className="w-10 h-10 bg-indigo-500/20 border border-indigo-400/30 rounded-xl flex items-center justify-center text-indigo-300 shrink-0">
-                      <FileText size={20} />
-                    </div>
-                  </div>
-
-                  {/* Container 3: Study Notes -> leads to Notes History */}
-                  <div 
-                    onClick={() => setActiveTab('notes_history')}
-                    className="bg-[#0D2619] border border-emerald-500/30 rounded-2xl p-4 flex items-center justify-between cursor-pointer hover:border-emerald-400/60 hover:bg-[#113221] transition-all group shadow-lg text-left"
-                  >
-                    <div className="space-y-1 min-w-0 pr-1">
-                      <span className="text-emerald-400 text-xs sm:text-sm font-black block tracking-tight group-hover:translate-x-0.5 transition-transform truncate">
-                        Recent Notes History
-                      </span>
-                      <span className="text-[9.5px] text-emerald-300/70 font-bold block uppercase tracking-wider">
-                        {userNotes.length || 0} Notes Saved • Tap to view
-                      </span>
-                    </div>
-                    <div className="w-10 h-10 bg-emerald-500/20 border border-emerald-400/30 rounded-xl flex items-center justify-center text-emerald-300 shrink-0">
-                      <BookMarked size={20} />
-                    </div>
-                  </div>
-                </div>
-
-                {/* USE OMNI OFFLINE BUTTON UNDER LAST HISTORY CONTAINER (Only visible in Capacitor native APK) */}
-                {isCapacitorNative() && (
-                  <div 
-                    onClick={() => setActiveTab('omni_offline')}
-                    className="bg-gradient-to-r from-purple-950/90 via-[#190C2B] to-purple-900/90 border border-purple-500/40 hover:border-purple-400/70 rounded-2xl p-4 sm:p-5 flex items-center justify-between cursor-pointer transition-all group shadow-xl text-left active:scale-[0.99]"
-                  >
-                    <div className="space-y-1 min-w-0 pr-2">
-                      <h4 className="text-white text-sm sm:text-base font-bold tracking-tight group-hover:text-purple-300 transition-colors">
-                        Use Omni Offline
-                      </h4>
-                      <p className="text-xs text-purple-200/70 font-normal leading-relaxed">
-                        Generate quizzes, chat with Omni and Use AI powered tools Offline
-                      </p>
-                    </div>
-                    <div className="w-10 h-10 bg-purple-500/20 border border-purple-400/30 rounded-xl flex items-center justify-center text-purple-300 shrink-0 group-hover:scale-105 transition-transform">
-                      <ArrowDown size={20} className="stroke-[2.5]" />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* BANNERS */}
-              <div className="space-y-3">
-                {/* EXPLORE ALL STUDY SESSIONS BANNER */}
-                <div 
-                  onClick={() => setActiveTab('general_history')}
-                  className="bg-gradient-to-r from-[#4A0E4E] via-[#370A3A] to-[#250527] border border-purple-500/30 rounded-[1.8rem] p-5 flex items-center justify-between text-white cursor-pointer hover:border-purple-400/50 transition-all shadow-xl group text-left"
-                >
-                  <div className="space-y-1 max-w-[80%]">
-                    <h4 className="text-sm font-black text-white group-hover:translate-x-0.5 transition-transform tracking-tight">
-                      Explore All Study Sessions & History
-                    </h4>
-                    <p className="text-xs text-purple-200/70 font-medium">
-                      View your complete academic timeline, quiz logs & saved study materials
-                    </p>
-                  </div>
-                  <div className="w-11 h-11 bg-purple-500/30 rounded-2xl border border-purple-400/30 flex items-center justify-center text-purple-200 shrink-0 shadow-lg group-hover:scale-105 transition-transform">
-                    <Archive size={20} />
-                  </div>
-                </div>
-
-                {/* TRY PREMIUM BANNER (Only for non-premium users) */}
-                {!isPremium && (
-                  <div 
-                    onClick={() => setActiveTab('premium')}
-                    className="bg-gradient-to-r from-amber-500/20 via-purple-900/30 to-indigo-950/40 border border-amber-500/30 rounded-[1.8rem] p-5 flex items-center justify-between text-white cursor-pointer hover:border-amber-400/60 transition-all shadow-xl group text-left"
-                  >
-                    <div className="space-y-1 max-w-[80%]">
-                      <div className="flex items-center gap-2">
-                        <span className="bg-amber-500/20 text-amber-300 text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md border border-amber-500/30">
-                          LIMITED OFFER
-                        </span>
-                        <h4 className="text-sm font-black text-white tracking-tight">
-                          Upgrade to NSG Premium
-                        </h4>
-                      </div>
-                      <p className="text-xs text-amber-100/70 font-medium">
-                        Unlock 15 quizzes daily, 20 picture uploads & unlimited Omni AI chats for ₦300/mo
-                      </p>
-                    </div>
-                    <div className="w-11 h-11 bg-amber-500/30 rounded-2xl border border-amber-400/30 flex items-center justify-center text-amber-300 shrink-0 shadow-lg group-hover:scale-105 transition-transform">
-                      <Sparkles size={20} />
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
+            <HomePage
+              theme={theme}
+              user={user}
+              currentUserData={currentUserData}
+              userNotes={userNotes}
+              finishedHistory={finishedHistory}
+              sessions={sessions}
+              unreadCount={unreadCount}
+              personalNotifications={personalNotifications}
+              setActiveTab={setActiveTab}
+              setToolsSubTab={setToolsSubTab}
+              setSelectedNote={setSelectedNote}
+              setImportedQuizNote={setImportedQuizNote}
+              setQuizTopic={setQuizTopic}
+              setQuizDocuments={setQuizDocuments}
+              openCoursePreview={openCoursePreviewFromHome}
+              openCoursesWithFilter={openCoursesWithFilterFromHome}
+              setUserNotification={setUserNotification}
+            />
           )}
 
           {/* QUIZ HISTORY TAB */}
@@ -12250,6 +12115,27 @@ Ensure these selected question types are distributed throughout the quiz questio
                 setActiveTab('tools');
                 setToolsSubTab('quiz');
               }}
+            />
+          )}
+
+          {/* COURSES TAB */}
+          {activeTab === 'courses' && (
+            <CoursesPage
+              theme={theme}
+              user={user}
+              userNotes={userNotes}
+              setUserNotification={setUserNotification}
+              generateQuiz={generateQuiz}
+              setActiveTab={setActiveTab}
+              setToolsSubTab={setToolsSubTab}
+              setSelectedNote={setSelectedNote}
+              setImportedQuizNote={setImportedQuizNote}
+              setQuizTopic={setQuizTopic}
+              setQuizDocuments={setQuizDocuments}
+              onBack={() => setActiveTab('home')}
+              initialSelectedCourse={homeSelectedCourse}
+              initialFacultyFilter={coursesFacultyFilter}
+              initialDepartmentFilter={coursesDepartmentFilter}
             />
           )}
 
@@ -13097,7 +12983,7 @@ Ensure these selected question types are distributed throughout the quiz questio
                             {[
                               { id: 'General', icon: Brain, label: 'General' },
                               { id: 'Vision', icon: Camera, label: 'Vision' },
-                              { id: 'Creative', icon: Sparkles, label: 'Creative' }
+                              { id: 'Creative', icon: BrainCircuit, label: 'Creative' }
                             ].map(mode => (
                               <button 
                                 key={mode.id}
@@ -13377,8 +13263,8 @@ Ensure these selected question types are distributed throughout the quiz questio
                               {post.timestamp?.toDate ? post.timestamp.toDate().toLocaleDateString() : 'Just now'}
                             </div>
                             <h3 className="text-sm font-black text-white uppercase tracking-tight group-hover:text-[#8B5CF6] transition-colors">{post.title}</h3>
-                            <p className="text-[10px] text-white/40 line-clamp-2 leading-relaxed">
-                              {post.content.replace(/[#*`]/g, '').substring(0, 120)}...
+                            <p className="text-xs text-white/70 leading-relaxed whitespace-pre-wrap">
+                              {post.content.replace(/[#*`]/g, '')}
                             </p>
                           </div>
                         </div>
@@ -13400,35 +13286,35 @@ Ensure these selected question types are distributed throughout the quiz questio
                               {
                                 id: 'fallback-streak-1',
                                 title: 'Daily streak',
-                                message: "Complete one lesson to get today's reward",
+                                message: "Complete one lesson to get today's reward. Test your understanding with an instant quiz or practice exam.",
                                 timestamp: new Date(Date.now() - 11 * 86400000),
                                 type: 'streak'
                               },
                               {
                                 id: 'fallback-streak-2',
                                 title: 'Daily streak',
-                                message: "Complete one lesson to get today's reward",
+                                message: "Complete one lesson to get today's reward. Review lecture notes to boost retention.",
                                 timestamp: new Date(Date.now() - 15 * 86400000),
                                 type: 'streak'
                               },
                               {
                                 id: 'fallback-streak-3',
                                 title: 'Daily streak',
-                                message: "Complete one lesson to get today's reward",
+                                message: "Complete one lesson to get today's reward. Boost your Scholar Division ranking!",
                                 timestamp: new Date(Date.now() - 62 * 86400000),
                                 type: 'streak'
                               },
                               {
                                 id: 'fallback-streak-4',
                                 title: 'Daily streak',
-                                message: "Complete one lesson to get today's reward",
+                                message: "Complete one lesson to get today's reward and maintain your continuous learning momentum.",
                                 timestamp: new Date(Date.now() - 105 * 86400000),
                                 type: 'streak'
                               },
                               {
                                 id: 'fallback-streak-5',
                                 title: 'Daily streak',
-                                message: "Complete one lesson to get today's reward",
+                                message: "Complete one lesson to get today's reward and unlock bonus achievements.",
                                 timestamp: new Date(Date.now() - 107 * 86400000),
                                 type: 'streak'
                               }
@@ -13460,14 +13346,61 @@ Ensure these selected question types are distributed throughout the quiz questio
                               }}
                               className={`p-4 rounded-[1.25rem] bg-[#0B0D14] border border-white/5 hover:border-[#8B5CF6]/40 shadow-md relative overflow-hidden group transition-all duration-300 ${notif.type !== 'streak_request' || notif.resolved ? 'cursor-pointer hover:scale-[1.005]' : ''}`}
                             >
-                              <div className="flex items-center gap-3.5 relative z-10">
-                                <div className="w-10 h-10 rounded-full bg-[#8B5CF6]/20 text-[#8B5CF6] flex items-center justify-center text-sm shadow-md shrink-0">
+                              <div className="flex items-start gap-3.5 relative z-10">
+                                <div className="w-10 h-10 rounded-full bg-[#8B5CF6]/20 text-[#8B5CF6] flex items-center justify-center text-sm shadow-md shrink-0 mt-0.5">
                                   <Bell size={18} />
                                 </div>
-                                <div className="min-w-0 flex-1 space-y-0.5">
+                                <div className="min-w-0 flex-1 space-y-1">
                                   <p className="text-sm font-bold text-white leading-snug">{notif.title || 'Daily streak'}</p>
-                                  <p className="text-xs text-gray-400 leading-normal">{notif.message || "Complete one lesson to get today's reward"}</p>
+                                  <p className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap break-words">{notif.message || "Complete one lesson to get today's reward"}</p>
                                   <p className="text-[11px] font-medium text-amber-400 pt-0.5">{getRelativeTime(notif.timestamp)}</p>
+
+                                  {/* Follow-up Deep-Link Action Buttons */}
+                                  <div className="flex flex-wrap gap-2 pt-2">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setActiveTab('tools');
+                                        setToolsSubTab('quiz');
+                                      }}
+                                      className="px-2.5 py-1 rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer"
+                                    >
+                                      🎯 Generate a Quiz
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setActiveTab('tools');
+                                        setToolsSubTab('notebook');
+                                      }}
+                                      className="px-2.5 py-1 rounded-lg bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer"
+                                    >
+                                      📁 Upload a Note
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setActiveTab('tools');
+                                        setToolsSubTab('exam');
+                                      }}
+                                      className="px-2.5 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer"
+                                    >
+                                      📝 Practice CBT
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setActiveTab('chat');
+                                      }}
+                                      className="px-2.5 py-1 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer"
+                                    >
+                                      🤖 Ask Omni
+                                    </button>
+                                  </div>
                                 </div>
 
                                 {notif.type === 'streak_request' && !notif.resolved ? (
@@ -14209,6 +14142,15 @@ Ensure these selected question types are distributed throughout the quiz questio
                     </div>
                   </div>
                   <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full sm:w-auto">
+                    {user?.email === "nuellkelechi@gmail.com" && (
+                      <button 
+                        type="button"
+                        onClick={() => setShowGodMode(true)} 
+                        className="w-full sm:w-auto px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold uppercase border border-red-500/30 transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 shadow-md shadow-red-600/20"
+                      >
+                        <ShieldCheck size={14} /> GOD MODE
+                      </button>
+                    )}
                     <button 
                       onClick={handleLogout} 
                       className="w-full sm:w-auto px-5 py-2.5 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white rounded-xl text-xs font-bold uppercase border border-white/10 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
@@ -15086,14 +15028,6 @@ Ensure these selected question types are distributed throughout the quiz questio
             </motion.div>
           )}
         </AnimatePresence>
-        {/* FOOTER */}
-        <footer className={`w-full px-4 py-8 pb-8 flex flex-wrap justify-center gap-6 text-[10px] font-black uppercase tracking-widest ${theme === 'dark' ? 'text-white/20' : 'text-slate-400'}`}>
-          {user?.email === "nuellkelechi@gmail.com" && (
-            <button onClick={() => setShowGodMode(true)} className="text-[#DC2626] hover:text-[#DC2626]/80 transition-colors flex items-center gap-1">
-              <ShieldCheck size={12} /> GOD MODE
-            </button>
-          )}
-        </footer>
 
       {/* EDIT PROFILE / SETTINGS FULL PAGE */}
       <AnimatePresence>
@@ -15148,6 +15082,39 @@ Ensure these selected question types are distributed throughout the quiz questio
                       />
                     </label>
                   </div>
+                </div>
+
+                {/* Dark Mode / Light Mode Integration Toggle */}
+                <div className="p-4 rounded-2xl bg-[#0E0C16] border border-white/10 flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2.5 rounded-xl border flex items-center justify-center ${
+                      theme === 'dark' 
+                        ? 'bg-purple-950/60 border-purple-500/40 text-purple-300' 
+                        : 'bg-amber-500/20 border-amber-500/40 text-amber-400'
+                    }`}>
+                      {theme === 'dark' ? <Moon size={18} /> : <Sun size={18} />}
+                    </div>
+                    <div className="text-left">
+                      <p className="text-sm font-bold text-white">App Theme</p>
+                      <p className="text-[11px] text-white/50">{theme === 'dark' ? 'Dark Purple Mode' : 'Light Mode'}</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = theme === 'dark' ? 'light' : 'dark';
+                      setTheme(next);
+                      try { localStorage.setItem('omni_theme', next); } catch(e) {}
+                      setUserNotification(next === 'dark' ? "🌙 Dark Mode activated" : "☀️ Light Mode activated");
+                    }}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer flex items-center gap-1.5 border shadow-sm ${
+                      theme === 'dark'
+                        ? 'bg-purple-600/30 hover:bg-purple-600/50 border-purple-500/40 text-purple-200'
+                        : 'bg-amber-500/20 hover:bg-amber-500/30 border-amber-500/40 text-amber-300'
+                    }`}
+                  >
+                    <span>{theme === 'dark' ? 'Switch to Light' : 'Switch to Dark'}</span>
+                  </button>
                 </div>
 
                 {/* Full Personal Name */}
@@ -16872,39 +16839,38 @@ Ensure these selected question types are distributed throughout the quiz questio
         )}
       </AnimatePresence>
 
-      {/* BOTTOM NAVIGATION - Exactly matching screenshot design */}
+      {/* BOTTOM NAVIGATION - Exactly matching screenshot design & light/dark purple specs */}
       {!isSecondaryPage && !isDesktop && !isAuthView && (
-        <div className="fixed bottom-0 left-0 right-0 z-[100] border-t border-white/10 px-4 py-2.5 flex items-center justify-around bg-[#08070D] shadow-[0_-10px_40px_rgba(0,0,0,0.8)] select-none">
+        <div className={`fixed bottom-0 left-0 right-0 z-[100] px-3 py-2.5 flex items-center justify-around select-none transition-colors ${
+          theme === 'dark' 
+            ? 'bg-[#0B0813] border-t border-purple-500/20 shadow-[0_-10px_40px_rgba(0,0,0,0.8)]' 
+            : 'bg-white border-t border-slate-200 shadow-[0_-4px_25px_rgba(0,0,0,0.06)]'
+        }`}>
           {/* HOME */}
           <button 
             type="button"
             onClick={() => setActiveTab('home')} 
-            className={`flex-1 flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${
-              activeTab === 'home' ? 'text-red-500' : 'text-slate-400 hover:text-white/80'
+            className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
+              activeTab === 'home' 
+                ? (theme === 'dark' ? 'text-purple-400' : 'text-purple-600') 
+                : (theme === 'dark' ? 'text-white/40 hover:text-white/80' : 'text-purple-300 hover:text-purple-600')
             }`}
           >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-9.5z" />
-              <line x1="10" y1="17" x2="14" y2="17" />
-            </svg>
-            <span className="text-[10px] font-bold uppercase tracking-wider leading-none">HOME</span>
-          </button>
-
-          {/* CHAT */}
-          <button 
-            type="button"
-            onClick={() => setActiveTab('chat')} 
-            className={`flex-1 flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer relative ${
-              activeTab === 'chat' ? 'text-red-500' : 'text-slate-400 hover:text-white/80'
-            }`}
-          >
-            <MessageSquare size={22} />
-            <span className="text-[10px] font-bold uppercase tracking-wider leading-none">CHAT</span>
-            {totalUnreadMessages > 0 && (
-              <span className="absolute top-0 right-4 w-4 h-4 text-white text-[8px] font-bold flex items-center justify-center rounded-full bg-red-500 border border-[#08070D]">
-                {totalUnreadMessages}
-              </span>
-            )}
+            <div className={`p-1 rounded-xl transition-all ${
+              activeTab === 'home' 
+                ? (theme === 'dark' ? 'bg-purple-500/20 text-purple-400' : 'bg-purple-100 text-purple-600')
+                : ''
+            }`}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-9.5z" />
+                <line x1="10" y1="17" x2="14" y2="17" />
+              </svg>
+            </div>
+            <span className={`text-[9.5px] uppercase tracking-wider leading-none ${
+              activeTab === 'home' 
+                ? (theme === 'dark' ? 'font-black text-purple-300' : 'font-black text-purple-600') 
+                : (theme === 'dark' ? 'font-bold text-white/70' : 'font-bold text-black')
+            }`}>HOME</span>
           </button>
 
           {/* TOOLS */}
@@ -16914,34 +16880,93 @@ Ensure these selected question types are distributed throughout the quiz questio
               setActiveTab('tools');
               setToolsSubTab('menu');
             }} 
-            className={`flex-1 flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${
-              activeTab === 'tools' ? 'text-red-500' : 'text-slate-400 hover:text-white/80'
+            className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
+              activeTab === 'tools' 
+                ? (theme === 'dark' ? 'text-purple-400' : 'text-purple-600') 
+                : (theme === 'dark' ? 'text-white/40 hover:text-white/80' : 'text-purple-300 hover:text-purple-600')
             }`}
           >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3.5" y="3.5" width="7" height="7" rx="2" />
-              <rect x="13.5" y="3.5" width="7" height="7" rx="2" />
-              <rect x="13.5" y="13.5" width="7" height="7" rx="2" />
-              <rect x="3.5" y="13.5" width="7" height="7" rx="2" />
-            </svg>
-            <span className="text-[10px] font-bold uppercase tracking-wider leading-none">TOOLS</span>
+            <div className={`p-1 rounded-xl transition-all ${
+              activeTab === 'tools' 
+                ? (theme === 'dark' ? 'bg-purple-500/20 text-purple-400' : 'bg-purple-100 text-purple-600')
+                : ''
+            }`}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="7" height="7" rx="2" />
+                <rect x="14" y="3" width="7" height="7" rx="2" />
+                <rect x="14" y="14" width="7" height="7" rx="2" />
+                <rect x="3" y="14" width="7" height="7" rx="2" />
+              </svg>
+            </div>
+            <span className={`text-[9.5px] uppercase tracking-wider leading-none ${
+              activeTab === 'tools' 
+                ? (theme === 'dark' ? 'font-black text-purple-300' : 'font-black text-purple-600') 
+                : (theme === 'dark' ? 'font-bold text-white/70' : 'font-bold text-black')
+            }`}>TOOLS</span>
+          </button>
+
+          {/* CHAT - Screenshot design with speech bubble & 3 dots */}
+          <button 
+            type="button"
+            onClick={() => setActiveTab('chat')} 
+            className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all cursor-pointer relative ${
+              activeTab === 'chat' 
+                ? (theme === 'dark' ? 'text-purple-400' : 'text-purple-600') 
+                : (theme === 'dark' ? 'text-white/40 hover:text-white/80' : 'text-purple-300 hover:text-purple-600')
+            }`}
+          >
+            <div className={`p-1 rounded-xl transition-all relative ${
+              activeTab === 'chat' 
+                ? (theme === 'dark' ? 'bg-purple-500/20 text-purple-400' : 'bg-purple-100 text-purple-600')
+                : ''
+            }`}>
+              {/* Chat bubble with 3 dots */}
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                <circle cx="8" cy="11" r="1" fill="currentColor" stroke="none" />
+                <circle cx="12" cy="11" r="1" fill="currentColor" stroke="none" />
+                <circle cx="16" cy="11" r="1" fill="currentColor" stroke="none" />
+              </svg>
+            </div>
+            <span className={`text-[9.5px] uppercase tracking-wider leading-none ${
+              activeTab === 'chat' 
+                ? (theme === 'dark' ? 'font-black text-purple-300' : 'font-black text-purple-600') 
+                : (theme === 'dark' ? 'font-bold text-white/70' : 'font-bold text-black')
+            }`}>CHAT</span>
+            {totalUnreadMessages > 0 && (
+              <span className="absolute top-0 right-3 w-4 h-4 text-white text-[8px] font-bold flex items-center justify-center rounded-full bg-purple-600 border border-white">
+                {totalUnreadMessages}
+              </span>
+            )}
           </button>
 
           {/* SOCIAL */}
           <button 
             type="button"
             onClick={() => setActiveTab('community')} 
-            className={`flex-1 flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${
-              activeTab === 'community' ? 'text-red-500' : 'text-slate-400 hover:text-white/80'
+            className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
+              activeTab === 'community' 
+                ? (theme === 'dark' ? 'text-purple-400' : 'text-purple-600') 
+                : (theme === 'dark' ? 'text-white/40 hover:text-white/80' : 'text-purple-300 hover:text-purple-600')
             }`}
           >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="9" />
-              <line x1="3.6" y1="9" x2="20.4" y2="9" />
-              <line x1="3.6" y1="15" x2="20.4" y2="15" />
-              <path d="M12 3a14.5 14.5 0 0 1 0 18 14.5 14.5 0 0 1 0-18z" />
-            </svg>
-            <span className="text-[10px] font-bold uppercase tracking-wider leading-none">SOCIAL</span>
+            <div className={`p-1 rounded-xl transition-all ${
+              activeTab === 'community' 
+                ? (theme === 'dark' ? 'bg-purple-500/20 text-purple-400' : 'bg-purple-100 text-purple-600')
+                : ''
+            }`}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <line x1="3.6" y1="9" x2="20.4" y2="9" />
+                <line x1="3.6" y1="15" x2="20.4" y2="15" />
+                <path d="M12 3a14.5 14.5 0 0 1 0 18 14.5 14.5 0 0 1 0-18z" />
+              </svg>
+            </div>
+            <span className={`text-[9.5px] uppercase tracking-wider leading-none ${
+              activeTab === 'community' 
+                ? (theme === 'dark' ? 'font-black text-purple-300' : 'font-black text-purple-600') 
+                : (theme === 'dark' ? 'font-bold text-white/70' : 'font-bold text-black')
+            }`}>SOCIAL</span>
           </button>
         </div>
       )}
@@ -16974,7 +16999,7 @@ Ensure these selected question types are distributed throughout the quiz questio
           >
             <div className="absolute -top-12 -left-12 w-32 h-32 bg-red-600/20 rounded-full blur-2xl pointer-events-none" />
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-purple-600 via-rose-600 to-red-600 flex items-center justify-center text-white shadow-xl shadow-red-500/30">
-              <Sparkles size={32} className="animate-spin text-amber-300" />
+              <Loader2 size={32} className="animate-spin text-amber-300" />
             </div>
             <div className="space-y-2">
               <h3 className="text-base font-black text-white uppercase tracking-tight">
