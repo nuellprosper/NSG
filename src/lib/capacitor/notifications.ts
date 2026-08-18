@@ -7,6 +7,56 @@ export async function requestNotificationPermission(): Promise<boolean> {
 
   if (isNative) {
     try {
+      // Register Action Types (Buttons) for Phone Notifications
+      try {
+        await LocalNotifications.registerActionTypes({
+          types: [
+            {
+              id: 'SCHOLAR_QUIZ_ACTION',
+              actions: [
+                {
+                  id: 'start_quiz',
+                  title: '⚡ Start Practice',
+                  foreground: true
+                },
+                {
+                  id: 'open_vault',
+                  title: '📖 View Vault',
+                  foreground: true
+                }
+              ]
+            },
+            {
+              id: 'SCHOLAR_HACK_ACTION',
+              actions: [
+                {
+                  id: 'read_hack',
+                  title: '💡 Read Hack',
+                  foreground: true
+                },
+                {
+                  id: 'dismiss_hack',
+                  title: '✕ Dismiss',
+                  destructive: false
+                }
+              ]
+            },
+            {
+              id: 'COMMUNITY_ACTION',
+              actions: [
+                {
+                  id: 'view_discussions',
+                  title: '💬 Join Discussion',
+                  foreground: true
+                }
+              ]
+            }
+          ]
+        });
+      } catch (actionErr) {
+        console.warn('Action types registration info:', actionErr);
+      }
+
       // Create Android Notification Channels for High-Visibility Status Bar Delivery
       try {
         await LocalNotifications.createChannel({
@@ -219,6 +269,13 @@ export async function schedulePeriodicBackgroundNotifications(): Promise<void> {
         const delayMs = (intervalsInMinutes[index % intervalsInMinutes.length] || ((index + 1) * 60)) * 60 * 1000;
         const triggerTime = new Date(Date.now() + delayMs);
         
+        let actionTypeId = 'SCHOLAR_QUIZ_ACTION';
+        if (item.category === 'did_you_know' || item.category === 'quote') {
+          actionTypeId = 'SCHOLAR_HACK_ACTION';
+        } else if (item.category === 'activity') {
+          actionTypeId = 'COMMUNITY_ACTION';
+        }
+
         return {
           title: item.title,
           body: item.body,
@@ -227,13 +284,13 @@ export async function schedulePeriodicBackgroundNotifications(): Promise<void> {
           channelId: item.channelId || 'nsg_scholar_achievements',
           sound: 'default',
           attachments: undefined,
-          actionTypeId: '',
+          actionTypeId: actionTypeId,
           extra: { category: item.category }
         };
       });
 
       await LocalNotifications.schedule({ notifications: notificationsToSchedule });
-      console.log(`📱 Scheduled ${notificationsToSchedule.length} status-bar notifications across channels for native Android.`);
+      console.log(`📱 Scheduled ${notificationsToSchedule.length} status-bar notifications with interactive action buttons for native Android.`);
     } catch (err) {
       console.warn('Periodic native notifications scheduling notice:', err);
     }
@@ -245,7 +302,7 @@ export async function schedulePeriodicBackgroundNotifications(): Promise<void> {
           sessionStorage.setItem('nsg_scheduled_web_quote', 'true');
           setTimeout(() => {
             const randomItem = BACKGROUND_NOTIFICATIONS_POOL[Math.floor(Math.random() * BACKGROUND_NOTIFICATIONS_POOL.length)];
-            scheduleLocalNotification(randomItem.title, randomItem.body);
+            scheduleLocalNotification(randomItem.title, randomItem.body, undefined, randomItem.channelId, randomItem.category);
           }, 30000);
         }
       }
@@ -257,9 +314,17 @@ export async function scheduleLocalNotification(
   title: string, 
   body: string, 
   id: number = Date.now(),
-  channelId: string = 'nsg_scholar_achievements'
+  channelId: string = 'nsg_scholar_achievements',
+  category?: string
 ): Promise<void> {
   const isNative = isNativePlatform();
+
+  let actionTypeId = 'SCHOLAR_QUIZ_ACTION';
+  if (category === 'did_you_know' || category === 'quote') {
+    actionTypeId = 'SCHOLAR_HACK_ACTION';
+  } else if (category === 'activity') {
+    actionTypeId = 'COMMUNITY_ACTION';
+  }
 
   if (isNative) {
     try {
@@ -277,8 +342,8 @@ export async function scheduleLocalNotification(
             channelId: channelId,
             sound: 'default',
             attachments: undefined,
-            actionTypeId: '',
-            extra: null
+            actionTypeId: actionTypeId,
+            extra: { category: category || 'achievement' }
           }
         ]
       });
@@ -294,7 +359,15 @@ export async function scheduleLocalNotification(
       try {
         if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
           const reg = await navigator.serviceWorker.ready;
-          reg.showNotification(title, { body, icon: '/icon.svg', badge: '/icon.svg' });
+          reg.showNotification(title, { 
+            body, 
+            icon: '/icon.svg', 
+            badge: '/icon.svg',
+            actions: [
+              { action: 'open_practice', title: '⚡ Practice' },
+              { action: 'open_app', title: '📖 Open App' }
+            ]
+          } as any);
         } else {
           new Notification(title, { body, icon: '/icon.svg' });
         }
@@ -312,4 +385,5 @@ export async function scheduleLocalNotification(
     }
   }
 }
+
 
