@@ -44,11 +44,12 @@ export const GeneralHistoryPage: React.FC<GeneralHistoryPageProps> = ({
 
   // Add Notes
   userNotes.forEach((note) => {
+    const rawContent = typeof note.content === 'string' ? note.content : (note.content?.text || '');
     combined.push({
       id: note.id,
       category: 'notes',
       title: note.title || 'Untitled Study Note',
-      subtitle: (note.content || '').replace(/[#*`]/g, '').substring(0, 90) + '...',
+      subtitle: rawContent ? rawContent.replace(/[#*`]/g, '').substring(0, 90) + '...' : 'No text content',
       date: formatSafeDate(note.date || note.createdAt, 'Saved Note'),
       rawItem: note
     });

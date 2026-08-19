@@ -898,7 +898,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                       className="flex flex-col items-start p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 transition-all text-left w-full cursor-pointer"
                     >
                       <span className="text-xs font-bold text-white line-clamp-1">{n.title || 'Untitled note'}</span>
-                      <span className="text-[10px] text-zinc-400 line-clamp-1 mt-0.5">{n.content ? n.content.substring(0, 80) : 'Empty note'}</span>
+                      <span className="text-[10px] text-zinc-400 line-clamp-1 mt-0.5">{typeof n.content === 'string' ? (n.content.substring(0, 80) || 'Empty note') : (n.content?.text ? n.content.text.substring(0, 80) : 'Empty note')}</span>
                     </button>
                   ))}
                 </div>

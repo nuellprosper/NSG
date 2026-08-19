@@ -128,7 +128,8 @@ export const NotesVaultHome: React.FC<NotesVaultHomeProps> = ({
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const titleMatch = (note.title || '').toLowerCase().includes(q);
-        const contentMatch = (note.content || '').toLowerCase().includes(q);
+        const rawContent = typeof note.content === 'string' ? note.content : ((note.content as any)?.text || '');
+        const contentMatch = rawContent.toLowerCase().includes(q);
         const folderMatch = (note.folder || '').toLowerCase().includes(q);
         const tagMatch = (note.tags || []).some(t => t.toLowerCase().includes(q));
         const attachmentMatch = (note.attachments || []).some(a => (a.name || '').toLowerCase().includes(q));
@@ -155,11 +156,16 @@ export const NotesVaultHome: React.FC<NotesVaultHomeProps> = ({
     });
   }, [userNotes, activeFilter, searchQuery, sortBy]);
 
-  // Group notes into folders (defaulting to "History")
+  // Group notes into folders (defaulting to "History") with ID deduplication
   const groupedNotes = useMemo(() => {
     const groups: Record<string, NoteItem[]> = {};
+    const seenIds = new Set<string>();
     
-    filteredNotes.forEach(note => {
+    filteredNotes.forEach((note, idx) => {
+      const noteKey = note.id ? String(note.id) : `note-${idx}`;
+      if (seenIds.has(noteKey)) return;
+      seenIds.add(noteKey);
+
       const folderName = note.folder || 'History';
       if (!groups[folderName]) {
         groups[folderName] = [];
@@ -246,19 +252,15 @@ export const NotesVaultHome: React.FC<NotesVaultHomeProps> = ({
           )}
 
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-full overflow-hidden bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-md border-2 border-white/10 shrink-0">
-              {userPhoto ? (
-                <img src={userPhoto} alt={displayName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-              ) : (
-                <span>{displayName.charAt(0).toUpperCase()}</span>
-              )}
+            <div className="w-9 h-9 rounded-xl bg-purple-600/20 text-purple-600 dark:text-purple-400 border border-purple-500/30 flex items-center justify-center font-bold text-sm shadow-sm shrink-0">
+              <FileText size={18} />
             </div>
             <div className="flex flex-col">
-              <span className={`text-sm font-bold tracking-tight truncate max-w-[180px] sm:max-w-xs ${
+              <h1 className={`text-base font-black tracking-tight leading-tight ${
                 theme === 'dark' ? 'text-white' : 'text-slate-900'
               }`}>
-                {displayName}
-              </span>
+                Notes
+              </h1>
               <span className="text-[10px] font-semibold text-slate-400">Notes &amp; Vault</span>
             </div>
           </div>
@@ -599,14 +601,15 @@ export const NotesVaultHome: React.FC<NotesVaultHomeProps> = ({
                     {/* Folder Notes Grid */}
                     {isExpanded && (
                       <div className="p-3 pt-0 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                        {notesInFolder.map((note) => {
+                        {notesInFolder.map((note, noteIdx) => {
                           const mediaType = getNoteMediaType(note);
-                          const cleanSnippet = (note.content || '').replace(/[#*`_!\[\]\(\)]/g, '').substring(0, 80) + '...';
+                          const rawContent = typeof note.content === 'string' ? note.content : ((note.content as any)?.text || '');
+                          const cleanSnippet = rawContent ? rawContent.replace(/[#*`_!\[\]\(\)]/g, '').substring(0, 80) + '...' : 'No text content';
                           const dateStr = formatSafeDate(note.updatedAt || note.createdAt || note.date, 'Recently');
 
                           return (
                             <motion.div
-                              key={note.id}
+                              key={`${note.id || 'note'}-${noteIdx}`}
                               whileHover={{ scale: 1.01 }}
                               whileTap={{ scale: 0.99 }}
                               onClick={() => handleNoteClick(note)}

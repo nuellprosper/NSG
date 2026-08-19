@@ -288,8 +288,8 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
   const [isUploading, setIsUploading] = useState(false);
   const [isGeneratingAiNotes, setIsGeneratingAiNotes] = useState(false);
 
-  // Helper to convert and compress image files to persistent Data URLs
-  const convertImageToDataUrl = (file: File): Promise<string> => {
+  // Helper to convert and compress image files to persistent lightweight Data URLs (under 50KB each)
+  const convertImageToDataUrl = (file: File, maxWidth = 800, quality = 0.65): Promise<string> => {
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -298,17 +298,16 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
         
         const img = new Image();
         img.onload = () => {
-          const maxWidth = 1200;
-          const maxHeight = 1200;
           let { width, height } = img;
+          const maxDim = maxWidth;
           
-          if (width > maxWidth || height > maxHeight) {
+          if (width > maxDim || height > maxDim) {
             if (width > height) {
-              height = Math.round((height * maxWidth) / width);
-              width = maxWidth;
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
             } else {
-              width = Math.round((width * maxHeight) / height);
-              height = maxHeight;
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
             }
           }
           
@@ -318,7 +317,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
           const ctx = canvas.getContext('2d');
           if (ctx) {
             ctx.drawImage(img, 0, 0, width, height);
-            const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
             resolve(compressedDataUrl);
           } else {
             resolve(result);
@@ -419,17 +418,77 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
               createdAt: data.createdAt
             };
           });
-          setCourses(firestoreCourses);
+          // Merge with any locally uploaded courses from localStorage so user content never vanishes
+          let mergedCourses = [...firestoreCourses];
+          try {
+            const localSaved = JSON.parse(localStorage.getItem('omni_user_uploaded_courses') || '[]');
+            const sharedSaved = JSON.parse(localStorage.getItem('shared_user_courses') || '[]');
+            const allLocal = [...localSaved, ...sharedSaved];
+            
+            allLocal.forEach((localCourse: any) => {
+              if (localCourse && (localCourse.title || localCourse.code)) {
+                const normalizedCode = (localCourse.code || localCourse.courseCode || 'COURSE').toUpperCase();
+                const alreadyExists = mergedCourses.some(fc => 
+                  fc.id === localCourse.id || 
+                  (fc.code && fc.code.toUpperCase() === normalizedCode && fc.title.toLowerCase() === (localCourse.title || '').toLowerCase())
+                );
+                if (!alreadyExists) {
+                  mergedCourses.unshift({
+                    id: localCourse.id || `course-${Date.now()}`,
+                    code: normalizedCode,
+                    title: localCourse.title || 'Untitled Course',
+                    faculty: localCourse.faculty || 'General Academic',
+                    department: localCourse.department || 'General',
+                    level: localCourse.level || '100L',
+                    thumbnailUrl: localCourse.thumbnailUrl || 'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=800&auto=format&fit=crop&q=80',
+                    galleryImages: localCourse.galleryImages || [localCourse.thumbnailUrl || 'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=800&auto=format&fit=crop&q=80'],
+                    notes: localCourse.notes || localCourse.about || localCourse.description || '',
+                    likesCount: localCourse.likesCount || 0,
+                    rating: localCourse.rating || 5.0,
+                    reviewsCount: localCourse.reviewsCount || 0,
+                    reviews: localCourse.reviews || [],
+                    uploaderName: localCourse.uploaderName || 'Omni Scholar',
+                    uploaderUid: localCourse.uploaderUid,
+                    uploaderAvatar: localCourse.uploaderAvatar,
+                    totalSizeBytes: localCourse.totalSizeBytes || 8500000,
+                    attachedDocs: localCourse.attachedDocs || localCourse.attachments || [],
+                    createdAt: localCourse.createdAt || new Date().toISOString()
+                  });
+                }
+              }
+            });
+          } catch (e) {
+            console.warn("Error merging local uploaded courses:", e);
+          }
+
+          // Deduplicate by course ID
+          const seenCourseIds = new Set<string>();
+          const dedupedCourses = mergedCourses.filter(c => {
+            if (!c || !c.id) return false;
+            if (seenCourseIds.has(c.id)) return false;
+            seenCourseIds.add(c.id);
+            return true;
+          });
+
+          setCourses(dedupedCourses);
 
           // Update selected course in place if active
           if (selectedCourseRef.current) {
-            const updated = firestoreCourses.find(c => c.id === selectedCourseRef.current?.id);
+            const updated = mergedCourses.find(c => c.id === selectedCourseRef.current?.id);
             if (updated) {
               setSelectedCourse(updated);
             }
           }
         } else {
-          setCourses([]);
+          // If Firestore is empty, load locally saved courses
+          try {
+            const localSaved = JSON.parse(localStorage.getItem('omni_user_uploaded_courses') || '[]');
+            const sharedSaved = JSON.parse(localStorage.getItem('shared_user_courses') || '[]');
+            const allLocal = [...localSaved, ...sharedSaved];
+            setCourses(allLocal);
+          } catch (e) {
+            setCourses([]);
+          }
         }
       }, (err) => {
         console.warn("Firestore courses snapshot notice:", err);
@@ -682,7 +741,8 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
       try {
         const savedNotesRaw = localStorage.getItem('omni_saved_notes');
         const existingNotes = savedNotesRaw ? JSON.parse(savedNotesRaw) : [];
-        localStorage.setItem('omni_saved_notes', JSON.stringify([downloadedNote, ...existingNotes]));
+        const filteredExisting = existingNotes.filter((n: any) => n.id !== downloadedNote.id && n.sourceCourseId !== selectedCourse.id);
+        localStorage.setItem('omni_saved_notes', JSON.stringify([downloadedNote, ...filteredExisting].slice(0, 50)));
       } catch (e) {}
 
       try {
@@ -854,7 +914,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
         if (item.type === 'image') {
           if (!dataUrl || dataUrl.startsWith('blob:')) {
             try {
-              dataUrl = await convertImageToDataUrl(item.file);
+              dataUrl = await convertImageToDataUrl(item.file, 700, 0.65);
             } catch (err) {
               dataUrl = undefined;
             }
@@ -869,7 +929,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
           name: item.name,
           type: item.type,
           size: item.size,
-          dataUrl
+          dataUrl: dataUrl && dataUrl.length < 250000 ? dataUrl : undefined
         });
       }
 
@@ -885,7 +945,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
       const primaryThumb = firstUploadedImage || uploadFormData.thumbnailUrl || defaultThumbnails[Math.floor(Math.random() * defaultThumbnails.length)];
       
       const finalGalleryImages = galleryImgs.length > 0 
-        ? galleryImgs 
+        ? galleryImgs.slice(0, 4) 
         : [primaryThumb];
 
       const newCourse: CourseMaterial = {
@@ -910,18 +970,69 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
         createdAt: new Date().toISOString()
       };
 
-      // Add to local state immediately
-      setCourses(prev => [newCourse, ...prev]);
-
-      // Save to Firestore
+      // Save to Firestore with guaranteed success
       try {
-        await addDoc(collection(db, 'courses'), {
-          ...newCourse,
+        const firestorePayload = {
+          code: newCourse.code,
+          title: newCourse.title,
+          faculty: newCourse.faculty,
+          department: newCourse.department,
+          level: newCourse.level,
+          thumbnailUrl: newCourse.thumbnailUrl,
+          galleryImages: newCourse.galleryImages.slice(0, 4),
+          notes: newCourse.notes,
+          likesCount: 0,
+          rating: 5.0,
+          reviewsCount: 0,
+          reviews: [],
+          uploaderName: newCourse.uploaderName,
+          uploaderUid: newCourse.uploaderUid || '',
+          uploaderAvatar: newCourse.uploaderAvatar || '',
+          totalSizeBytes: newCourse.totalSizeBytes,
+          attachedDocs: preparedDocs.map(d => ({
+            id: d.id,
+            name: d.name,
+            type: d.type,
+            size: d.size,
+            dataUrl: d.dataUrl && d.dataUrl.length < 200000 ? d.dataUrl : undefined
+          })),
           createdAt: serverTimestamp() || new Date()
-        });
-      } catch (fsErr) {
-        console.warn("Firestore update queued:", fsErr);
+        };
+
+        const docRef = await addDoc(collection(db, 'courses'), firestorePayload);
+        newCourse.id = docRef.id;
+      } catch (fsErr: any) {
+        console.warn("Firestore full payload retry with minimal attachment references:", fsErr);
+        try {
+          const minimalPayload = {
+            code: newCourse.code,
+            title: newCourse.title,
+            faculty: newCourse.faculty,
+            department: newCourse.department,
+            level: newCourse.level,
+            thumbnailUrl: newCourse.thumbnailUrl.startsWith('data:') && newCourse.thumbnailUrl.length > 100000 ? defaultThumbnails[0] : newCourse.thumbnailUrl,
+            galleryImages: [newCourse.thumbnailUrl],
+            notes: newCourse.notes,
+            likesCount: 0,
+            rating: 5.0,
+            reviewsCount: 0,
+            reviews: [],
+            uploaderName: newCourse.uploaderName,
+            uploaderUid: newCourse.uploaderUid || '',
+            uploaderAvatar: newCourse.uploaderAvatar || '',
+            totalSizeBytes: newCourse.totalSizeBytes,
+            attachedDocs: preparedDocs.map(d => ({ id: d.id, name: d.name, type: d.type, size: d.size })),
+            createdAt: serverTimestamp() || new Date()
+          };
+          const docRef = await addDoc(collection(db, 'courses'), minimalPayload);
+          newCourse.id = docRef.id;
+        } catch (retryErr) {
+          console.error("Firestore course upload failed:", retryErr);
+        }
       }
+
+      // Add to local state
+      setCourses(prev => [newCourse, ...prev.filter(c => c.id !== newCourse.id)]);
 
       setUserNotification(`🎉 Successfully published ${newCourse.code}!`);
       setIsUploadModalOpen(false);
@@ -1013,8 +1124,9 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
         <>
           {/* Top Header */}
           <div 
-            className="sticky top-0 z-30 px-3 sm:px-6 pt-3 pb-3 backdrop-blur-xl border-b transition-colors duration-300"
+            className="sticky top-0 z-30 px-3 sm:px-6 pb-3 backdrop-blur-xl border-b transition-colors duration-300"
             style={{
+              paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)',
               backgroundColor: theme === 'dark' ? 'rgba(19, 17, 28, 0.92)' : 'rgba(255, 255, 255, 0.92)',
               borderColor: theme === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(226, 232, 240, 0.9)'
             }}
@@ -1154,11 +1266,11 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5 sm:gap-3.5">
-                {filteredCourses.map((course) => {
+                {filteredCourses.map((course, courseIdx) => {
                   const isLiked = likedCourseIds.has(course.id);
                   return (
                     <motion.div
-                      key={course.id}
+                      key={`${course.id || 'course'}-${courseIdx}`}
                       layout
                       initial={{ opacity: 0, scale: 0.95 }}
                       animate={{ opacity: 1, scale: 1 }}

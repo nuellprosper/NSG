@@ -204,11 +204,17 @@ export const HomePage: React.FC<HomePageProps> = ({
 
     // 2. Notes from userNotes
     userNotes.forEach((n: any) => {
+      let contentStr = '';
+      if (typeof n.content === 'string') {
+        contentStr = n.content;
+      } else if (n.content && typeof n.content === 'object') {
+        contentStr = n.content.text || n.content.body || (Array.isArray(n.content) ? n.content.join(' ') : '');
+      }
       list.push({
         id: `note-${n.id}`,
         type: 'notes',
         title: n.title || 'Untitled Note',
-        subtitle: `Note • Category: ${n.category || 'General'} • ${(n.content || '').substring(0, 60)}...`,
+        subtitle: `Note • Category: ${n.category || 'General'} • ${contentStr ? contentStr.substring(0, 60) + '...' : 'No text content'}`,
         timestamp: n.createdAt || n.updatedAt || new Date().toISOString(),
         raw: n
       });
@@ -418,8 +424,11 @@ export const HomePage: React.FC<HomePageProps> = ({
         theme === 'dark' ? 'bg-[#0B0813] text-white' : 'bg-slate-50 text-slate-900'
       }`}
     >
-      {/* 1. SIGNATURE LIGHT PURPLE TOP PATCH (Matching the green curved header in screenshot) */}
-      <div className="relative bg-gradient-to-b from-purple-600 via-purple-600 to-purple-500 text-white pt-3 pb-8 px-4 sm:px-6 rounded-b-[2.5rem] shadow-xl overflow-visible">
+      {/* 1. SIGNATURE LIGHT PURPLE TOP PATCH (Sticky header - stationary with scrolling content underneath) */}
+      <div 
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)' }}
+        className="sticky top-0 z-40 bg-gradient-to-b from-purple-600 via-purple-600 to-purple-500 text-white pb-6 px-4 sm:px-6 rounded-b-[2.5rem] shadow-xl overflow-visible"
+      >
         {/* Subtle decorative background topography contour lines */}
         <div className="absolute inset-0 opacity-10 pointer-events-none overflow-hidden rounded-b-[2.5rem]">
           <svg className="w-full h-full" viewBox="0 0 400 200" fill="none" preserveAspectRatio="none">
@@ -429,7 +438,7 @@ export const HomePage: React.FC<HomePageProps> = ({
           </svg>
         </div>
 
-        <div className="relative z-10 max-w-4xl mx-auto space-y-4">
+        <div className="relative z-10 max-w-4xl mx-auto space-y-3">
           {/* Top Bar: User Display Name & Avatar on Left, Notification Button on Right */}
           <div className="flex items-center justify-between gap-3 pt-1">
             {/* User Profile Info (Replaces Location) */}
@@ -493,7 +502,7 @@ export const HomePage: React.FC<HomePageProps> = ({
           </div>
 
           {/* Search Bar & Filter Button Container */}
-          <div ref={searchContainerRef} className="relative z-20 flex items-center gap-2.5 pt-1">
+          <div ref={searchContainerRef} className="relative z-30 flex items-center gap-2.5 pt-1">
             {/* Search Input Container */}
             <div className="relative flex-1">
               <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-purple-400">
@@ -546,7 +555,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                     animate={{ opacity: 1, scale: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.95, y: 8 }}
                     transition={{ duration: 0.15 }}
-                    className={`absolute right-0 top-full mt-2 w-64 rounded-2xl p-3 shadow-2xl border z-50 ${
+                    className={`absolute right-0 top-full mt-2 w-64 rounded-2xl p-3 shadow-2xl border z-[80] ${
                       theme === 'dark' ? 'bg-[#181427] border-purple-500/30 text-white' : 'bg-white border-slate-200 text-slate-900'
                     }`}
                   >
@@ -590,15 +599,15 @@ export const HomePage: React.FC<HomePageProps> = ({
               </AnimatePresence>
             </div>
 
-            {/* REAL-TIME LIVE SEARCH RESULTS DROPDOWN (Does not lead to new page!) */}
+            {/* REAL-TIME LIVE SEARCH RESULTS DROPDOWN (High z-index to overlay above all cards and buttons) */}
             <AnimatePresence>
               {(isSearchFocused && (searchQuery.trim() || selectedFilter !== 'all')) && (
                 <motion.div
                   initial={{ opacity: 0, y: -5 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -5 }}
-                  className={`absolute left-0 right-0 top-full mt-2 rounded-2xl p-3 shadow-2xl border max-h-80 overflow-y-auto z-40 ${
-                    theme === 'dark' ? 'bg-[#181427] border-purple-500/30 text-white' : 'bg-white border-slate-200 text-slate-900'
+                  className={`absolute left-0 right-0 top-full mt-2 rounded-2xl p-3 shadow-2xl border max-h-80 overflow-y-auto z-[90] ${
+                    theme === 'dark' ? 'bg-[#181427] border-purple-500/40 text-white shadow-purple-950/60' : 'bg-white border-slate-200 text-slate-900 shadow-slate-900/20'
                   }`}
                 >
                   <div className="flex items-center justify-between px-2 pb-2 mb-1 border-b border-purple-500/20 text-[11px] font-bold text-purple-500">
@@ -820,7 +829,7 @@ export const HomePage: React.FC<HomePageProps> = ({
           </div>
         </div>
 
-        {/* 4. POPULAR SECTION (Replaces Popular Spaces) */}
+        {/* 4. POPULAR SECTION (Horizontal Scrollable matching Courses For You) */}
         <div id="home-popular-section" className="space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-base sm:text-lg font-black tracking-tight">
@@ -837,10 +846,10 @@ export const HomePage: React.FC<HomePageProps> = ({
             </button>
           </div>
 
-          {/* Popular Course Cards Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Popular Course Cards Horizontal Scroll */}
+          <div className="flex gap-4 overflow-x-auto pb-3 pt-1 scrollbar-none snap-x snap-mandatory">
             {popularCourses.length === 0 ? (
-              <div className={`col-span-full p-8 rounded-3xl border text-center space-y-2 ${
+              <div className={`w-full p-6 rounded-3xl border text-center space-y-2 ${
                 theme === 'dark' ? 'bg-[#13111C] border-purple-500/20 text-white/70' : 'bg-white border-slate-200 text-slate-600'
               }`}>
                 <Star size={28} className="mx-auto text-amber-400" />
@@ -848,63 +857,61 @@ export const HomePage: React.FC<HomePageProps> = ({
               </div>
             ) : (
               popularCourses.map((course) => (
-                <div
+                <motion.div
                   key={course.id}
                   onClick={() => openCoursePreview ? openCoursePreview(course) : setActiveTab('courses')}
-                  className={`rounded-3xl border overflow-hidden shadow-sm hover:shadow-md transition-all cursor-pointer group flex flex-col ${
-                    theme === 'dark' ? 'bg-[#13111C] border-purple-500/20' : 'bg-white border-slate-200'
-                  }`}
+                  whileHover={{ y: -3 }}
+                  className="w-[280px] sm:w-[320px] shrink-0 h-[175px] sm:h-[190px] rounded-3xl relative overflow-hidden shadow-lg border border-purple-500/20 snap-start cursor-pointer group flex flex-col justify-between p-4"
+                  style={{
+                    backgroundImage: `linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.85) 100%), url(${getCourseThumbnail(course)})`,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center'
+                  }}
                 >
-                  {/* Course Image Banner */}
-                  <div className="relative h-36 w-full overflow-hidden bg-slate-200 dark:bg-purple-950/40">
-                    <img
-                      src={getCourseThumbnail(course)}
-                      alt={course.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    />
-                    
-                    {/* Rating Pill on Top Left */}
-                    <div className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-full bg-white/90 dark:bg-black/70 backdrop-blur-md flex items-center gap-1 text-[11px] font-black shadow-sm">
-                      <Star size={12} className="text-amber-400 fill-amber-400" />
-                      <span>{course.rating || 5.0}</span>
+                  {/* Top Badge: Rating / Level & Like Button */}
+                  <div className="flex items-center justify-between z-10">
+                    <div className="flex items-center gap-1.5">
+                      <span className="bg-white/90 backdrop-blur-md text-slate-900 text-[10px] font-black px-2.5 py-0.5 rounded-full shadow-xs flex items-center gap-1">
+                        <Star size={11} className="text-amber-500 fill-amber-500" />
+                        <span>{course.rating || 5.0}</span>
+                      </span>
+                      <span className="bg-purple-600/80 backdrop-blur-md text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-xs">
+                        {course.level || '100L'}
+                      </span>
                     </div>
-
-                    {/* Like Button on Top Right */}
                     <button
                       type="button"
                       onClick={(e) => toggleLike(e, course.id)}
-                      className={`absolute top-2.5 right-2.5 w-8 h-8 rounded-full backdrop-blur-md flex items-center justify-center transition-transform active:scale-90 shadow-md ${
-                        likedCourseIds.has(course.id) 
-                          ? 'bg-red-500 text-white' 
-                          : 'bg-white/90 dark:bg-black/70 text-slate-700 dark:text-white'
+                      className={`w-7 h-7 rounded-full backdrop-blur-md flex items-center justify-center transition-transform active:scale-90 ${
+                        likedCourseIds.has(course.id) ? 'bg-red-500 text-white' : 'bg-black/40 text-white hover:bg-black/60'
                       }`}
                     >
-                      <Heart size={14} fill={likedCourseIds.has(course.id) ? 'currentColor' : 'none'} />
+                      <Heart size={13} fill={likedCourseIds.has(course.id) ? 'currentColor' : 'none'} />
                     </button>
                   </div>
 
-                  {/* Course Details */}
-                  <div className="p-4 space-y-1.5 flex-1 flex flex-col justify-between">
-                    <div>
-                      <span className="text-[10px] font-black text-purple-600 dark:text-purple-400 uppercase tracking-wider">
+                  {/* Bottom Info & View Button */}
+                  <div className="z-10 flex items-end justify-between gap-2">
+                    <div className="text-white space-y-0.5 max-w-[70%]">
+                      <p className="text-[11px] font-bold text-purple-300 uppercase tracking-wider">
                         {course.code}
-                      </span>
-                      <h4 className="text-sm font-black leading-snug line-clamp-1 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">
+                      </p>
+                      <h4 className="text-sm sm:text-base font-black leading-tight line-clamp-2">
                         {course.title}
                       </h4>
-                      <p className="text-[11px] text-slate-400 dark:text-white/50 truncate">
+                      <p className="text-[9px] text-white/70 truncate">
                         {course.faculty} • {course.department}
                       </p>
                     </div>
 
-                    <div className="pt-2 flex items-center justify-between border-t border-purple-500/10 text-[10px] font-bold text-slate-400 dark:text-white/60">
-                      <span>{course.attachedDocs?.length || 0} Attached Document(s)</span>
-                      <span className="text-purple-600 dark:text-purple-400 flex items-center gap-0.5">
-                        View Course <ChevronRight size={12} />
-                      </span>
-                    </div>
+                    <button
+                      type="button"
+                      className="px-3.5 py-1.5 rounded-full bg-purple-600 hover:bg-purple-500 text-white text-xs font-black shadow-md transition-all active:scale-95 shrink-0"
+                    >
+                      View
+                    </button>
                   </div>
-                </div>
+                </motion.div>
               ))
             )}
           </div>

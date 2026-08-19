@@ -21,7 +21,7 @@ export const NotesHistoryPage: React.FC<NotesHistoryPageProps> = ({
 
   const filteredNotes = userNotes.filter((note) => {
     const title = note.title || 'Untitled Study Note';
-    const content = note.content || '';
+    const content = typeof note.content === 'string' ? note.content : (note.content?.text || '');
     const q = searchQuery.toLowerCase();
     return title.toLowerCase().includes(q) || content.toLowerCase().includes(q);
   });
@@ -96,7 +96,8 @@ export const NotesHistoryPage: React.FC<NotesHistoryPageProps> = ({
         <div className="space-y-3">
           {filteredNotes.map((note, idx) => {
             const title = note.title || 'Untitled Study Note';
-            const snippet = (note.content || '').replace(/[#*`]/g, '').substring(0, 120) + '...';
+            const rawContent = typeof note.content === 'string' ? note.content : (note.content?.text || '');
+            const snippet = rawContent ? rawContent.replace(/[#*`]/g, '').substring(0, 120) + '...' : 'No text content';
             const dateStr = formatSafeDate(note.date || note.createdAt, 'Saved Note');
 
             return (
