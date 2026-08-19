@@ -84,7 +84,9 @@ service cloud.firestore {
     function isValidNote(data) {
       return isValString(data.uid, 256) &&
              (data.uid == request.auth.uid || isAdmin()) &&
-             (!('content' in data) || isValString(data.content, 200000));
+             (!('content' in data) || (data.content is string && data.content.size() <= 1000000)) &&
+             (!('title' in data) || isValString(data.title, 2048)) &&
+             (!('folder' in data) || isValString(data.folder, 256));
     }
 
     function isValidExam(data) {
@@ -132,10 +134,10 @@ service cloud.firestore {
     // Notes Collection
     match /notes/{noteId} {
       allow get: if isSignedIn() && (existing().uid == request.auth.uid || (existing().get('allowedUsers', []) is list && request.auth.uid in existing().get('allowedUsers', [])) || isAdmin());
-      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || (resource.data.get('allowedUsers', []) is list && request.auth.uid in resource.data.get('allowedUsers', [])) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || (resource.data.get('allowedUsers', []) is list && resource.data.get('allowedUsers', [])) || isAdmin());
       allow create: if isSignedIn() && isValidNote(incoming());
-      allow update: if isSignedIn() && existing().uid == request.auth.uid && isValidNote(incoming()) &&
-                   incoming().uid == existing().uid;
+      allow update: if isSignedIn() && (existing().uid == request.auth.uid || isAdmin()) && isValidNote(incoming()) &&
+                   (incoming().uid == existing().uid || isAdmin());
       allow delete: if isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
     }
 
