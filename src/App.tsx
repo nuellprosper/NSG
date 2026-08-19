@@ -2988,15 +2988,41 @@ export default function App() {
         limit(100)
       );
       const unsub = onSnapshot(q, (snap) => {
-        const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // Map and deduplicate by note ID
+        const mapById = new Map<string, any>();
+        snap.docs.forEach(doc => {
+          mapById.set(doc.id, { id: doc.id, ...doc.data() });
+        });
+        const list = Array.from(mapById.values());
+
         // Sort by updatedAt desc locally
         const sortedList = list.sort((a: any, b: any) => {
-          const timeA = a.updatedAt?.toMillis ? a.updatedAt.toMillis() : (a.createdAt?.toMillis ? a.createdAt.toMillis() : 0);
-          const timeB = b.updatedAt?.toMillis ? b.updatedAt.toMillis() : (b.createdAt?.toMillis ? b.createdAt.toMillis() : 0);
+          const timeA = a.updatedAt?.toMillis ? a.updatedAt.toMillis() : (a.createdAt?.toMillis ? a.createdAt.toMillis() : (new Date(a.updatedAt || a.createdAt || 0).getTime()));
+          const timeB = b.updatedAt?.toMillis ? b.updatedAt.toMillis() : (b.createdAt?.toMillis ? b.createdAt.toMillis() : (new Date(b.updatedAt || b.createdAt || 0).getTime()));
           return timeB - timeA;
         });
         setUserNotes(sortedList);
-        localStorage.setItem('nsg_cache_user_notes', circularSafeStringify(sortedList));
+
+        try {
+          // Keep a lightweight cache representation to prevent QuotaExceededError in localStorage
+          const lightweightCache = sortedList.slice(0, 50).map((n: any) => ({
+            id: n.id,
+            title: n.title,
+            folder: n.folder,
+            updatedAt: n.updatedAt,
+            createdAt: n.createdAt,
+            content: typeof n.content === 'string' ? n.content.substring(0, 5000) : '',
+            attachments: (n.attachments || []).map((a: any) => ({
+              id: a.id,
+              name: a.name,
+              size: a.size,
+              type: a.type
+            }))
+          }));
+          localStorage.setItem('nsg_cache_user_notes', circularSafeStringify(lightweightCache));
+        } catch (storageErr) {
+          console.warn("[Storage] nsg_cache_user_notes quota exceeded or save failed:", storageErr);
+        }
       }, (err) => handleFirestoreError(err, FirestoreOperation.LIST, 'notes'));
       return () => unsub();
     } else {
@@ -3380,15 +3406,47 @@ export default function App() {
     }
   };
 
-  const saveNote = async (content: string, title?: string, noteId?: string, attachments?: any[], podcastDialogue?: any[]) => {
+  const saveNote = async (contentOrNote: any, title?: string, noteId?: string, attachments?: any[], podcastDialogue?: any[]) => {
     if (!user) return null;
+
+    let actualContent = '';
+    let actualTitle = title || 'Untitled Note';
+    let actualId = noteId;
+    let actualAttachments = attachments || [];
+    let actualPodcast = podcastDialogue || [];
+    let actualFolder = 'History';
+    let actualDrawings: any[] = [];
+    let actualAudios: any[] = [];
+    let actualImages: any[] = [];
+
+    if (typeof contentOrNote === 'object' && contentOrNote !== null) {
+      actualContent = typeof contentOrNote.content === 'string' ? contentOrNote.content : (contentOrNote.content?.text || '');
+      actualTitle = contentOrNote.title || actualTitle;
+      actualId = contentOrNote.id || actualId;
+      actualAttachments = contentOrNote.attachments || actualAttachments;
+      actualPodcast = contentOrNote.podcastDialogue || actualPodcast;
+      actualFolder = contentOrNote.folder || actualFolder;
+      actualDrawings = contentOrNote.drawings || actualDrawings;
+      actualAudios = contentOrNote.audioRecordings || actualAudios;
+      actualImages = contentOrNote.images || actualImages;
+    } else if (typeof contentOrNote === 'string') {
+      actualContent = contentOrNote;
+    }
+
+    // Ensure content and title are always safe strings
+    actualContent = typeof actualContent === 'string' ? actualContent : '';
+    actualTitle = typeof actualTitle === 'string' ? actualTitle : 'Untitled Note';
     
     const noteData: any = {
       uid: user.uid,
-      content: content || '',
-      title: title || 'Untitled Note',
-      attachments: attachments || [],
-      podcastDialogue: podcastDialogue || [],
+      content: actualContent,
+      title: actualTitle,
+      folder: actualFolder,
+      attachments: actualAttachments,
+      podcastDialogue: actualPodcast,
+      drawings: actualDrawings,
+      audioRecordings: actualAudios,
+      images: actualImages,
       updatedAt: serverTimestamp()
     };
 
@@ -3402,7 +3460,7 @@ export default function App() {
     setIsSavingNote(true);
     try {
       if (!isOnline) {
-        let finalId = noteId || `note-off-${Date.now()}`;
+        let finalId = actualId || `note-off-${Date.now()}`;
         const tempNote = {
           ...noteData,
           id: finalId,
@@ -3414,14 +3472,18 @@ export default function App() {
         setUserNotes(prev => {
           const filtered = prev.filter(n => n.id !== finalId);
           const updatedList = [tempNote, ...filtered];
-          localStorage.setItem('nsg_cache_user_notes', circularSafeStringify(updatedList));
+          try {
+            localStorage.setItem('nsg_cache_user_notes', circularSafeStringify(updatedList.slice(0, 50)));
+          } catch (e) {}
           return updatedList;
         });
 
-        const offlineNotesData = localStorage.getItem('nsg_offline_notes');
-        const offlineNotes = offlineNotesData ? JSON.parse(offlineNotesData) : [];
-        const updatedOfflineNotes = [...offlineNotes.filter((n: any) => n.id !== finalId), tempNote];
-        localStorage.setItem('nsg_offline_notes', circularSafeStringify(updatedOfflineNotes));
+        try {
+          const offlineNotesData = localStorage.getItem('nsg_offline_notes');
+          const offlineNotes = offlineNotesData ? JSON.parse(offlineNotesData) : [];
+          const updatedOfflineNotes = [...offlineNotes.filter((n: any) => n.id !== finalId), tempNote];
+          localStorage.setItem('nsg_offline_notes', circularSafeStringify(updatedOfflineNotes.slice(0, 50)));
+        } catch (e) {}
 
         setIsSavingNote(false);
         return finalId;
@@ -3432,9 +3494,9 @@ export default function App() {
           dailyNoteUsage: increment(1)
         }).catch(err => console.error("Error updating dailyNoteUsage:", err));
       }
-      let finalId = noteId;
-      if (noteId) {
-        await setDoc(doc(db, 'notes', noteId), noteData, { merge: true });
+      let finalId = actualId;
+      if (actualId) {
+        await setDoc(doc(db, 'notes', actualId), noteData, { merge: true });
       } else {
         noteData.createdAt = serverTimestamp();
         const docRef = await addDoc(collection(db, 'notes'), noteData);
@@ -3448,18 +3510,18 @@ export default function App() {
         const nameHandle = currentUserData?.username || currentUserData?.displayName || 'Scholar';
         addDoc(collection(db, 'activities'), {
           type: 'note_saved',
-          text: `${nameHandle} saved a study note on "${title || 'Untitled Note'}", try yours!`,
+          text: `${nameHandle} saved a study note on "${actualTitle || 'Untitled Note'}", try yours!`,
           username: nameHandle,
           userId: user.uid,
           userPhoto: currentUserData?.photoURL || '',
           timestamp: serverTimestamp() || new Date(),
-          topic: title || 'Untitled Note'
+          topic: actualTitle || 'Untitled Note'
         }).catch(err => console.error("Error creating activity post:", err));
       }
       return finalId;
     } catch (err) {
       console.error("Save note error:", err);
-      handleFirestoreError(err, FirestoreOperation.WRITE, `notes/${noteId || 'new'}`);
+      handleFirestoreError(err, FirestoreOperation.WRITE, `notes/${actualId || 'new'}`);
       return null;
     } finally {
       setIsSavingNote(false);
@@ -10738,14 +10800,22 @@ Ensure these selected question types are distributed throughout the quiz questio
     localStorage.setItem('nsg_welcome_seen', 'true');
   };
 
-  const isSecondaryPage = Boolean(activeTab === 'quiz_history' || activeTab === 'premium' || 
+  const isSecondaryPage = Boolean(
+    activeTab === 'courses' ||
+    activeTab === 'quiz_history' || 
+    activeTab === 'exam_history' ||
+    activeTab === 'notes_history' ||
+    activeTab === 'general_history' ||
+    activeTab === 'omni_offline' ||
+    activeTab === 'premium' || 
     showGodMode ||
     legalPage ||
     (activeTab === 'tools' && toolsSubTab !== 'menu') ||
     (quizState && quizState !== 'idle') ||
     (activeTab === 'chat' && (isChatRoomActive || selectedChatForRoom)) ||
     activeTab === 'notifications' ||
-    isEditingProfile
+    isEditingProfile ||
+    homeSelectedCourse
   );
 
   const isAuthView = Boolean(!user || showAuthModal || (activeTab === 'profile' && !user));
@@ -11772,10 +11842,11 @@ Ensure these selected question types are distributed throughout the quiz questio
             {/* HEADER - Only visible when not on Home, Courses, or Profile tabs */}
             {activeTab !== 'home' && activeTab !== 'courses' && activeTab !== 'profile' && !isAuthView && !isSecondaryPage && (
               <header
-                className="px-4 sm:px-6 py-3.5 flex justify-between items-center shrink-0"
+                className="px-4 sm:px-6 pb-3.5 flex justify-between items-center shrink-0"
                 style={{
                   background: 'var(--bg-surface)',
                   borderBottom: '1px solid var(--border-subtle)',
+                  paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)',
                 }}
               >
                 {/* Left â€” Profile Avatar Button (tapping leads to profile page) */}
@@ -14081,7 +14152,7 @@ Ensure these selected question types are distributed throughout the quiz questio
                           <span className="text-[7.5px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-md font-extrabold tracking-normal normal-case">Coming Soon</span>
                         </h4>
                         <p className="text-[8px] font-black uppercase tracking-[0.2em] text-amber-400/90 mt-0.5">
-                          {currentUserData?.isWhatsAppVerified ? "ðŸŸ¢ SECURED & VERIFIED" : "ðŸ”´ NOT SYNCHRONIZED (COMING SOON)"}
+                          {currentUserData?.isWhatsAppVerified ? "í ½í¿¢ SECURED & VERIFIED" : "ðŸ”´ NOT SYNCHRONIZED (COMING SOON)"}
                         </p>
                       </div>
                     </div>
@@ -16841,7 +16912,9 @@ Ensure these selected question types are distributed throughout the quiz questio
 
       {/* BOTTOM NAVIGATION - Exactly matching screenshot design & light/dark purple specs */}
       {!isSecondaryPage && !isDesktop && !isAuthView && (
-        <div className={`fixed bottom-0 left-0 right-0 z-[100] px-3 py-2.5 flex items-center justify-around select-none transition-colors ${
+        <div 
+          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)' }}
+          className={`fixed bottom-0 left-0 right-0 z-[100] px-3 pt-2.5 flex items-center justify-around select-none transition-colors ${
           theme === 'dark' 
             ? 'bg-[#0B0813] border-t border-purple-500/20 shadow-[0_-10px_40px_rgba(0,0,0,0.8)]' 
             : 'bg-white border-t border-slate-200 shadow-[0_-4px_25px_rgba(0,0,0,0.06)]'
@@ -16873,7 +16946,7 @@ Ensure these selected question types are distributed throughout the quiz questio
             }`}>HOME</span>
           </button>
 
-          {/* TOOLS */}
+          {/* NOTES / TOOLS */}
           <button 
             type="button"
             onClick={() => {
@@ -16902,7 +16975,7 @@ Ensure these selected question types are distributed throughout the quiz questio
               activeTab === 'tools' 
                 ? (theme === 'dark' ? 'font-black text-purple-300' : 'font-black text-purple-600') 
                 : (theme === 'dark' ? 'font-bold text-white/70' : 'font-bold text-black')
-            }`}>TOOLS</span>
+            }`}>NOTES</span>
           </button>
 
           {/* CHAT - Screenshot design with speech bubble & 3 dots */}

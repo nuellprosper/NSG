@@ -21,6 +21,9 @@ import { CGPACalculator } from './components/CGPACalculator';
 import { TimeTable } from './components/TimeTable';
 import { CoursesPage } from './components/CoursesPage';
 import { NotesVaultHome } from './components/NotesVaultHome';
+import { NoteEditorPage } from './components/NoteEditorPage';
+import { db } from './firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 const WhatsAppIcon = ({ size = 24, className = "" }: { size?: number, className?: string }) => (
   <svg 
@@ -1380,547 +1383,135 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                 </div>
               </div>
             ) : (
-              // INTEGRATED SEAMLESS ACTIVE NOTE WORKSPACE (READ & EDIT MODES)
-              <div className={`flex-1 flex flex-col w-full h-full min-h-0 overflow-hidden relative transition-colors duration-200 ${noteTheme === 'light' ? 'bg-[#F6F4FA] text-[#1D1235]' : 'bg-[#0B0818] text-white'}`}>
-                {/* STATIONARY TOP HEADER BAR */}
-                <div className={`sticky top-0 z-40 px-4 sm:px-6 py-2.5 flex items-center justify-between gap-3 shrink-0 backdrop-blur-md border-b transition-colors ${
-                  noteTheme === 'light' 
-                    ? 'bg-[#EFEAF7]/95 border-[#D8CEEB] text-[#1D1235]' 
-                    : 'bg-[#120D24]/95 border-white/10 text-white'
-                }`}>
-                  <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <button 
-                      onClick={() => {
-                        setSelectedNote(null);
-                      }} 
-                      className={`p-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer text-xs font-bold ${
-                        noteTheme === 'light' ? 'hover:bg-purple-200/60 text-purple-950' : 'hover:bg-white/10 text-white/80'
-                      }`}
-                      title="Back to Notes list"
-                    >
-                      <ArrowLeft size={18} />
-                      <span className="hidden sm:inline">Notes</span>
-                    </button>
+              <NoteEditorPage
+                note={selectedNote}
+                theme={theme}
+                onBack={() => setSelectedNote(null)}
+                onSaveNote={(updatedNote) => {
+                  setSelectedNote(updatedNote);
+                  if (saveNote) {
+                    saveNote(updatedNote);
+                  }
+                }}
+                onDeleteNote={(noteId) => {
+                  if (deleteNote) {
+                    deleteNote(noteId);
+                  }
+                  setSelectedNote(null);
+                }}
+                onShareAsCourse={async (courseData) => {
+                  try {
+                    const preparedDocs = (courseData.attachments || []).map((d: any) => ({
+                      id: d.id || `doc-${Date.now()}`,
+                      name: d.name || 'Document',
+                      type: d.type || 'pdf',
+                      size: d.size || 0,
+                      dataUrl: d.dataUrl && d.dataUrl.length < 200000 ? d.dataUrl : (d.url && d.url.length < 200000 ? d.url : undefined),
+                    }));
 
-                    {notePreviewMode ? (
-                      <h2 className="text-base sm:text-lg font-black truncate px-2 max-w-[200px] sm:max-w-md">
-                        {selectedNote.title || 'Notes'}
-                      </h2>
-                    ) : (
-                      <input 
-                        value={selectedNote.title || ''} 
-                        onChange={(e) => setSelectedNote({...selectedNote, title: e.target.value})}
-                        readOnly={selectedNote?.sharedAccessType === 'readonly'}
-                        className={`bg-transparent border-none text-base sm:text-lg font-black outline-none flex-1 px-2 truncate focus:ring-1 rounded-lg transition-all ${
-                          noteTheme === 'light' ? 'text-[#1D1235] placeholder:text-purple-900/40 focus:ring-purple-400' : 'text-white placeholder:text-white/30 focus:ring-white/20'
-                        }`}
-                        placeholder="Note Title..."
-                      />
-                    )}
-                  </div>
+                    const firestorePayload = {
+                      code: (courseData.courseCode || courseData.code || 'COURSE').toUpperCase().trim(),
+                      title: courseData.title || 'Untitled Course',
+                      faculty: courseData.faculty || 'General Academic',
+                      department: courseData.department || 'General',
+                      level: courseData.level || '100L',
+                      thumbnailUrl: 'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=800&auto=format&fit=crop&q=80',
+                      galleryImages: ['https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=800&auto=format&fit=crop&q=80'],
+                      notes: courseData.about || courseData.description || courseData.notes || '',
+                      content: typeof courseData.content === 'string' && courseData.content.length < 300000 ? courseData.content : (courseData.about || ''),
+                      likesCount: 0,
+                      rating: 5.0,
+                      reviewsCount: 0,
+                      reviews: [],
+                      uploaderName: user?.displayName || user?.email?.split('@')[0] || 'Omni Scholar',
+                      uploaderUid: user?.uid || '',
+                      uploaderAvatar: user?.photoURL || '',
+                      totalSizeBytes: (courseData.attachments || []).reduce((acc: number, curr: any) => acc + (curr.size || 0), 0) || 8500000,
+                      attachedDocs: preparedDocs,
+                      createdAt: serverTimestamp()
+                    };
 
-                  {/* HEADER ACTION BUTTONS GROUP */}
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {notePreviewMode ? (
-                      /* READ MODE TOP HEADER BUTTONS (Image 1 style) */
-                      <>
-                        {/* Share Button */}
-                        <button 
-                          onClick={() => {
-                            if (navigator.clipboard && selectedNote?.content) {
-                              navigator.clipboard.writeText(`${selectedNote.title || 'Note'}\n\n${selectedNote.content}`);
-                              if (setUserNotification) setUserNotification("Note content copied to clipboard!");
-                            }
-                          }}
-                          className={`p-2 rounded-xl transition-all cursor-pointer ${
-                            noteTheme === 'light' ? 'hover:bg-purple-200/60 text-purple-900' : 'hover:bg-white/10 text-white/80'
-                          }`}
-                          title="Share Note"
-                        >
-                          <Share2 size={18} />
-                        </button>
+                    const docRef = await addDoc(collection(db, 'courses'), firestorePayload);
 
-                        {/* Theme / Shirt Toggle Button */}
-                        <button 
-                          onClick={() => setNoteTheme(prev => prev === 'dark' ? 'light' : 'dark')}
-                          className={`p-2 rounded-xl transition-all cursor-pointer ${
-                            noteTheme === 'light' ? 'bg-purple-200/80 text-purple-950 hover:bg-purple-300/80' : 'bg-white/10 text-white hover:bg-white/20'
-                          }`}
-                          title={`Switch to ${noteTheme === 'dark' ? 'Light Theme' : 'Dark Theme'}`}
-                        >
-                          <Shirt size={18} />
-                        </button>
+                    // Save locally as well
+                    try {
+                      const localCourses = JSON.parse(localStorage.getItem('omni_user_uploaded_courses') || '[]');
+                      localCourses.unshift({ ...courseData, ...firestorePayload, id: docRef.id });
+                      localStorage.setItem('omni_user_uploaded_courses', JSON.stringify(localCourses));
+                    } catch (e) {}
 
-                        {/* 3-Dots Menu */}
-                        <div className="relative">
-                          <button 
-                            onClick={() => setShowNoteMenu(!showNoteMenu)}
-                            className={`p-2 rounded-xl transition-all cursor-pointer ${
-                              noteTheme === 'light' ? 'hover:bg-purple-200/60 text-purple-900' : 'hover:bg-white/10 text-white/80'
-                            }`}
-                            title="Note Options"
-                          >
-                            <MoreVertical size={18} />
-                          </button>
+                    if (setUserNotification) {
+                      setUserNotification("🎉 Course published and shared successfully to Community Courses!");
+                    }
+                  } catch (err: any) {
+                    console.warn("Retrying course upload with safe minimal payload:", err);
+                    try {
+                      const minimalPayload = {
+                        code: (courseData.courseCode || courseData.code || 'COURSE').toUpperCase().trim(),
+                        title: courseData.title || 'Untitled Course',
+                        faculty: courseData.faculty || 'General Academic',
+                        department: courseData.department || 'General',
+                        level: courseData.level || '100L',
+                        thumbnailUrl: 'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=800&auto=format&fit=crop&q=80',
+                        galleryImages: ['https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=800&auto=format&fit=crop&q=80'],
+                        notes: courseData.about || courseData.description || 'Course study notes and materials.',
+                        likesCount: 0,
+                        rating: 5.0,
+                        reviewsCount: 0,
+                        reviews: [],
+                        uploaderName: user?.displayName || user?.email?.split('@')[0] || 'Omni Scholar',
+                        uploaderUid: user?.uid || '',
+                        uploaderAvatar: user?.photoURL || '',
+                        totalSizeBytes: 8500000,
+                        attachedDocs: (courseData.attachments || []).map((d: any) => ({
+                          id: d.id || `doc-${Date.now()}`,
+                          name: d.name || 'Document',
+                          type: d.type || 'pdf',
+                          size: d.size || 0
+                        })),
+                        createdAt: serverTimestamp()
+                      };
+                      const docRef = await addDoc(collection(db, 'courses'), minimalPayload);
+                      try {
+                        const localCourses = JSON.parse(localStorage.getItem('omni_user_uploaded_courses') || '[]');
+                        localCourses.unshift({ ...courseData, ...minimalPayload, id: docRef.id });
+                        localStorage.setItem('omni_user_uploaded_courses', JSON.stringify(localCourses));
+                      } catch (e) {}
 
-                          <AnimatePresence>
-                            {showNoteMenu && (
-                              <>
-                                <div className="fixed inset-0 z-40" onClick={() => setShowNoteMenu(false)} />
-                                <motion.div 
-                                  initial={{ opacity: 0, scale: 0.95, y: 5 }}
-                                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                                  exit={{ opacity: 0, scale: 0.95, y: 5 }}
-                                  className={`absolute right-0 mt-2 w-52 rounded-2xl p-2 shadow-2xl z-50 border flex flex-col gap-1 ${
-                                    noteTheme === 'light' ? 'bg-white border-purple-200 text-purple-950' : 'bg-[#181329] border-white/10 text-white'
-                                  }`}
-                                >
-                                  <button 
-                                    onClick={() => {
-                                      setShowNoteMenu(false);
-                                      if (setNotePreviewMode) setNotePreviewMode(false);
-                                    }}
-                                    className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-purple-500/10 text-xs font-bold transition-all text-left cursor-pointer"
-                                  >
-                                    <Edit2 size={14} className="text-purple-400" />
-                                    <span>Switch to Edit Mode</span>
-                                  </button>
-                                  <button 
-                                    onClick={() => {
-                                      setShowNoteMenu(false);
-                                      setIsPodcastActive(true);
-                                      setIsTeacherMode(false);
-                                      if (selectedNote) {
-                                        let sourceContent = `${selectedNote.title || ''}\n\n${selectedNote.content || ''}`;
-                                        if (selectedNote.attachments && selectedNote.attachments.length > 0) {
-                                          sourceContent += `\n\nAttached Documents in Note:\n` + selectedNote.attachments.map((att: any) => `- ${att.name || 'Attachment'}: ${att.extractedText || att.text || ''}`).join('\n');
-                                        }
-                                        generatePodcastDiscussion(sourceContent);
-                                      }
-                                    }}
-                                    className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-purple-500/10 text-xs font-bold transition-all text-left cursor-pointer"
-                                  >
-                                    <Mic size={14} className="text-indigo-400" />
-                                    <span>Create Podcast</span>
-                                  </button>
-                                  <button 
-                                    onClick={() => {
-                                      setShowNoteMenu(false);
-                                      if (selectedNote) {
-                                        setImportedQuizNote(selectedNote);
-                                        setQuizTopic(selectedNote.title || 'Study Note');
-                                        
-                                        // Convert note attachments into quiz documents if available
-                                        if (selectedNote.attachments && selectedNote.attachments.length > 0) {
-                                          const docItems = selectedNote.attachments.map((att: any, idx: number) => ({
-                                            id: att.id || `att-${Date.now()}-${idx}`,
-                                            name: att.name || `Attachment ${idx + 1}`,
-                                            size: att.size || 0,
-                                            extractedText: att.extractedText || att.text || (att.url ? `Document: ${att.name}` : ''),
-                                            pageImages: att.pageImages || []
-                                          }));
-                                          if (setQuizDocuments) {
-                                            setQuizDocuments(docItems);
-                                          } else if ((props as any).setQuizDocuments) {
-                                            (props as any).setQuizDocuments(docItems);
-                                          }
-                                        }
-                                        
-                                        if (setToolsSubTab) {
-                                          setToolsSubTab('quiz');
-                                        }
-                                        setUserNotification(`Loaded "${selectedNote.title || 'Note'}" into Quiz Generator. Set your options and click Create Quiz!`);
-                                      }
-                                    }}
-                                    className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-purple-500/10 text-xs font-bold transition-all text-left cursor-pointer"
-                                  >
-                                    <Zap size={14} className="text-yellow-400" />
-                                    <span>Set Quiz on Note</span>
-                                  </button>
-                                  <button 
-                                    onClick={() => {
-                                      setShowNoteMenu(false);
-                                      const element = document.createElement("a");
-                                      const file = new Blob([`${selectedNote.title}\n\n${selectedNote.content}`], {type: 'text/plain'});
-                                      element.href = URL.createObjectURL(file);
-                                      element.download = `${selectedNote.title || 'note'}.txt`;
-                                      document.body.appendChild(element);
-                                      element.click();
-                                      document.body.removeChild(element);
-                                    }}
-                                    className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-purple-500/10 text-xs font-bold transition-all text-left cursor-pointer"
-                                  >
-                                    <Download size={14} className="text-green-400" />
-                                    <span>Export as TXT</span>
-                                  </button>
-                                  {deleteNote && (
-                                    <button 
-                                      onClick={() => {
-                                        setShowNoteMenu(false);
-                                        if (selectedNote?.id) {
-                                          deleteNote(selectedNote.id);
-                                          setSelectedNote(null);
-                                        }
-                                      }}
-                                      className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-red-500/10 text-red-400 text-xs font-bold transition-all text-left cursor-pointer"
-                                    >
-                                      <Trash2 size={14} />
-                                      <span>Delete Note</span>
-                                    </button>
-                                  )}
-                                </motion.div>
-                              </>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                      </>
-                    ) : (
-                      /* EDIT MODE TOP HEADER BUTTONS (Image 2 & 3 style) */
-                      <>
-                        {/* Undo */}
-                        <button 
-                          onMouseDown={(e) => { e.preventDefault(); if (undoNote) undoNote(); }} 
-                          disabled={!noteHistory || noteHistory.length === 0} 
-                          className={`p-2 rounded-xl transition-all cursor-pointer disabled:opacity-30 ${
-                            noteTheme === 'light' ? 'hover:bg-purple-200/60 text-purple-900' : 'hover:bg-white/10 text-white/80'
-                          }`} 
-                          title="Undo"
-                        >
-                          <Undo2 size={18} />
-                        </button>
+                      if (setUserNotification) {
+                        setUserNotification("🎉 Course published and shared successfully to Community Courses!");
+                      }
+                    } catch (retryErr) {
+                      console.error("Course upload retry failed:", retryErr);
+                      try {
+                        const localCourses = JSON.parse(localStorage.getItem('omni_user_uploaded_courses') || '[]');
+                        localCourses.unshift({ ...courseData, id: `course-${Date.now()}` });
+                        localStorage.setItem('omni_user_uploaded_courses', JSON.stringify(localCourses));
+                      } catch (e) {}
 
-                        {/* Redo */}
-                        <button 
-                          onMouseDown={(e) => { e.preventDefault(); if (redoNote) redoNote(); }} 
-                          disabled={!redoStack || redoStack.length === 0} 
-                          className={`p-2 rounded-xl transition-all cursor-pointer disabled:opacity-30 ${
-                            noteTheme === 'light' ? 'hover:bg-purple-200/60 text-purple-900' : 'hover:bg-white/10 text-white/80'
-                          }`} 
-                          title="Redo"
-                        >
-                          <Redo2 size={18} />
-                        </button>
-
-                        {/* 3-Dots Menu */}
-                        <div className="relative">
-                          <button 
-                            onClick={() => setShowNoteMenu(!showNoteMenu)}
-                            className={`p-2 rounded-xl transition-all cursor-pointer ${
-                              noteTheme === 'light' ? 'hover:bg-purple-200/60 text-purple-900' : 'hover:bg-white/10 text-white/80'
-                            }`}
-                            title="Note Options"
-                          >
-                            <MoreVertical size={18} />
-                          </button>
-
-                          <AnimatePresence>
-                            {showNoteMenu && (
-                              <>
-                                <div className="fixed inset-0 z-40" onClick={() => setShowNoteMenu(false)} />
-                                <motion.div 
-                                  initial={{ opacity: 0, scale: 0.95, y: 5 }}
-                                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                                  exit={{ opacity: 0, scale: 0.95, y: 5 }}
-                                  className={`absolute right-0 mt-2 w-52 rounded-2xl p-2 shadow-2xl z-50 border flex flex-col gap-1 ${
-                                    noteTheme === 'light' ? 'bg-white border-purple-200 text-purple-950' : 'bg-[#181329] border-white/10 text-white'
-                                  }`}
-                                >
-                                  <button 
-                                    onClick={() => {
-                                      setShowNoteMenu(false);
-                                      if (setNotePreviewMode) setNotePreviewMode(true);
-                                    }}
-                                    className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-purple-500/10 text-xs font-bold transition-all text-left cursor-pointer"
-                                  >
-                                    <BookOpen size={14} className="text-purple-400" />
-                                    <span>Switch to Read Mode</span>
-                                  </button>
-                                  <button 
-                                    onClick={() => {
-                                      setShowNoteMenu(false);
-                                      setNoteTheme(prev => prev === 'dark' ? 'light' : 'dark');
-                                    }}
-                                    className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-purple-500/10 text-xs font-bold transition-all text-left cursor-pointer"
-                                  >
-                                    <Shirt size={14} className="text-indigo-400" />
-                                    <span>Toggle Theme ({noteTheme === 'dark' ? 'Light' : 'Dark'})</span>
-                                  </button>
-                                </motion.div>
-                              </>
-                            )}
-                          </AnimatePresence>
-                        </div>
-
-                        {/* Checkmark button (Done / Save Editing) */}
-                        <button 
-                          onClick={() => {
-                            if (saveNote) saveNote(selectedNote.content || '', selectedNote.title || 'Untitled Note', selectedNote.id);
-                            if (setNotePreviewMode) setNotePreviewMode(true);
-                            if (setUserNotification) setUserNotification("Saved & Switched to Read Mode!");
-                          }} 
-                          className="p-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl shadow-lg transition-all flex items-center justify-center cursor-pointer active:scale-95 ml-1" 
-                          title="Done Editing & Save"
-                        >
-                          <Check size={20} />
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* MAIN SCROLLABLE CONTENT AREA */}
-                <div className="flex-1 flex flex-col relative min-h-0 h-full overflow-hidden">
-                  <div 
-                    ref={scrollContainerRef}
-                    onScroll={(e) => {
-                      if (handleNoteScroll) handleNoteScroll(e);
-                      const el = e.currentTarget;
-                      const isUp = el.scrollTop < el.scrollHeight - el.clientHeight - 80;
-                      setIsScrolledUp(isUp);
-                    }}
-                    className="flex-1 overflow-y-auto min-h-0 h-full px-4 sm:px-12 md:px-20 lg:px-28 py-6 custom-scrollbar relative overscroll-contain touch-pan-y"
-                    style={{
-                      WebkitOverflowScrolling: 'touch',
-                    }}
-                  >
-                    {(selectedNote.isTranscribing || (props.isAudioTranscribing && selectedNote.id === props.activeAudioNoteId)) && (
-                      <div className="mb-6 flex items-center gap-2.5 px-4 py-2.5 bg-red-500/15 border border-red-500/30 rounded-xl w-fit">
-                        <span className="relative flex h-2.5 w-2.5">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
-                        </span>
-                        <span className="text-[10px] font-black text-red-500 uppercase tracking-wider flex items-center gap-1.5">
-                          <RefreshCcw size={12} className="animate-spin" /> Transcribing Audio &amp; Writing Note...
-                        </span>
-                      </div>
-                    )}
-
-                    {notePreviewMode ? (
-                      /* READ MODE VIEW (Matching Image 1) */
-                      <div className="space-y-6 relative z-10 select-text pb-36 min-h-full">
-                        <div className="border-b border-purple-500/20 pb-4 mb-4">
-                          <h1 className={`text-2xl sm:text-3xl font-black tracking-tight ${noteTheme === 'light' ? 'text-[#1D1235]' : 'text-white'}`}>
-                            {selectedNote.title || 'Untitled Note'}
-                          </h1>
-                          <p className={`text-[10px] font-mono mt-1 uppercase tracking-widest flex items-center gap-2 ${noteTheme === 'light' ? 'text-purple-900/50' : 'text-white/40'}`}>
-                            <span className="text-emerald-500 font-bold">Read Mode</span>
-                            <span>•</span>
-                            <span>{selectedNote.createdAt ? new Date(selectedNote.createdAt).toLocaleDateString() : 'Just now'}</span>
-                          </p>
-                        </div>
-
-                        <div className={`prose max-w-none text-sm sm:text-base leading-[28px] font-sans ${noteTheme === 'light' ? 'prose-slate text-[#1D1235]' : 'prose-invert text-white/90'}`}>
-                          <MarkdownRenderer selectable={true} content={selectedNote.content || "_No content. Tap edit button or toolbar below to start writing._"} />
-                        </div>
-
-                        {selectedNote.attachments && selectedNote.attachments.length > 0 && (
-                          <div className="mt-8 border-t border-purple-500/20 pt-4 space-y-3">
-                            <p className={`text-[10px] font-bold tracking-widest uppercase ${noteTheme === 'light' ? 'text-purple-900/60' : 'text-white/60'}`}>
-                              Attachments ({selectedNote.attachments.length})
-                            </p>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                              {selectedNote.attachments.map((att: any, attIdx: number) => (
-                                <div key={attIdx} className={`border rounded-2xl p-3 flex items-center justify-between ${noteTheme === 'light' ? 'bg-purple-100/50 border-purple-200 text-purple-950' : 'bg-white/5 border-white/10 text-white'}`}>
-                                  <div className="flex items-center gap-3 overflow-hidden">
-                                    <FileText size={18} className="text-purple-400 shrink-0" />
-                                    <p className="text-xs font-bold truncate">{att.name || 'attachment'}</p>
-                                  </div>
-                                  <a href={att.url} target="_blank" rel="noopener noreferrer" className="p-1.5 hover:bg-purple-500/10 rounded-lg">
-                                    <ExternalLink size={14} />
-                                  </a>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      /* EDIT MODE VIEW (Matching Image 2 & 3) */
-                      <div className="flex-1 relative z-10 pb-36 min-h-full flex flex-col">
-                        <textarea
-                          id="note-main-textarea"
-                          style={{ 
-                            minHeight: '65vh',
-                            lineHeight: '28px'
-                          }}
-                          value={selectedNote.content || ''}
-                          onChange={(e) => handleNoteContentChange(e.target.value)}
-                          readOnly={selectedNote?.sharedAccessType === 'readonly'}
-                          onFocus={(e) => {
-                            lastFocusedBlock.current = { id: 'main', start: e.target.selectionStart, end: e.target.selectionEnd };
-                          }}
-                          onBlur={(e) => {
-                            lastFocusedBlock.current = { id: 'main', start: e.target.selectionStart, end: e.target.selectionEnd };
-                          }}
-                          className={`w-full bg-transparent border-none text-sm sm:text-base leading-[28px] outline-none resize-none font-sans p-0 focus:outline-none flex-1 ${
-                            noteTheme === 'light' ? 'text-[#1D1235] placeholder:text-purple-900/30' : 'text-white/90 placeholder:text-white/20'
-                          }`}
-                          placeholder="Type your notes here..."
-                        />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Scroll Down Floating Button */}
-                  {isScrolledUp && (
-                    <button
-                      onClick={() => {
-                        if (scrollContainerRef.current) {
-                          scrollContainerRef.current.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' });
-                        }
-                        setIsScrolledUp(false);
-                      }}
-                      className="absolute bottom-20 right-6 p-3 bg-purple-600 hover:bg-purple-500 text-white rounded-full shadow-2xl z-40 transition-all flex items-center justify-center animate-bounce cursor-pointer"
-                      title="Scroll to Bottom"
-                    >
-                      <ChevronDown size={18} />
-                    </button>
-                  )}
-                </div>
-
-                {/* READ MODE BOTTOM DOCKED TOOLBAR (Matching Image 1) */}
-                {notePreviewMode ? (
-                  <div className="absolute bottom-4 left-0 right-0 z-30 flex justify-center px-4 pointer-events-none">
-                    <div className={`pointer-events-auto flex items-center justify-around gap-4 sm:gap-6 px-6 py-3.5 rounded-full shadow-[0_8px_32px_rgba(0,0,0,0.4)] backdrop-blur-xl border ${
-                      noteTheme === 'light'
-                        ? 'bg-[#E5DFFA]/95 border-purple-300 text-purple-950'
-                        : 'bg-[#18122B]/95 border-purple-500/30 text-white'
-                    }`}>
-                      {/* 1. AI Summary / Generator */}
-                      <button 
-                        onClick={() => {
-                          if (setNotePreviewMode) setNotePreviewMode(false);
-                          insertText('**AI Summary:** ', '');
-                        }}
-                        className="p-2.5 rounded-2xl hover:bg-purple-500/20 transition-all cursor-pointer hover:scale-110 active:scale-95"
-                        title="AI Assistant"
-                      >
-                        <Brain size={22} className="text-purple-400" />
-                      </button>
-
-                      {/* 2. Camera / Image Attachment */}
-                      <label className="p-2.5 rounded-2xl hover:bg-purple-500/20 transition-all cursor-pointer hover:scale-110 active:scale-95">
-                        <Camera size={22} className="text-indigo-400" />
-                        <input type="file" className="hidden" accept="image/*" onChange={(e) => uploadNoteFile(e, 'image')} />
-                      </label>
-
-                      {/* 3. Mic / Voice */}
-                      <label className="p-2.5 rounded-2xl hover:bg-purple-500/20 transition-all cursor-pointer hover:scale-110 active:scale-95">
-                        <Mic size={22} className="text-red-400" />
-                        <input type="file" className="hidden" accept="audio/*" onChange={(e) => uploadNoteFile(e, 'audio')} />
-                      </label>
-
-                      {/* 4. Canvas / Drawing */}
-                      <button 
-                        onClick={() => {
-                          if (setNotePreviewMode) setNotePreviewMode(false);
-                          insertText('\n> [Drawing/Canvas Area]\n', '');
-                        }}
-                        className="p-2.5 rounded-2xl hover:bg-purple-500/20 transition-all cursor-pointer hover:scale-110 active:scale-95"
-                        title="Canvas / Compass"
-                      >
-                        <Compass size={22} className="text-blue-400" />
-                      </button>
-
-                      {/* 5. Checklist / Tasks */}
-                      <button 
-                        onClick={() => {
-                          if (setNotePreviewMode) setNotePreviewMode(false);
-                          insertText('\n- [ ] ', '');
-                        }}
-                        className="p-2.5 rounded-2xl hover:bg-purple-500/20 transition-all cursor-pointer hover:scale-110 active:scale-95"
-                        title="Add Checklist"
-                      >
-                        <CheckSquare size={22} className="text-emerald-400" />
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  /* EDIT MODE BOTTOM TOOLBAR (Matching Image 2 & 3) */
-                  <div className={`sticky bottom-0 z-30 px-4 py-3 border-t flex items-center justify-around gap-2 shrink-0 backdrop-blur-md ${
-                    noteTheme === 'light'
-                      ? 'bg-[#EFEAF7]/95 border-[#D8CEEB] text-[#1D1235]'
-                      : 'bg-[#120D24]/95 border-white/10 text-white'
-                  }`}>
-                    {/* 1. AI Prompt */}
-                    <button 
-                      onClick={() => insertText('**AI Note:** ', '')}
-                      className="p-2 rounded-xl hover:bg-purple-500/20 transition-all cursor-pointer"
-                      title="AI Prompt"
-                    >
-                      <Brain size={18} className="text-purple-400" />
-                    </button>
-
-                    {/* 2. Aa Formatting Menu */}
-                    <div className="relative">
-                      <button 
-                        onClick={() => setShowAaFormattingMenu(!showAaFormattingMenu)}
-                        className="p-2 rounded-xl hover:bg-purple-500/20 transition-all cursor-pointer font-bold text-xs"
-                        title="Text Style (Aa)"
-                      >
-                        Aa
-                      </button>
-                      <AnimatePresence>
-                        {showAaFormattingMenu && (
-                          <>
-                            <div className="fixed inset-0 z-40" onClick={() => setShowAaFormattingMenu(false)} />
-                            <motion.div 
-                              initial={{ opacity: 0, y: -10 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -10 }}
-                              className={`absolute bottom-full mb-2 left-1/2 -translate-x-1/2 p-2 rounded-2xl shadow-2xl border flex items-center gap-1 z-50 ${
-                                noteTheme === 'light' ? 'bg-white border-purple-200 text-purple-950' : 'bg-[#1B162C] border-white/10 text-white'
-                              }`}
-                            >
-                              <button onClick={() => { insertText('# ', ''); setShowAaFormattingMenu(false); }} className="px-2 py-1 text-xs font-black hover:bg-purple-500/20 rounded-lg">H1</button>
-                              <button onClick={() => { insertText('## ', ''); setShowAaFormattingMenu(false); }} className="px-2 py-1 text-xs font-black hover:bg-purple-500/20 rounded-lg">H2</button>
-                              <button onClick={() => { insertText('**', '**'); setShowAaFormattingMenu(false); }} className="p-1.5 hover:bg-purple-500/20 rounded-lg"><Bold size={14} /></button>
-                              <button onClick={() => { insertText('*', '*'); setShowAaFormattingMenu(false); }} className="p-1.5 hover:bg-purple-500/20 rounded-lg"><Italic size={14} /></button>
-                              <button onClick={() => { insertText('\n- ', ''); setShowAaFormattingMenu(false); }} className="p-1.5 hover:bg-purple-500/20 rounded-lg"><List size={14} /></button>
-                            </motion.div>
-                          </>
-                        )}
-                      </AnimatePresence>
-                    </div>
-
-                    {/* 3. Camera */}
-                    <label className="p-2 rounded-xl hover:bg-purple-500/20 transition-all cursor-pointer">
-                      <Camera size={18} className="text-indigo-400" />
-                      <input type="file" className="hidden" accept="image/*" onChange={(e) => uploadNoteFile(e, 'image')} />
-                    </label>
-
-                    {/* 4. Mic */}
-                    <label className="p-2 rounded-xl hover:bg-purple-500/20 transition-all cursor-pointer">
-                      <Mic size={18} className="text-red-400" />
-                      <input type="file" className="hidden" accept="audio/*" onChange={(e) => uploadNoteFile(e, 'audio')} />
-                    </label>
-
-                    {/* 5. Compass / Canvas */}
-                    <button 
-                      onClick={() => insertText('\n> [Canvas]\n', '')}
-                      className="p-2 rounded-xl hover:bg-purple-500/20 transition-all cursor-pointer"
-                      title="Canvas"
-                    >
-                      <Compass size={18} className="text-blue-400" />
-                    </button>
-
-                    {/* 6. Checklist */}
-                    <button 
-                      onClick={() => insertText('\n- [ ] ', '')}
-                      className="p-2 rounded-xl hover:bg-purple-500/20 transition-all cursor-pointer"
-                      title="Checklist"
-                    >
-                      <CheckSquare size={18} className="text-emerald-400" />
-                    </button>
-                  </div>
-                )}
-
-                {/* SEAMLESS FOOTER STATUS BAR */}
-                  <div className="px-4 sm:px-6 py-2.5 border-t border-white/10 bg-[#060810] flex items-center justify-between shrink-0 text-xs text-white/40 font-mono select-none">
-                    <span>Notebook Workspace</span>
-                    <span>{selectedNote.content ? selectedNote.content.split(' ').filter(Boolean).length : 0} words</span>
-                  </div>
-                </div>
+                      if (setUserNotification) {
+                        setUserNotification("🎉 Course saved to your courses collection!");
+                      }
+                    }
+                  }
+                }}
+                setUserNotification={setUserNotification}
+                onStartPodcast={(sourceText) => {
+                  if (generatePodcastDiscussion) {
+                    generatePodcastDiscussion(sourceText);
+                  }
+                  if (setIsPodcastActive) {
+                    setIsPodcastActive(true);
+                  }
+                }}
+                onSetQuiz={(noteObj) => {
+                  if (setQuizCreationMethod) {
+                    setQuizTopic(noteObj.title || '');
+                    setQuizCreationMethod('topic');
+                    setToolsSubTab('quiz');
+                  }
+                }}
+              />
             )
           ) : (
             <NotesVaultHome

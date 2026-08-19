@@ -4,7 +4,27 @@ import { MotionConfig } from 'motion/react';
 import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';
 import { DevicePlatformProvider } from './lib/capacitor';
+import { StatusBar, Style } from '@capacitor/status-bar';
+import { NavigationBar } from '@hugotomazi/capacitor-navigation-bar';
 import './index.css';
+
+const configureEdgeToEdge = async () => {
+  try {
+    await StatusBar.setOverlaysWebView({ overlay: true });
+    await StatusBar.setBackgroundColor({ color: '#00000000' });
+    await StatusBar.setStyle({ style: Style.Dark });
+  } catch (e) {
+    // Non-native / Web environment fallback
+  }
+  try {
+    await NavigationBar.setTransparency({ isTransparent: true });
+    await NavigationBar.setColor({ color: '#00000000' });
+  } catch (e) {
+    // Non-native / Web environment fallback
+  }
+};
+
+configureEdgeToEdge();
 
 const rootElement = document.getElementById('root');
 if (rootElement) {

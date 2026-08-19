@@ -121,6 +121,13 @@ input, textarea, [contenteditable="true"], .selectable-text {
   user-select: text;
 }
 
+[contenteditable="true"]:empty:before {
+  content: attr(data-placeholder);
+  color: rgba(148, 163, 184, 0.4);
+  pointer-events: none;
+  display: block;
+}
+
 /* ── THEME-AWARE UTILITY CLASSES ── */
 .nsg-bg-base     { background-color: var(--bg-base); }
 .nsg-bg-surface  { background-color: var(--bg-surface); }
