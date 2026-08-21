@@ -53,6 +53,13 @@
   /* Fonts */
   --font-display:     'Syne', system-ui, sans-serif;
   --font-body:        'DM Sans', system-ui, sans-serif;
+
+  /* Safe Area insets for edge-to-edge screens & mobile APK */
+  --safe-area-top:    env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left:   env(safe-area-inset-left, 0px);
+  --safe-area-right:  env(safe-area-inset-right, 0px);
+  --app-top-header-pt: max(16px, calc(env(safe-area-inset-top, 0px) + 12px));
 }
 
 /* ── LUXURY LIGHT MODE ── */

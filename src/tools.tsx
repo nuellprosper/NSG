@@ -854,7 +854,7 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
     { id: 'exam', title: 'CBT Exam', icon: ShieldCheck, color: 'from-orange-600 to-orange-400', desc: 'Professional Testing' },
     { id: 'faculty', title: 'Faculty Specials', icon: GraduationCap, color: 'from-blue-600 to-indigo-400', desc: 'Department Specific' },
     { id: 'assignment', title: 'Solve', icon: BookOpen, color: 'from-purple-600 to-pink-400', desc: 'Step-by-Step AI Solutions' },
-    { id: 'notebook', title: 'Notebook Tool', icon: FileText, color: 'from-amber-600 to-yellow-400', desc: 'AI-Powered Sources' },
+    { id: 'notebook', title: 'Notes', icon: FileText, color: 'from-amber-600 to-yellow-400', desc: 'AI-Powered Notes & Sources' },
     { id: 'whatsapp', title: 'Omni WhatsApp', icon: WhatsAppIcon, color: 'from-green-600 to-green-400', desc: '+2349064470122' }
   ], [setActiveTab]);
 
@@ -1017,7 +1017,7 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
 
                   {!isProcessingFinal && (
                     <div className="flex flex-col sm:flex-row items-center justify-center gap-3 w-full">
-                      {isNativePlatform() && handleToggleRecording && (
+                      {handleToggleRecording && (
                         <button 
                           type="button"
                           onClick={handleToggleRecording}
@@ -1030,7 +1030,7 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                       <button 
                         type="button"
                         onClick={() => document.getElementById('record-page-audio-upload')?.click()}
-                        className={`px-6 py-3.5 ${isNativePlatform() ? 'bg-white/10 hover:bg-white/20 text-white border border-white/10' : 'bg-[#DC2626] hover:bg-[#DC2626]/90 text-white shadow-xl shadow-[#DC2626]/20'} font-black text-xs rounded-2xl transition-all uppercase tracking-wider flex items-center gap-2 cursor-pointer active:scale-95`}
+                        className="px-6 py-3.5 bg-white/10 hover:bg-white/20 text-white border border-white/10 font-black text-xs rounded-2xl transition-all uppercase tracking-wider flex items-center gap-2 cursor-pointer active:scale-95"
                       >
                         <Upload size={16} />
                         <span>Upload Recorded Audio</span>

@@ -56,6 +56,7 @@ import {
 import { OfflineModal } from './components/OfflineModal';
 import { NativeAudioRecorder } from './components/NativeAudioRecorder';
 import { performGoogleAuth, initOfflineQueueSync, initPushNotifications, schedulePeriodicBackgroundNotifications, useHardwareBackButton, useAppUrlListener, isNativePlatform, isCapacitorNative, requestAppPermissions, runLocalQwenInference, scheduleLocalNotification } from './lib/capacitor';
+import { requestMicrophonePermission, getSupportedAudioMimeType } from './lib/audioRecorder';
 
 
 import { 
@@ -4648,7 +4649,13 @@ export default function App() {
       console.warn("getRedirectResult resolution note:", redirectErr);
     });
 
+    // Safety fallback timer to prevent indefinite auth loading screen
+    const authSafetyTimeout = setTimeout(() => {
+      setIsAuthLoading(false);
+    }, 2500);
+
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+      clearTimeout(authSafetyTimeout);
       // Clear any existing snapshot listener
       if (userUnsubscribeRef.current) {
         userUnsubscribeRef.current();
@@ -7610,73 +7617,89 @@ ${session.fullAnalysis}
 
   // --- HIGH-PERFORMANCE AUDIO ENHANCEMENT ENGINE (VOCAL ISOLATION & CLARITY BOOSTER) ---
   const getEnhancedStream = async (originalStream: MediaStream) => {
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const source = audioContext.createMediaStreamSource(originalStream);
-    const destination = audioContext.createMediaStreamDestination();
-
-    // 1. Low Cut filter (High-pass at 200Hz)
-    // Eliminates low frequency rumble, air conditioner hums, fan vibrations, and room echo
-    const lowCut = audioContext.createBiquadFilter();
-    lowCut.type = "highpass";
-    lowCut.frequency.setValueAtTime(200, audioContext.currentTime);
-    lowCut.Q.setValueAtTime(0.8, audioContext.currentTime);
-
-    // 2. Hiss Filter (Low-pass at 3600Hz)
-    // Cuts out sharp background hiss, electronic static, speaker squeals, and white noise
-    const highCut = audioContext.createBiquadFilter();
-    highCut.type = "lowpass";
-    highCut.frequency.setValueAtTime(3600, audioContext.currentTime);
-    highCut.Q.setValueAtTime(0.8, audioContext.currentTime);
-
-    // 3. Peaking Vocals Equalizer (Vocal Formant Booster centered at 1500Hz)
-    // Amplifies the core clarity frequency of human vocals by +8dB
-    const vocalPeak = audioContext.createBiquadFilter();
-    vocalPeak.type = "peaking";
-    vocalPeak.frequency.setValueAtTime(1500, audioContext.currentTime);
-    vocalPeak.Q.setValueAtTime(1.2, audioContext.currentTime); // focused band
-    vocalPeak.gain.setValueAtTime(8, audioContext.currentTime); // +8dB amplification to vocal articulation
-
-    // 4. Dynamics Compressor (Aggressive auto-level and noise exclusion)
-    // Automatically lifts distant/faint voices up, and pulls overly loud noises back for stability
-    const compressor = audioContext.createDynamicsCompressor();
-    compressor.threshold.setValueAtTime(-36, audioContext.currentTime); // Sensitive threshold to lock quiet speech
-    compressor.knee.setValueAtTime(24, audioContext.currentTime);
-    compressor.ratio.setValueAtTime(10, audioContext.currentTime); // Strong level normalization
-    compressor.attack.setValueAtTime(0.01, audioContext.currentTime);
-    compressor.release.setValueAtTime(0.20, audioContext.currentTime);
-
-    // 5. Makeup Gain (Master vocal amplification)
-    // Boosts the overall filtered/leveled signal to a beautiful clear intensity
-    const gainNode = audioContext.createGain();
-    gainNode.gain.setValueAtTime(3.5, audioContext.currentTime); // 3.5x boost
-
-    // Connect the professional studio-quality audio isolation chain
-    source.connect(lowCut);
-    lowCut.connect(highCut);
-    highCut.connect(vocalPeak);
-    vocalPeak.connect(compressor);
-    compressor.connect(gainNode);
-    gainNode.connect(destination);
-
-    return {
-      stream: destination.stream,
-      context: audioContext,
-      stop: () => {
-        try {
-          gainNode.disconnect();
-          compressor.disconnect();
-          vocalPeak.disconnect();
-          highCut.disconnect();
-          lowCut.disconnect();
-          source.disconnect();
-          if (audioContext.state !== 'closed') {
-            audioContext.close().catch(() => {});
-          }
-        } catch (err) {
-          console.error("Error stopping audio enhancement nodes:", err);
-        }
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) {
+        return {
+          stream: originalStream,
+          context: null,
+          stop: () => {}
+        };
       }
-    };
+
+      const audioContext = new AudioContextClass();
+      if (audioContext.state === 'suspended') {
+        audioContext.resume().catch(() => {});
+      }
+
+      const source = audioContext.createMediaStreamSource(originalStream);
+      const destination = audioContext.createMediaStreamDestination();
+
+      // 1. Low Cut filter (High-pass at 200Hz)
+      const lowCut = audioContext.createBiquadFilter();
+      lowCut.type = "highpass";
+      lowCut.frequency.setValueAtTime(200, audioContext.currentTime);
+      lowCut.Q.setValueAtTime(0.8, audioContext.currentTime);
+
+      // 2. Hiss Filter (Low-pass at 3600Hz)
+      const highCut = audioContext.createBiquadFilter();
+      highCut.type = "lowpass";
+      highCut.frequency.setValueAtTime(3600, audioContext.currentTime);
+      highCut.Q.setValueAtTime(0.8, audioContext.currentTime);
+
+      // 3. Peaking Vocals Equalizer (Vocal Formant Booster centered at 1500Hz)
+      const vocalPeak = audioContext.createBiquadFilter();
+      vocalPeak.type = "peaking";
+      vocalPeak.frequency.setValueAtTime(1500, audioContext.currentTime);
+      vocalPeak.Q.setValueAtTime(1.2, audioContext.currentTime);
+      vocalPeak.gain.setValueAtTime(8, audioContext.currentTime);
+
+      // 4. Dynamics Compressor
+      const compressor = audioContext.createDynamicsCompressor();
+      compressor.threshold.setValueAtTime(-36, audioContext.currentTime);
+      compressor.knee.setValueAtTime(24, audioContext.currentTime);
+      compressor.ratio.setValueAtTime(10, audioContext.currentTime);
+      compressor.attack.setValueAtTime(0.01, audioContext.currentTime);
+      compressor.release.setValueAtTime(0.20, audioContext.currentTime);
+
+      // 5. Makeup Gain
+      const gainNode = audioContext.createGain();
+      gainNode.gain.setValueAtTime(3.5, audioContext.currentTime);
+
+      source.connect(lowCut);
+      lowCut.connect(highCut);
+      highCut.connect(vocalPeak);
+      vocalPeak.connect(compressor);
+      compressor.connect(gainNode);
+      gainNode.connect(destination);
+
+      return {
+        stream: destination.stream,
+        context: audioContext,
+        stop: () => {
+          try {
+            gainNode.disconnect();
+            compressor.disconnect();
+            vocalPeak.disconnect();
+            highCut.disconnect();
+            lowCut.disconnect();
+            source.disconnect();
+            if (audioContext.state !== 'closed') {
+              audioContext.close().catch(() => {});
+            }
+          } catch (err) {
+            console.error("Error stopping audio enhancement nodes:", err);
+          }
+        }
+      };
+    } catch (e) {
+      console.warn("Audio enhancement processing fallback:", e);
+      return {
+        stream: originalStream,
+        context: null,
+        stop: () => {}
+      };
+    }
   };
 
   const audioProcessingRef = useRef<{ stop: () => void } | null>(null);
@@ -7795,6 +7818,7 @@ ${session.fullAnalysis}
       // Asynchronously initialize microphone stream and media recorder
       try {
         requestWakeLock();
+        await requestMicrophonePermission();
         let originalStream: MediaStream;
         try {
           originalStream = await navigator.mediaDevices.getUserMedia({
@@ -7817,7 +7841,10 @@ ${session.fullAnalysis}
         const enhanced = await getEnhancedStream(originalStream);
         audioProcessingRef.current = enhanced;
         
-        const recorder = new MediaRecorder(enhanced.stream);
+        const preferredMime = getSupportedAudioMimeType();
+        const recorder = preferredMime 
+          ? new MediaRecorder(enhanced.stream, { mimeType: preferredMime })
+          : new MediaRecorder(enhanced.stream);
         recorder.ondataavailable = (e) => {
           if (e.data.size > 0) {
             audioChunksRef.current.push(e.data);
@@ -8694,6 +8721,7 @@ ${session.fullAnalysis}
       if ('wakeLock' in navigator) {
         chatWakeLockRef.current = await (navigator as any).wakeLock.request('screen').catch(() => null);
       }
+      await requestMicrophonePermission();
       let originalStream: MediaStream;
       try {
         originalStream = await navigator.mediaDevices.getUserMedia({
@@ -8710,7 +8738,10 @@ ${session.fullAnalysis}
       const enhanced = await getEnhancedStream(originalStream);
       chatAudioProcessingRef.current = enhanced;
       
-      const recorder = new MediaRecorder(enhanced.stream);
+      const preferredMime = getSupportedAudioMimeType();
+      const recorder = preferredMime 
+        ? new MediaRecorder(enhanced.stream, { mimeType: preferredMime })
+        : new MediaRecorder(enhanced.stream);
       chatMediaRecorderRef.current = recorder;
       const chunks: Blob[] = [];
 
@@ -9100,8 +9131,11 @@ ${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\nopt
             });
           };
 
-          if (isOfflineBrainActive) {
+          const isDeviceOffline = !isOnline || (typeof navigator !== 'undefined' && !navigator.onLine);
+
+          if (isDeviceOffline) {
             try {
+              console.log("âš¡ Device is offline: Running on-device Qwen inference...");
               responseText = await askLocalQwen() || "";
             } catch (err: any) {
               console.warn("Local Qwen inference note:", err);
@@ -9900,8 +9934,9 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
   };
 
   const buildFallbackQuizQuestions = (topicName: string, countNum: number) => {
-    const cleanTopic = topicName.trim() || "General Knowledge";
+    const rawTopic = topicName.trim() || "General Knowledge";
     const numQuestions = Math.max(1, countNum || 5);
+    const lowerTopic = rawTopic.toLowerCase();
     
     // Check if any quiz documents or imported note have extracted text
     let aggregatedDocText = "";
@@ -9926,85 +9961,198 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
         const qList = [];
         for (let i = 0; i < numQuestions; i++) {
           const sentence = sentences[i % sentences.length];
-          const words = sentence.split(/\s+/);
-          const keyTerm = words.find(w => w.length > 5) || words[0] || "Concept";
+          const words = sentence.split(/\s+/).filter(w => w.length > 3);
+          const keyTerm = words.find(w => w.length > 5) || words[0] || "this topic";
           qList.push({
-            question: `Q${i + 1}. According to your uploaded study document: "${sentence.slice(0, 110)}..." - Which statement is accurate regarding this material?`,
+            question: `Q${i + 1}. In the context of ${keyTerm}, which statement accurately reflects the core principle: "${sentence.slice(0, 110)}..."?`,
             options: [
-              `${sentence.slice(0, 90)}`,
-              `This statement directly contradicts the core principles of ${keyTerm}`,
-              `It applies strictly to an unrelated external domain`,
-              `This observation lacks verifiable empirical evidence in the document`
+              `${sentence.slice(0, 95)}`,
+              `It contradicts empirical observations established in ${keyTerm}`,
+              `This principle applies exclusively to non-standard theoretical edge cases`,
+              `It is invalidated by contrary hypotheses in modern analysis`
             ],
             correctAnswer: 0,
-            explanation: `Derived directly from your uploaded document: "${sentence}"`
+            explanation: `Based on fundamental concepts of ${keyTerm}: "${sentence}"`
           });
         }
         return qList;
       }
     }
 
-    const qList = [];
-    const templates = [
+    // 1. STATISTICAL & MATHEMATICAL DOMAIN
+    const isStatisticsOrMath = /skewness|kurtosis|central\s*tendency|median|mode|probability|mean|variance|standard\s*deviation|statistics|math|calculus|algebra|distribution|frequency/i.test(lowerTopic);
+
+    if (isStatisticsOrMath) {
+      const mathQuestionBank = [
+        {
+          q: "Given the dataset: $[4, 8, 12, 12, 16, 20, 24]$, what is the median and mode of this distribution?",
+          opts: [
+            "Median = 12, Mode = 12",
+            "Median = 14, Mode = 12",
+            "Median = 12, Mode = 16",
+            "Median = 16, Mode = 12"
+          ],
+          ans: 0,
+          exp: "Arranging in ascending order: 4, 8, 12, 12, 16, 20, 24 (n = 7). The middle value (4th element) is 12. The most frequent value is 12."
+        },
+        {
+          q: "A distribution has a mean of 60, a median of 54, and a standard deviation of 8. What is Karl Pearson's coefficient of skewness ($S_k$)?",
+          opts: [
+            "$S_k = +2.25$",
+            "$S_k = +0.75$",
+            "$S_k = -2.25$",
+            "$S_k = +1.50$"
+          ],
+          ans: 0,
+          exp: "Pearson's Skewness formula is $S_k = \\frac{3(\\text{Mean} - \\text{Median})}{\\sigma} = \\frac{3(60 - 54)}{8} = \\frac{18}{8} = +2.25$ (positively skewed)."
+        },
+        {
+          q: "A standard fair 6-sided die is rolled twice. What is the probability of obtaining a sum equal to 7?",
+          opts: [
+            "$\\frac{1}{6}$",
+            "$\\frac{1}{12}$",
+            "$\\frac{7}{36}$",
+            "$\\frac{5}{36}$"
+          ],
+          ans: 0,
+          exp: "Total outcomes = $6 \\times 6 = 36$. Favorable pairs summing to 7 are: (1,6), (2,5), (3,4), (4,3), (5,2), (6,1) = 6 pairs. $P(\\text{Sum}=7) = \\frac{6}{36} = \\frac{1}{6}$."
+        },
+        {
+          q: "If the coefficient of kurtosis (excess kurtosis $\\gamma_2 = \\beta_2 - 3$) for a distribution is equal to 0, what is the geometric nature of the peak?",
+          opts: [
+            "Mesokurtic (identical peak to a Normal distribution)",
+            "Leptokurtic (sharper, heavy-tailed peak)",
+            "Platykurtic (flatter, light-tailed distribution)",
+            "Asymmetric U-shaped distribution"
+          ],
+          ans: 0,
+          exp: "A normal distribution has $\\beta_2 = 3$ and excess kurtosis $\\gamma_2 = 0$, which is termed Mesokurtic."
+        },
+        {
+          q: "For a moderately skewed frequency distribution, which empirical formula accurately models the relationship between Mean, Median, and Mode?",
+          opts: [
+            "$\\text{Mode} \\approx 3(\\text{Median}) - 2(\\text{Mean})$",
+            "$\\text{Mode} \\approx 2(\\text{Median}) - 3(\\text{Mean})$",
+            "$\\text{Median} \\approx 3(\\text{Mean}) - \\text{Mode}$",
+            "$\\text{Mean} \\approx 3(\\text{Mode}) - 2(\\text{Median})$"
+          ],
+          ans: 0,
+          exp: "The standard empirical approximation for unimodal moderately skewed distributions is: $\\text{Mode} \\approx 3(\\text{Median}) - 2(\\text{Mean})$."
+        },
+        {
+          q: "Calculate the arithmetic mean and variance of the sample values: $[2, 4, 6, 8, 10]$.",
+          opts: [
+            "Mean = 6, Sample Variance ($s^2$) = 10",
+            "Mean = 6, Sample Variance ($s^2$) = 8",
+            "Mean = 5, Sample Variance ($s^2$) = 10",
+            "Mean = 6, Sample Variance ($s^2$) = 20"
+          ],
+          ans: 0,
+          exp: "Mean = $\\frac{2+4+6+8+10}{5} = 6$. Deviations: $(-4)^2 + (-2)^2 + 0^2 + 2^2 + 4^2 = 16+4+0+4+16 = 40$. Sample variance $s^2 = \\frac{40}{5-1} = 10$."
+        },
+        {
+          q: "In a negatively skewed (left-skewed) distribution, what is the typical ordering of the three measures of central tendency?",
+          opts: [
+            "$\\text{Mean} < \\text{Median} < \\text{Mode}$",
+            "$\\text{Mode} < \\text{Median} < \\text{Mean}$",
+            "$\\text{Median} < \\text{Mean} < \\text{Mode}$",
+            "$\\text{Mean} = \\text{Median} = \\text{Mode}$"
+          ],
+          ans: 0,
+          exp: "In negatively skewed distributions, extreme small values pull the Mean to the far left, resulting in $\\text{Mean} < \\text{Median} < \\text{Mode}$."
+        },
+        {
+          q: "Two independent events $A$ and $B$ have probabilities $P(A) = 0.4$ and $P(B) = 0.5$. What is $P(A \\cup B)$?",
+          opts: [
+            "$0.70$",
+            "$0.90$",
+            "$0.20$",
+            "$0.50$"
+          ],
+          ans: 0,
+          exp: "$P(A \\cap B) = P(A) \\times P(B) = 0.4 \\times 0.5 = 0.20$. By the addition rule: $P(A \\cup B) = P(A) + P(B) - P(A \\cap B) = 0.4 + 0.5 - 0.2 = 0.70$."
+        }
+      ];
+
+      const qList = [];
+      for (let i = 0; i < numQuestions; i++) {
+        const item = mathQuestionBank[i % mathQuestionBank.length];
+        qList.push({
+          question: `Q${i + 1}. ${item.q}`,
+          options: item.opts,
+          correctAnswer: item.ans,
+          explanation: item.exp
+        });
+      }
+      return qList;
+    }
+
+    // 2. GENERAL ACADEMIC DOMAINS (Cleanly extract 1-3 core subject terms)
+    const cleanSubject = rawTopic
+      .replace(/quiz|exam|test|questions?|generate|mathematically|solvable/gi, '')
+      .trim() || rawTopic;
+
+    const academicQuestionBank = [
       {
-        q: `What is the primary core concept behind ${cleanTopic}?`,
+        q: `What is the fundamental mechanism defining "${cleanSubject}"?`,
         opts: [
-          `Theoretical framework and systematic principles governing ${cleanTopic}`,
-          `Unrelated empirical observation without structured foundation`,
-          `Random subjective interpretation lacking analytical verification`,
-          `Outdated historical assumption with no practical application`
+          `A systematic set of principles and verifiable analytical foundations`,
+          `Purely arbitrary subjective speculation without experimental backing`,
+          `Static historical definitions inapplicable to contemporary analysis`,
+          `Unregulated assumptions lacking reproducible empirical standards`
         ],
         ans: 0,
-        exp: `The study of ${cleanTopic} relies on a structured theoretical framework and systematic principles.`
+        exp: `The study of ${cleanSubject} is structured upon systematic principles and verifiable foundational models.`
       },
       {
-        q: `Which approach represents best practice when applying ${cleanTopic}?`,
+        q: `Which analytical method is most effective when evaluating core principles of ${cleanSubject}?`,
         opts: [
-          `Employing structured methodologies and objective evaluation`,
-          `Disregarding control variables and analytical standards`,
-          `Relying solely on intuition without systematic evidence`,
-          `Restricting concepts to non-applicable abstract theories`
+          `Quantitative and qualitative empirical modeling with baseline controls`,
+          `Disregarding variance and rejecting verified benchmarks`,
+          `Relying on unverified heuristics without formal proof`,
+          `Isolating variables without testing boundary conditions`
         ],
         ans: 0,
-        exp: `Best practice in ${cleanTopic} emphasizes objective evaluation and structured methodologies.`
+        exp: `Rigorous analysis in ${cleanSubject} utilizes empirical modeling, comparative benchmarks, and validated controls.`
       },
       {
-        q: `What key factor determines optimal performance in ${cleanTopic}?`,
+        q: `How do practitioners systematically address anomalies in ${cleanSubject}?`,
         opts: [
-          `Logical validity, consistent execution, and verifiable results`,
-          `Arbitrary selection of variable metrics`,
-          `Ignoring baseline metrics and error margins`,
-          `Superficial categorization without empirical testing`
+          `By isolating contributing factors, testing boundary constraints, and refining models`,
+          `By immediately discarding baseline data without investigation`,
+          `By assuming anomalies represent standard behavior`,
+          `By eliminating statistical rigor and relying solely on conjecture`
         ],
         ans: 0,
-        exp: `Optimal outcomes in ${cleanTopic} depend on logical validity, consistency, and verifiable results.`
+        exp: `Resolving anomalies in ${cleanSubject} requires isolating variables, examining edge cases, and updating foundational models.`
       },
       {
-        q: `How does ${cleanTopic} relate to broader problem-solving applications?`,
+        q: `What primary metric is evaluated to verify operational success in ${cleanSubject}?`,
         opts: [
-          `It provides foundational analytical models and practical tools`,
-          `It operates in complete isolation from real-world applications`,
-          `It replaces all experimental testing with unverified assumptions`,
-          `It eliminates the need for critical analysis`
+          `Consistency, reproducibility, and alignment with theoretical standards`,
+          `Random correlation without causal evidence`,
+          `Subjective consensus without empirical measurements`,
+          `Minimization of experimental controls`
         ],
         ans: 0,
-        exp: `${cleanTopic} offers fundamental analytical models used in real-world problem solving.`
+        exp: `Success criteria in ${cleanSubject} depend on verifiable reproducibility, consistency, and structural alignment.`
       },
       {
-        q: `When analyzing complex scenarios in ${cleanTopic}, what is the recommended starting step?`,
+        q: `When synthesizing complex concepts within ${cleanSubject}, what is the recommended procedure?`,
         opts: [
-          `Decomposing the problem into key components and identifying baseline variables`,
-          `Jumping directly to conclusions without data inspection`,
-          `Ignoring background context and prior observations`,
-          `Selecting arbitrary solutions without hypothesis testing`
+          `Decompose the problem into core components and analyze interdependencies`,
+          `Apply arbitrary assumptions to unmeasured variables`,
+          `Ignore foundational relationships between sub-systems`,
+          `Rely on isolated single-point observations`
         ],
         ans: 0,
-        exp: `Complex problem solving in ${cleanTopic} begins by breaking down variables and establishing baseline data.`
+        exp: `Synthesizing concepts in ${cleanSubject} starts with systematic decomposition of variables and evaluating their interactions.`
       }
     ];
 
+    const qList = [];
     for (let i = 0; i < numQuestions; i++) {
-      const tmpl = templates[i % templates.length];
+      const tmpl = academicQuestionBank[i % academicQuestionBank.length];
       qList.push({
         question: `Q${i + 1}. ${tmpl.q}`,
         options: tmpl.opts,
@@ -10174,18 +10322,17 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
       const hasDocs = quizDocuments.length > 0;
 
       if (hasDocs && hasTextPrompt && hasImages) {
-        promptContext += `MANDATORY MULTI-SOURCE REQUIREMENT: You MUST generate all ${activeCount} quiz questions by synthesizing ALL 3 sources simultaneously: (1) user text prompt ("${activeTopic}"), (2) full text content of attached ${quizDocuments.length} document(s) (${quizDocuments.map(d => `"${d.name}"`).join(', ')}), AND (3) visual page images/diagrams provided. Ground every single question in the attached document material and user prompt instructions.\n\n`;
+        promptContext += `MANDATORY MULTI-SOURCE REQUIREMENT: Synthesize the academic topics and concepts from the user's prompt ("${activeTopic}"), the provided document text, and visual diagrams. Test the student directly on these educational topics.\n\n`;
       } else if (hasDocs && hasTextPrompt) {
-        promptContext += `MANDATORY DUAL-SOURCE REQUIREMENT: You MUST generate all ${activeCount} quiz questions by synthesizing BOTH the user's text prompt/instructions ("${activeTopic}") AND the attached ${quizDocuments.length} study document(s) (${quizDocuments.map(d => `"${d.name}"`).join(', ')}).
-- Use the user's prompt ("${activeTopic}") to guide the focus, emphasis, and style of the questions.
-- Use the actual factual material, definitions, concepts, and details inside the attached document(s) as the primary source of truth.
-- Do NOT generate questions on unrelated subjects. Every single question MUST be grounded in the provided document content and aligned with the user's prompt.\n\n`;
+        promptContext += `MANDATORY DUAL-SOURCE REQUIREMENT: Generate all ${activeCount} quiz questions testing the core academic topics, principles, and concepts contained in both the user's prompt ("${activeTopic}") and the provided study document(s) (${quizDocuments.map(d => `"${d.name}"`).join(', ')}).
+- Use the actual facts, equations, principles, and theories in the document as the factual foundation.
+- Test the student directly on the subject matter, not on the document itself.\n\n`;
       } else if (hasDocs && hasImages) {
-        promptContext += `MANDATORY DOCUMENT & VISUAL REQUIREMENT: You MUST generate all ${activeCount} quiz questions based DIRECTLY and STRICTLY on the contents, concepts, diagrams, and text contained inside the attached ${quizDocuments.length} study document(s) (${quizDocuments.map(d => `"${d.name}"`).join(', ')}). Every question, option, and explanation MUST test knowledge directly from these uploaded materials.\n\n`;
+        promptContext += `MANDATORY TOPIC TEST REQUIREMENT: Generate all ${activeCount} quiz questions testing the academic principles, diagrams, formulas, and topics contained in the attached study materials.\n\n`;
       } else if (hasDocs) {
-        promptContext += `MANDATORY DOCUMENT RELEVANCE REQUIREMENT: You MUST generate all ${activeCount} quiz questions based DIRECTLY and STRICTLY on the contents, concepts, definitions, formulas, and topics contained inside the attached ${quizDocuments.length} study document(s) (${quizDocuments.map(d => `"${d.name}"`).join(', ')}).
-- Every single question, option, and correct answer MUST test knowledge found within the provided document content.
-- Do NOT create questions on unrelated subjects outside the scope of these document(s).\n\n`;
+        promptContext += `MANDATORY TOPIC TEST REQUIREMENT: Generate all ${activeCount} quiz questions based directly on the academic subject matter, principles, formulas, definitions, and topics taught in the study document(s) (${quizDocuments.map(d => `"${d.name}"`).join(', ')}).
+- Test the student on the educational subject matter itself (the science, math, laws, theories, or historical facts).
+- NEVER frame questions around the document file (do NOT say "According to the PDF", "In the attached text", or "The document mentions").\n\n`;
       } else if (hasTextPrompt && hasImages) {
         promptContext += `MANDATORY MULTI-SOURCE REQUIREMENT: You MUST generate the ${activeCount} quiz questions by synthesizing user instructions ("${activeTopic}") and visual image materials provided.\n\n`;
       } else if (hasTextPrompt) {
@@ -10221,33 +10368,54 @@ Ensure these selected question types are distributed throughout the quiz questio
       }
 
       const prompt = `
-        Generate a ${activeCount}-question quiz on the user's specific academic material.
-        
-        ${promptContext}
-        
-        ${answerTypeInstructions}
-        
-        CRITICAL RULE: The generated questions and options must be completely self-contained. Under NO circumstances should any question or option ever mention, refer to, or contain phrases like "as shown in the image", "in the picture", "according to the diagram", "shown below", or any reference to attachments/images. Keep the questions independent of visual attachment references so that they are fully answerable with only the text displayed in the question itself.
+        You are an expert university professor and exam creator.
+        Generate an authentic, high-quality, ${activeCount}-question academic quiz directly following the user's instructions, topics, and problem constraints below:
 
-        Do not introduce any unrelated mathematical expressions, technical formulas, physics symbols, or engineering concepts unless the requested topic specifically calls for mathematics, exact sciences, or engineering subjects.
-        Difficulty Level: ${activeDifficulty}.
-        
-        To support LaTeX rendering for technical topics (only when relevant):
-        CRITICAL FOR MATH & SCIENTIFIC TOPICS:
-        - For ALL mathematical expressions, vectors, formulas, variables, and scientific notations in BOTH questions AND options, ALWAYS wrap them in standard LaTeX notation enclosed in $ ... $ delimiters.
-        - Example options: ["$2\\hat{i} + 3\\hat{j}$", "$-2\\hat{i} + 3\\hat{j}$", "$2\\hat{i} - 3\\hat{j}$", "$-2\\hat{i} - 3\\hat{j}$"].
-        - Use standard LaTeX backslashes (e.g., \\hat{i}, \\vec{v}, \\frac{1}{2}, \\sqrt{x}). NEVER write forward slashes like /hat/I or /vec/v.
-        - Ensure all backslashes are properly escaped for JSON.
-        
-        Return ONLY a JSON object with this structure:
+        ${promptContext}
+
+        ${answerTypeInstructions}
+
+        CRITICAL DIRECTIVES ON FOLLOWING USER INTENT:
+        1. DEEP ACADEMIC TOPIC PARSING (NEVER REPEAT PROMPT AS A META-QUESTION):
+           - The user's input specifies the ACADEMIC TOPICS, PROBLEM TYPES, and CONSTRAINTS to test.
+           - NEVER generate meta-questions asking about the user's prompt (e.g. NEVER ask "Which approach represents best practice when applying [prompt]?", "What is the primary core concept behind [prompt]?").
+           - NEVER quote or parrot the user's instructions into the question stems.
+
+        2. MATHEMATICAL, STATISTICAL & QUANTITATIVE COMPUTATIONS:
+           - If the user requests mathematically solvable questions, calculations, equations, physics, science, or statistics (e.g. skewness, kurtosis, central tendency, median, mode, probability, mean, variance, standard deviation, hypothesis testing, calculus, algebra):
+             * You MUST formulate REAL, SOLVABLE computational problems containing concrete numbers, sample datasets, probability distributions, matrices, or formulas.
+             * The student MUST be able to calculate and determine the exact correct numerical value.
+             * Examples of required question types:
+               - "Given the data values: $[3, 7, 8, 8, 12, 14, 18]$, calculate the interquartile range (IQR) and sample mean."
+               - "A frequency distribution has a Mean of 65, a Median of 60, and a Standard Deviation of 10. Compute Karl Pearson's coefficient of skewness ($S_k$)."
+               - "If $X \\sim \\text{Binomial}(n=10, p=0.3)$, what is the exact probability $P(X = 2)$?"
+               - "For a sample with $\\sum x = 120$ and $\\sum x^2 = 1800$ where $n = 10$, what is the sample variance ($s^2$)?"
+           - Format ALL mathematical symbols, variables, equations, fractions, and Greek letters using valid standard LaTeX wrapped in single dollar delimiters $ ... $ (e.g., $S_k = \\frac{3(\\text{Mean} - \\text{Median})}{\\sigma}$, $P(A \\cap B)$, $\\mu = 24.5$, $\\sigma^2 = 16$).
+           - Ensure backslashes are properly escaped in JSON.
+
+        3. ACCURACY & EXPLANATIONS:
+           - Difficulty Level: ${activeDifficulty}.
+           - Ensure exactly one option is mathematically and factually correct.
+           - The other options must be plausible common calculation pitfalls or distractors.
+           - In the "explanation" field, provide step-by-step mathematical working or conceptual derivation explaining how the correct answer is computed.
+
+        4. TESTING TOPICS IN DOCUMENTS (NO META-QUESTIONS ABOUT THE FILE):
+           - When study materials, notes, or documents are provided, extract and test the academic concepts, definitions, formulas, theories, and principles taught inside them.
+           - NEVER ask questions about the document itself (e.g., NEVER say "According to the uploaded document", "In the attached PDF", "What does the author state in section 2?").
+           - Frame every question as an authentic subject test on the material itself.
+
+        5. INDEPENDENCE:
+           - All questions and options must be completely self-contained and answerable without referring to external attachments or external images.
+
+        Return ONLY a valid JSON object with this exact structure:
         {
-          "quizTitle": "A short, concise academic title summarizing the subject matter of the generated questions matching the document content and prompt (maximum 5 words)",
+          "quizTitle": "A concise 2 to 5 word academic subject title (e.g., 'Statistics & Probability Problems', 'Measures of Central Tendency', 'Descriptive Statistics')",
           "questions": [
             {
-              "question": "string",
+              "question": "string (the actual test problem with numbers/dataset/scenario)",
               "options": ["string", "string", "string", "string"],
               "correctAnswer": number (0-3),
-              "explanation": "Detailed breakdown. Write a clear explanation explaining why the correct option is correct, and why other options are incorrect to help the student learn."
+              "explanation": "Step-by-step mathematical calculation or conceptual derivation."
             }
           ]
         }
@@ -10271,8 +10439,20 @@ Ensure these selected question types are distributed throughout the quiz questio
           });
           return res?.text || null;
         } catch (e) {
-          console.warn("Gemini quiz generation error, attempting fallback providers:", e);
-          return null;
+          console.warn("Gemini primary quiz generation error, attempting fallback lite/flash model:", e);
+          try {
+            const resFallback = await aiInstance.models.generateContent({
+              model: "gemini-2.5-flash",
+              contents: [{ role: 'user', parts: contentsParts }],
+              config: {
+                responseMimeType: "application/json"
+              }
+            });
+            return resFallback?.text || null;
+          } catch (e2) {
+            console.warn("Gemini secondary quiz generation error:", e2);
+            return null;
+          }
         }
       };
 
@@ -10297,11 +10477,11 @@ Ensure these selected question types are distributed throughout the quiz questio
       };
 
       let responseText = "";
-      const isOfflineMode = !isOnline || (typeof navigator !== 'undefined' && !navigator.onLine) || localStorage.getItem('omni_brain_ready') === 'true';
+      const isDeviceOffline = !isOnline || (typeof navigator !== 'undefined' && !navigator.onLine);
 
-      if (isOfflineMode) {
+      if (isDeviceOffline) {
         try {
-          console.log("âš¡ Immediately switching to downloaded offline Qwen model for quiz generation...");
+          console.log("âš¡ Device offline: Generating quiz via on-device Qwen model...");
           responseText = await askLocalQwen() || "";
         } catch (localErr: any) {
           console.error("Local Qwen error during quiz generation:", localErr);
@@ -10487,18 +10667,6 @@ Ensure these selected question types are distributed throughout the quiz questio
       setIsGeneratingQuiz(false);
     }
   };
-
-  useEffect(() => {
-    // Auto-trigger Quiz/Exam if coming from Courses Tool with a prompt set
-    const isFromCourses = quizTopic && quizTopic.includes(': ') && quizTopic.includes(' - ');
-    if (isFromCourses && !isGeneratingQuiz) {
-      if (toolsSubTab === 'quiz' && quizState === 'idle') {
-        generateQuiz();
-      } else if (toolsSubTab === 'exam' && (examLobbyState === 'login' || examLobbyState === 'result') && examQuestions.length === 0) {
-        generateDynamicExam();
-      }
-    }
-  }, [toolsSubTab, quizTopic, quizState, examLobbyState, examQuestions.length, isGeneratingQuiz]);
 
   const handleHistoryItemClick = async (item: HomeHistoryItem) => {
     setHistoryLoadingModal({
@@ -14152,7 +14320,7 @@ Ensure these selected question types are distributed throughout the quiz questio
                           <span className="text-[7.5px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-md font-extrabold tracking-normal normal-case">Coming Soon</span>
                         </h4>
                         <p className="text-[8px] font-black uppercase tracking-[0.2em] text-amber-400/90 mt-0.5">
-                          {currentUserData?.isWhatsAppVerified ? "í ½í¿¢ SECURED & VERIFIED" : "ðŸ”´ NOT SYNCHRONIZED (COMING SOON)"}
+                          {currentUserData?.isWhatsAppVerified ? "ðŸŸ¢ SECURED & VERIFIED" : "ðŸ”´ NOT SYNCHRONIZED (COMING SOON)"}
                         </p>
                       </div>
                     </div>
@@ -16975,7 +17143,7 @@ Ensure these selected question types are distributed throughout the quiz questio
               activeTab === 'tools' 
                 ? (theme === 'dark' ? 'font-black text-purple-300' : 'font-black text-purple-600') 
                 : (theme === 'dark' ? 'font-bold text-white/70' : 'font-bold text-black')
-            }`}>NOTES</span>
+            }`}>TOOLS</span>
           </button>
 
           {/* CHAT - Screenshot design with speech bubble & 3 dots */}

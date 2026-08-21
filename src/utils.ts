@@ -1,15 +1,8 @@
 import { GoogleGenAI } from "@google/genai";
 import { HfInference } from "@huggingface/inference";
 import axios from 'axios';
-import * as pdfjsLib from 'pdfjs-dist';
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import JSZip from 'jszip';
 import { runLocalQwenInference } from './lib/capacitor';
-
-// Configure pdfjs worker URL
-if (pdfjsLib.GlobalWorkerOptions) {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl || `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version || '4.10.38'}/build/pdf.worker.min.mjs`;
-}
 
 export const extractTextFromRawPdfBuffer = (arrayBuffer: ArrayBuffer): string => {
   try {
@@ -60,8 +53,9 @@ export const extractPdfDetails = async (file: File): Promise<{ text: string; pag
     
     // Attempt standard PDF.js document loading
     try {
-      if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl || `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version || '4.10.38'}/build/pdf.worker.min.mjs`;
+      const pdfjsLib = await import('pdfjs-dist');
+      if (pdfjsLib.GlobalWorkerOptions && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version || '4.10.38'}/build/pdf.worker.min.mjs`;
       }
       const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
       const pdf = await loadingTask.promise;
@@ -340,12 +334,12 @@ export const getAiInstance = () => {
       const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
 
       // Handle offline mode directly
-      if (!isOnline) {
+      if (!isOnline || !key) {
         if (isAudioTranscription) {
           throw new Error("⚠️ Audio transcription requires an active internet connection. Please connect to the internet to transcribe audio.");
         }
 
-        console.log("⚡ [Offline Mode] Routing request to on-device Qwen AI model...");
+        console.log("⚡ [Offline/Local Mode] Routing request to on-device Qwen AI model...");
         const localText = await runLocalQwenInference({ prompt, responseMimeType: mimeType });
         return {
           text: localText,
@@ -367,12 +361,14 @@ export const getAiInstance = () => {
             errMsg.toLowerCase().includes("failed to fetch") ||
             errMsg.toLowerCase().includes("networkerror") ||
             errMsg.toLowerCase().includes("offline") ||
+            errMsg.toLowerCase().includes("api_key_invalid") ||
+            errMsg.toLowerCase().includes("api key not valid") ||
             !navigator.onLine
           ) {
             if (isAudioTranscription) {
               throw new Error("⚠️ Audio transcription requires an active internet connection. Please connect to the internet to transcribe audio.");
             }
-            console.log("⚡ [Network Fallback] Offline during fetch, routing to local Qwen engine...");
+            console.log("⚡ [Network Fallback] Offline or network error during fetch, routing to local Qwen engine...");
             const localText = await runLocalQwenInference({ prompt, responseMimeType: mimeType });
             return {
               text: localText,
