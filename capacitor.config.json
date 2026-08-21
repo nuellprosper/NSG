@@ -1,13 +1,18 @@
 {
-  "appId": "com.nsg.scholar",
-  "appName": "Omni",
+  "appId": "com.nsg.app",
+  "appName": "NSG",
   "webDir": "dist",
   "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https",
+    "hostname": "nuellstudyguide.name.ng",
+    "cleartext": true
+  },
   "plugins": {
     "GoogleAuth": {
       "scopes": ["profile", "email"],
-      "serverClientId": "780956680320-9b5d20e4fb6227a1a4a665.apps.googleusercontent.com",
-      "clientId": "780956680320-9b5d20e4fb6227a1a4a665.apps.googleusercontent.com",
+      "serverClientId": "780956680320-g2gripd8rmlalln7flapch5el5bijpbb.apps.googleusercontent.com",
+      "clientId": "780956680320-g2gripd8rmlalln7flapch5el5bijpbb.apps.googleusercontent.com",
       "forceCodeForRefreshToken": true
     }
   }

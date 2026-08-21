@@ -1,0 +1,22 @@
+import { CapacitorConfig } from '@capacitor/cli';
+
+const config: CapacitorConfig = {
+  appId: 'com.nsg.app',
+  appName: 'NSG',
+  webDir: 'dist',
+  server: {
+    androidScheme: 'https',
+    hostname: 'nuellstudyguide.name.ng',
+    cleartext: true
+  },
+  plugins: {
+    GoogleAuth: {
+      scopes: ['profile', 'email'],
+      serverClientId: '780956680320-g2gripd8rmlalln7flapch5el5bijpbb.apps.googleusercontent.com',
+      clientId: '780956680320-g2gripd8rmlalln7flapch5el5bijpbb.apps.googleusercontent.com',
+      forceCodeForRefreshToken: true
+    }
+  }
+};
+
+export default config;
