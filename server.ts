@@ -10,21 +10,7 @@ import admin from "firebase-admin";
 import { getFirestore } from "firebase-admin/firestore";
 import "dotenv/config";
 import { HfInference } from "@huggingface/inference";
-import { createRequire } from "module";
-const require = createRequire(import.meta.url);
-
-let GoogleGenAI: any;
-try {
-  const genaiPkg = require("@google/genai");
-  GoogleGenAI = genaiPkg.GoogleGenAI || genaiPkg.default?.GoogleGenAI || genaiPkg;
-} catch (e) {
-  try {
-    const genaiPkg = require("@google/genai/dist/node/index.cjs");
-    GoogleGenAI = genaiPkg.GoogleGenAI || genaiPkg.default?.GoogleGenAI || genaiPkg;
-  } catch (err) {
-    console.warn("Could not load GoogleGenAI SDK:", err);
-  }
-}
+import { GoogleGenAI } from "@google/genai";
 import Groq from "groq-sdk";
 import nodemailer from "nodemailer";
 import fs from "fs";

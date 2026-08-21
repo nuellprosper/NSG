@@ -1,0 +1,14 @@
+{
+  "appId": "com.nsg.scholar",
+  "appName": "Omni",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "plugins": {
+    "GoogleAuth": {
+      "scopes": ["profile", "email"],
+      "serverClientId": "780956680320-9b5d20e4fb6227a1a4a665.apps.googleusercontent.com",
+      "clientId": "780956680320-9b5d20e4fb6227a1a4a665.apps.googleusercontent.com",
+      "forceCodeForRefreshToken": true
+    }
+  }
+}
