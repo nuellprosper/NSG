@@ -75,7 +75,12 @@ export const DevicePlatformProvider = ({ children }: { children: ReactNode }) =>
     });
 
     // Listen to network changes
-    const networkListenerPromise = Network.addListener('networkStatusChange', updateStatus);
+    let networkListenerPromise: Promise<any> | null = null;
+    try {
+      networkListenerPromise = Network.addListener('networkStatusChange', updateStatus);
+    } catch (e) {
+      // Fallback to web listeners
+    }
 
     const handleWebOnline = () => updateStatus({ connected: true, connectionType: 'wifi' });
     const handleWebOffline = () => updateStatus({ connected: false, connectionType: 'none' });
@@ -85,7 +90,9 @@ export const DevicePlatformProvider = ({ children }: { children: ReactNode }) =>
 
     return () => {
       isMounted = false;
-      networkListenerPromise.then(l => l.remove()).catch(() => {});
+      if (networkListenerPromise) {
+        networkListenerPromise.then(l => l?.remove?.()).catch(() => {});
+      }
       window.removeEventListener('online', handleWebOnline);
       window.removeEventListener('offline', handleWebOffline);
     };

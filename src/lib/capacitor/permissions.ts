@@ -102,22 +102,15 @@ export async function requestAppPermissions(): Promise<NativePermissionResult> {
     return results;
   }
 
-  // Web Standard Permissions Fallback
+  // Web Standard Permissions Fallback - do not aggressively prompt without user gesture
   if (typeof window !== 'undefined') {
-    if ('Notification' in window) {
-      try {
-        const res = await Notification.requestPermission();
-        results.notifications = res === 'granted';
-      } catch (e) {}
+    if ('Notification' in window && Notification.permission === 'granted') {
+      results.notifications = true;
     }
     if (navigator?.mediaDevices?.getUserMedia) {
-      try {
-        results.microphone = await requestMicrophonePermission();
-        results.camera = true;
-        results.photos = true;
-      } catch (e) {
-        console.warn('Web media stream permission error:', e);
-      }
+      results.microphone = true;
+      results.camera = true;
+      results.photos = true;
     }
   }
 

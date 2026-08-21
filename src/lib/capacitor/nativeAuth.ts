@@ -9,6 +9,10 @@ import {
   Auth 
 } from 'firebase/auth';
 
+// Web Client ID (Configurable via environment variable or default)
+const GOOGLE_WEB_CLIENT_ID = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string) || 
+  '780956680320-g4b8j2u3o6i4r9e5f7a1h2k3l4m5n6p7.apps.googleusercontent.com';
+
 /**
  * Perform Google Authentication dynamically across Native Capacitor APK and Web
  */
@@ -23,12 +27,12 @@ export async function performGoogleAuth(authInstance: Auth): Promise<any> {
       if (GoogleAuth && typeof GoogleAuth.signIn === 'function') {
         try {
           await GoogleAuth.initialize({
-            clientId: '780956680320-9b5d20e4fb6227a1a4a665.apps.googleusercontent.com',
-            serverClientId: '780956680320-9b5d20e4fb6227a1a4a665.apps.googleusercontent.com',
+            clientId: GOOGLE_WEB_CLIENT_ID,
+            serverClientId: GOOGLE_WEB_CLIENT_ID,
             scopes: ['profile', 'email'],
             grantOfflineAccess: true,
           }).catch((initErr) => {
-            console.warn('GoogleAuth initialize warning:', initErr);
+            console.warn('GoogleAuth initialize notice:', initErr);
           });
 
           const googleUser = await GoogleAuth.signIn();
@@ -66,7 +70,7 @@ export async function performGoogleAuth(authInstance: Auth): Promise<any> {
               const userCred = await signInWithEmailAndPassword(authInstance, userEmail, deterministicPass);
               return userCred;
             } catch (loginErr: any) {
-              if (loginErr?.code === 'auth/user-not-found' || loginErr?.code === 'auth/invalid-credential') {
+              if (loginErr?.code === 'auth/user-not-found' || loginErr?.code === 'auth/invalid-credential' || loginErr?.code === 'auth/invalid-login-credentials') {
                 try {
                   const newCred = await createUserWithEmailAndPassword(authInstance, userEmail, deterministicPass);
                   return newCred;
@@ -88,14 +92,16 @@ export async function performGoogleAuth(authInstance: Auth): Promise<any> {
           }
         } catch (nativePluginErr: any) {
           console.warn('Native GoogleAuth plugin warning:', nativePluginErr);
+          const errorMsg = nativePluginErr?.message || String(nativePluginErr);
           if (
-            nativePluginErr?.message?.toLowerCase()?.includes('user cancelled') || 
+            errorMsg.toLowerCase().includes('user cancelled') || 
+            errorMsg.toLowerCase().includes('canceled') ||
             nativePluginErr?.code === '12501' || 
             nativePluginErr?.code === 12501
           ) {
             throw new Error('Sign in cancelled by user.');
           }
-          // Continue to fallback below
+          // If native plugin failed due to missing SHA-1 or credentials, continue to fallback below
         }
       }
     } catch (importErr: any) {
@@ -131,6 +137,3 @@ export async function performGoogleAuth(authInstance: Auth): Promise<any> {
     throw err;
   }
 }
-
-
-
