@@ -7,3 +7,4 @@ export * from './notifications';
 export * from './appEvents';
 export * from './permissions';
 export * from './omniBrainDownloader';
+export * from './aiService';

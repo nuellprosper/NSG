@@ -37,6 +37,18 @@ let currentState: OmniBrainDownloadState = {
   lastUpdated: Date.now()
 };
 
+export function isOmniBrainDownloaded(): boolean {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return false;
+  const isReady = localStorage.getItem('omni_brain_ready') === 'true';
+  const downloadedBytes = parseInt(localStorage.getItem('omni_brain_downloaded_bytes') || '0', 10);
+  const totalBytes = parseInt(localStorage.getItem('omni_brain_total_bytes') || String(ESTIMATED_TOTAL_BYTES), 10);
+  return isReady || (downloadedBytes > 0 && downloadedBytes >= totalBytes * 0.95);
+}
+
+export function isOmniBrainReady(): boolean {
+  return isOmniBrainDownloaded();
+}
+
 export function isCapacitorNative(): boolean {
   if (typeof window === 'undefined') return false;
   try {

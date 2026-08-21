@@ -11,7 +11,7 @@ import {
 
 // Web Client ID (Configurable via environment variable or default)
 const GOOGLE_WEB_CLIENT_ID = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string) || 
-  '780956680320-g4b8j2u3o6i4r9e5f7a1h2k3l4m5n6p7.apps.googleusercontent.com';
+  '780956680320-g2gripd8rmlalln7flapch5el5bijpbb.apps.googleusercontent.com';
 
 /**
  * Perform Google Authentication dynamically across Native Capacitor APK and Web

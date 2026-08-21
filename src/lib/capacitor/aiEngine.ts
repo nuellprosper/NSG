@@ -128,9 +128,12 @@ export async function initWebLlmQwen(onProgress?: (progress: number, text: strin
 /**
  * Intelligent Offline Question & Quiz Generator
  */
-function generateOfflineQuizQuestions(topic: string, extractedText: string, count: number = 5) {
+function generateOfflineQuizQuestions(topic: string, extractedText: string, count: number = 5, promptText: string = '') {
   const cleanTopic = topic || "General Academic Study";
-  const numQuestions = Math.max(3, Math.min(count, 15));
+  const numQuestions = Math.max(1, Math.min(count, 50));
+  const isTrueFalse = promptText.toLowerCase().includes('true/false') || 
+                      promptText.toLowerCase().includes('true_false') || 
+                      promptText.toLowerCase().includes('true or false');
   
   // If we have document content, extract key statements
   const rawSentences = extractedText
@@ -220,7 +223,27 @@ function generateOfflineQuizQuestions(topic: string, extractedText: string, coun
     }
   ];
 
-  const questions = [];
+  const questions: any[] = [];
+
+  if (isTrueFalse) {
+    for (let i = 0; i < numQuestions; i++) {
+      const isTrue = i % 2 === 0;
+      const tpl = baseQuestionTemplates[i % baseQuestionTemplates.length];
+      const qText = isTrue 
+        ? `True or False: In ${cleanTopic}, ${tpl.correct(cleanTopic).toLowerCase()}.`
+        : `True or False: In ${cleanTopic}, one should ${tpl.distractors(cleanTopic)[0].toLowerCase()}.`;
+      questions.push({
+        question: qText,
+        options: ["True", "False"],
+        correctAnswer: isTrue ? 0 : 1,
+        explanation: tpl.explanation(cleanTopic)
+      });
+    }
+    return {
+      quizTitle: `${cleanTopic} Smart Quiz`,
+      questions
+    };
+  }
 
   // Mix document sentences if available
   if (rawSentences.length > 0) {
@@ -416,7 +439,7 @@ export async function runLocalQwenInference(payload: AIRequestPayload): Promise<
     if (promptLower.includes('quiz') || promptLower.includes('question') || promptLower.includes('option') || promptLower.includes('exam') || promptLower.includes('mcq')) {
       const countMatch = prompt.match(/(\d+)\s*(?:questions|mcqs|items)/i);
       const count = countMatch ? parseInt(countMatch[1], 10) : 5;
-      const quizObj = generateOfflineQuizQuestions(detectedTopic, fullExtractedContent, count);
+      const quizObj = generateOfflineQuizQuestions(detectedTopic, fullExtractedContent, count, prompt);
       return JSON.stringify(quizObj, null, 2);
     }
 
