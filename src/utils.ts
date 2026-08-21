@@ -2,7 +2,14 @@ import { GoogleGenAI } from "@google/genai";
 import { HfInference } from "@huggingface/inference";
 import axios from 'axios';
 import JSZip from 'jszip';
-import { runLocalQwenInference } from './lib/capacitor';
+import { 
+  runLocalQwenInference, 
+  isOmniBrainDownloaded, 
+  executeAITask, 
+  OFFLINE_MODEL_NOT_DOWNLOADED_MSG 
+} from './lib/capacitor';
+
+export { executeAITask, isOmniBrainDownloaded, OFFLINE_MODEL_NOT_DOWNLOADED_MSG };
 
 export const extractTextFromRawPdfBuffer = (arrayBuffer: ArrayBuffer): string => {
   try {
@@ -339,7 +346,12 @@ export const getAiInstance = () => {
           throw new Error("⚠️ Audio transcription requires an active internet connection. Please connect to the internet to transcribe audio.");
         }
 
-        console.log("⚡ [Offline/Local Mode] Routing request to on-device Qwen AI model...");
+        if (!isOmniBrainDownloaded()) {
+          console.warn("⚠️ Offline AI generation requested but Qwen model is not downloaded yet.");
+          throw new Error(OFFLINE_MODEL_NOT_DOWNLOADED_MSG);
+        }
+
+        console.log("⚡ [Offline/Local Mode] Routing request to on-device Qwen AI model (zero network calls)...");
         const localText = await runLocalQwenInference({ prompt, responseMimeType: mimeType });
         return {
           text: localText,
@@ -368,12 +380,17 @@ export const getAiInstance = () => {
             if (isAudioTranscription) {
               throw new Error("⚠️ Audio transcription requires an active internet connection. Please connect to the internet to transcribe audio.");
             }
-            console.log("⚡ [Network Fallback] Offline or network error during fetch, routing to local Qwen engine...");
-            const localText = await runLocalQwenInference({ prompt, responseMimeType: mimeType });
-            return {
-              text: localText,
-              candidates: [{ content: { parts: [{ text: localText }] } }]
-            };
+
+            if (isOmniBrainDownloaded()) {
+              console.log("⚡ [Network Fallback] Offline or network error during fetch, routing to local Qwen engine...");
+              const localText = await runLocalQwenInference({ prompt, responseMimeType: mimeType });
+              return {
+                text: localText,
+                candidates: [{ content: { parts: [{ text: localText }] } }]
+              };
+            } else {
+              throw new Error(OFFLINE_MODEL_NOT_DOWNLOADED_MSG);
+            }
           }
           
           const containsBusy = errMsg.toLowerCase().includes("model") || 

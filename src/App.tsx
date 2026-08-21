@@ -55,7 +55,22 @@ import {
 } from './components/AppComponent';
 import { OfflineModal } from './components/OfflineModal';
 import { NativeAudioRecorder } from './components/NativeAudioRecorder';
-import { performGoogleAuth, initOfflineQueueSync, initPushNotifications, schedulePeriodicBackgroundNotifications, useHardwareBackButton, useAppUrlListener, isNativePlatform, isCapacitorNative, requestAppPermissions, runLocalQwenInference, scheduleLocalNotification } from './lib/capacitor';
+import { 
+  performGoogleAuth, 
+  initOfflineQueueSync, 
+  initPushNotifications, 
+  schedulePeriodicBackgroundNotifications, 
+  useHardwareBackButton, 
+  useAppUrlListener, 
+  isNativePlatform, 
+  isCapacitorNative, 
+  requestAppPermissions, 
+  runLocalQwenInference, 
+  scheduleLocalNotification,
+  isOmniBrainDownloaded,
+  executeAITask,
+  OFFLINE_MODEL_NOT_DOWNLOADED_MSG
+} from './lib/capacitor';
 import { requestMicrophonePermission, getSupportedAudioMimeType } from './lib/audioRecorder';
 
 
@@ -9134,12 +9149,18 @@ ${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\nopt
           const isDeviceOffline = !isOnline || (typeof navigator !== 'undefined' && !navigator.onLine);
 
           if (isDeviceOffline) {
-            try {
-              console.log("⚡ Device is offline: Running on-device Qwen inference...");
-              responseText = await askLocalQwen() || "";
-            } catch (err: any) {
-              console.warn("Local Qwen inference note:", err);
-              setUserNotification(`Offline AI: ${err?.message || "Running local model..."}`);
+            if (!isOmniBrainDownloaded()) {
+              console.warn("⚠️ Offline chat requested but Qwen model is not downloaded yet.");
+              responseText = OFFLINE_MODEL_NOT_DOWNLOADED_MSG;
+              setUserNotification(OFFLINE_MODEL_NOT_DOWNLOADED_MSG);
+            } else {
+              try {
+                console.log("⚡ Device is offline: Running on-device Qwen inference (zero network calls)...");
+                responseText = await askLocalQwen() || "";
+              } catch (err: any) {
+                console.warn("Local Qwen inference note:", err);
+                setUserNotification(`Offline AI: ${err?.message || "Running local model..."}`);
+              }
             }
           }
 
@@ -9149,7 +9170,7 @@ ${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\nopt
                          || await runWithTimeout("Together", askTogether)
                          || await runWithTimeout("HF", askHF) 
                          || await runWithTimeout("OpenRouter", askOpenRouter)
-                         || await askLocalQwen()
+                         || (isOmniBrainDownloaded() ? await askLocalQwen() : OFFLINE_MODEL_NOT_DOWNLOADED_MSG)
                          || "I'm sorry, all AI providers are currently unavailable. Please try again in a moment.";
           }
 
@@ -10480,8 +10501,15 @@ Ensure these selected question types are distributed throughout the quiz questio
       const isDeviceOffline = !isOnline || (typeof navigator !== 'undefined' && !navigator.onLine);
 
       if (isDeviceOffline) {
+        if (!isOmniBrainDownloaded()) {
+          console.warn("⚠️ Offline quiz generation requested but Qwen model is not downloaded yet.");
+          setUserNotification(OFFLINE_MODEL_NOT_DOWNLOADED_MSG);
+          setIsGeneratingQuiz(false);
+          return { success: false, error: OFFLINE_MODEL_NOT_DOWNLOADED_MSG };
+        }
+
         try {
-          console.log("⚡ Device offline: Generating quiz via on-device Qwen model...");
+          console.log("⚡ Device offline: Generating quiz via on-device Qwen model (zero network calls)...");
           responseText = await askLocalQwen() || "";
         } catch (localErr: any) {
           console.error("Local Qwen error during quiz generation:", localErr);
@@ -10490,7 +10518,7 @@ Ensure these selected question types are distributed throughout the quiz questio
       }
 
       if (!responseText) {
-        responseText = await askGemini() || await askTogether() || await askOpenRouter() || await askLocalQwen() || "{}";
+        responseText = await askGemini() || await askTogether() || await askOpenRouter() || (isOmniBrainDownloaded() ? await askLocalQwen() : null) || "{}";
       }
       let data = robustJSONParse(responseText);
 
@@ -10515,7 +10543,7 @@ Ensure these selected question types are distributed throughout the quiz questio
 
       updatePageMeta(`Quiz: ${finalQuizTopic}`, `Take this ${questionsToUse.length}-question interactive quiz on Omni!`);
 
-      // Auto Capture: Add to history immediately when generated
+      // Auto Capture: Add to history immediately when generated (persisted to localStorage)
       const historyItem: HomeHistoryItem = {
         id: genId,
         title: finalQuizTopic,
@@ -10529,32 +10557,34 @@ Ensure these selected question types are distributed throughout the quiz questio
       };
       addToFinishedHistory(historyItem);
 
-      // Auto Save to Firestore so generated quiz can be accessed via link
-      const cleanGenId = genId.replace(/^quiz-/, '');
-      const autoQuizPayload = {
-        questions: questionsToUse,
-        topic: finalQuizTopic,
-        difficulty: activeDifficulty || 'Medium',
-        createdBy: user?.uid || 'anonymous',
-        createdAt: new Date().toISOString()
-      };
-      Promise.all([
-        setDoc(doc(db, 'quizzes', genId), autoQuizPayload, { merge: true }),
-        setDoc(doc(db, 'quizzes', cleanGenId), autoQuizPayload, { merge: true })
-      ]).catch(err => console.error("Error auto-saving generated quiz to Firestore:", err));
+      // Only perform Firestore and cloud activity synchronization when online (Zero network calls when offline)
+      if (!isDeviceOffline) {
+        const cleanGenId = genId.replace(/^quiz-/, '');
+        const autoQuizPayload = {
+          questions: questionsToUse,
+          topic: finalQuizTopic,
+          difficulty: activeDifficulty || 'Medium',
+          createdBy: user?.uid || 'anonymous',
+          createdAt: new Date().toISOString()
+        };
+        Promise.all([
+          setDoc(doc(db, 'quizzes', genId), autoQuizPayload, { merge: true }),
+          setDoc(doc(db, 'quizzes', cleanGenId), autoQuizPayload, { merge: true })
+        ]).catch(err => console.error("Error auto-saving generated quiz to Firestore:", err));
 
-      if (user) {
-        const finalTopic = activeTopic || finalQuizTopic || 'Visual Materials Quiz';
-        const nameHandle = currentUserData?.username || currentUserData?.displayName || 'Scholar';
-        addDoc(collection(db, 'activities'), {
-          type: 'quiz_generated',
-          text: `${nameHandle} generated a quiz on "${finalTopic}", try yours!`,
-          username: nameHandle,
-          userId: user.uid,
-          userPhoto: currentUserData?.photoURL || '',
-          timestamp: serverTimestamp() || new Date(),
-          topic: finalTopic
-        }).catch((err) => console.error("Error saving global activity:", err));
+        if (user) {
+          const finalTopic = activeTopic || finalQuizTopic || 'Visual Materials Quiz';
+          const nameHandle = currentUserData?.username || currentUserData?.displayName || 'Scholar';
+          addDoc(collection(db, 'activities'), {
+            type: 'quiz_generated',
+            text: `${nameHandle} generated a quiz on "${finalTopic}", try yours!`,
+            username: nameHandle,
+            userId: user.uid,
+            userPhoto: currentUserData?.photoURL || '',
+            timestamp: serverTimestamp() || new Date(),
+            topic: finalTopic
+          }).catch((err) => console.error("Error saving global activity:", err));
+        }
       }
 
       return {
