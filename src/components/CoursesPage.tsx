@@ -655,9 +655,9 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
     return false;
   };
 
-  // Handle Take Quiz on Course Materials
+  // Handle Take Quiz on Course Materials (Loads materials into Quiz Tool without auto-generating)
   const handleTakeQuizOnCourse = (course: CourseMaterial) => {
-    const textContent = `# ${course.code}: ${course.title}\n**Faculty**: ${course.faculty} | **Department**: ${course.department}\n\n${course.notes || 'Comprehensive course study materials.'}`;
+    const cleanTopic = `${course.code}: ${course.title}`;
     const docItems = (course.attachedDocs || []).map((att: any, idx: number) => ({
       id: att.id || `doc-${Date.now()}-${idx}`,
       name: att.name || `${course.code}_document_${idx + 1}.pdf`,
@@ -681,7 +681,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
       });
     }
     if (setQuizTopic) {
-      setQuizTopic(textContent);
+      setQuizTopic(cleanTopic);
     }
     if (setActiveTab) {
       setActiveTab('tools');
@@ -690,7 +690,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
       setToolsSubTab('quiz');
     }
     if (setUserNotification) {
-      setUserNotification(`Loaded "${course.code}" with ${docItems.length} document(s). Tap "Create quiz" to generate!`);
+      setUserNotification(`Loaded course "${course.code}". Choose difficulty & number of questions, then tap "Create quiz"!`);
     }
   };
 
@@ -1445,7 +1445,10 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-black/30 pointer-events-none" />
 
             {/* Overlaid Header Controls (Back, Share, Like) */}
-            <div className="absolute top-4 left-4 right-4 flex items-center justify-between z-20">
+            <div 
+              className="absolute left-4 right-4 flex items-center justify-between z-20"
+              style={{ top: 'max(16px, calc(env(safe-area-inset-top, 0px) + 12px))' }}
+            >
               {/* Back Button */}
               <button 
                 onClick={() => setSelectedCourse(null)}

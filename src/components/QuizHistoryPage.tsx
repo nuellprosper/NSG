@@ -35,7 +35,10 @@ export const QuizHistoryPage: React.FC<QuizHistoryPageProps> = ({
       className="space-y-6 pb-24 max-w-4xl mx-auto px-3 sm:px-6 font-sans text-left"
     >
       {/* Top Bar */}
-      <div className="flex items-center justify-between border-b border-white/10 pb-4">
+      <div 
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 8px)' }}
+        className="flex items-center justify-between border-b border-white/10 pb-4"
+      >
         <button
           onClick={() => setActiveTab('home')}
           className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 text-white/80 hover:text-white transition-all text-xs font-bold cursor-pointer"

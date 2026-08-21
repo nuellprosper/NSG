@@ -982,7 +982,10 @@ export const TimeTable: React.FC<TimeTableProps> = ({
       />
 
       {/* Top Header */}
-      <div className="flex items-center justify-between px-2">
+      <div 
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 8px)' }}
+        className="flex items-center justify-between px-2"
+      >
         <div className="flex items-center gap-3">
           <button 
             onClick={() => {

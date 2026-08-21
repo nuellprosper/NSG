@@ -487,7 +487,10 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
     <div className="flex flex-col h-full bg-[#0F0E17] text-slate-100 overflow-hidden relative font-sans">
       
       {/* Top Header */}
-      <div className="px-4 py-3 bg-[#0F0E17]/90 backdrop-blur-md border-b border-white/5 flex items-center justify-between shrink-0 z-10">
+      <div 
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)' }}
+        className="px-4 pb-3 bg-[#0F0E17]/90 backdrop-blur-md border-b border-white/5 flex items-center justify-between shrink-0 z-10"
+      >
         <button 
           id="omni_back_nav_btn"
           onClick={() => setShowHistoryDrawer(true)}

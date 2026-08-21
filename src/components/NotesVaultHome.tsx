@@ -233,11 +233,14 @@ export const NotesVaultHome: React.FC<NotesVaultHomeProps> = ({
       theme === 'dark' ? 'bg-[#090B0E] text-white' : 'bg-[#F8FAFC] text-slate-900'
     }`}>
       {/* 1. TOP HEADER BAR: USER AVATAR, NAME, OPTIONS MENU */}
-      <div className={`sticky top-0 z-30 px-4 sm:px-6 py-3 flex items-center justify-between backdrop-blur-md border-b transition-colors ${
-        theme === 'dark' 
-          ? 'bg-[#0D1017]/90 border-white/10 text-white' 
-          : 'bg-white/90 border-slate-200 text-slate-900'
-      }`}>
+      <div 
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)' }}
+        className={`sticky top-0 z-30 px-4 sm:px-6 pb-3 flex items-center justify-between backdrop-blur-md border-b transition-colors ${
+          theme === 'dark' 
+            ? 'bg-[#0D1017]/90 border-white/10 text-white' 
+            : 'bg-white/90 border-slate-200 text-slate-900'
+        }`}
+      >
         <div className="flex items-center gap-3">
           {onBack && (
             <button

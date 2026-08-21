@@ -752,9 +752,12 @@ export const NoteEditorPage: React.FC<NoteEditorPageProps> = ({
       theme === 'dark' ? 'bg-[#181920] text-white' : 'bg-[#F8FAFC] text-[#0F172A]'
     }`}>
       {/* 1. TOP BAR */}
-      <div className={`sticky top-0 z-30 px-3 sm:px-6 py-2.5 flex items-center justify-between border-b shrink-0 backdrop-blur-md ${
-        theme === 'dark' ? 'bg-[#181920]/95 border-white/10 text-white' : 'bg-white/95 border-slate-200 text-slate-900'
-      }`}>
+      <div 
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 10px)' }}
+        className={`sticky top-0 z-30 px-3 sm:px-6 pb-2.5 flex items-center justify-between border-b shrink-0 backdrop-blur-md ${
+          theme === 'dark' ? 'bg-[#181920]/95 border-white/10 text-white' : 'bg-white/95 border-slate-200 text-slate-900'
+        }`}
+      >
         <div className="flex items-center gap-2 min-w-0">
           <button
             onClick={onBack}

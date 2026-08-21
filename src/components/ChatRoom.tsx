@@ -18,6 +18,7 @@ import { ChatList } from './ChatList';
 import { OmniChatWorkspace } from './OmniChatWorkspace';
 import { PeerChatWorkspace } from './PeerChatWorkspace';
 import { MessageOverlay } from './MessageOverlay';
+import { requestMicrophonePermission, getSupportedAudioMimeType } from '../lib/audioRecorder';
 
 const extractYoutubeLinks = (text: string): string[] => {
   if (!text) return [];
@@ -1639,13 +1640,28 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      await requestMicrophonePermission();
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true }
+        });
+      } catch (e) {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+
+      const preferredMime = getSupportedAudioMimeType();
+      const recorder = preferredMime 
+        ? new MediaRecorder(stream, { mimeType: preferredMime }) 
+        : new MediaRecorder(stream);
       const chunks: Blob[] = [];
 
-      recorder.ondataavailable = (e) => chunks.push(e.data);
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunks.push(e.data);
+      };
       recorder.onstop = async () => {
-        const blob = new Blob(chunks, { type: 'audio/webm' });
+        const mime = recorder.mimeType || 'audio/webm';
+        const blob = new Blob(chunks, { type: mime });
         setIsUploading(true);
         try {
           const url = await uploadToCloudinary(blob);

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cleanTextForSpeech } from '../lib/tts';
-import { robustJSONParse } from '../utils';
+import { robustJSONParse, getAiInstance } from '../utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -77,49 +77,6 @@ export const AILibrary: React.FC<{
 
   // AI Helpers
   const MODEL_NAME = "gemini-3.1-flash-lite";
-  
-  const getAiInstance = () => {
-    const key = (typeof process !== 'undefined' && process.env ? process.env.GEMINI_API_KEY : '') ||
-                (import.meta.env ? (import.meta.env.VITE_GEMINI_API_KEY || (import.meta.env as any).GEMINI_API_KEY) : '');
-    if (!key) throw new Error("Gemini API Key is missing. Please check your environment variables.");
-    const instance = new GoogleGenAI({ apiKey: key });
-    
-    if (instance.models && typeof instance.models.generateContent === 'function') {
-      const originalGenerateContent = instance.models.generateContent.bind(instance.models);
-      instance.models.generateContent = async (...args: any[]) => {
-        let lastError: any = null;
-        for (let attempt = 1; attempt <= 4; attempt++) {
-          try {
-            return await originalGenerateContent(...args);
-          } catch (err: any) {
-            lastError = err;
-            const errMsg = String(err.message || err);
-            console.warn(`[AI Library Attempt ${attempt} failed]:`, errMsg);
-            
-            const containsBusy = errMsg.toLowerCase().includes("model") || 
-                                 errMsg.toLowerCase().includes("spikes") || 
-                                 errMsg.toLowerCase().includes("experiencing") ||
-                                 errMsg.toLowerCase().includes("rate limit") ||
-                                 errMsg.toLowerCase().includes("quota") ||
-                                 errMsg.toLowerCase().includes("busy");
-                                 
-            if (attempt < 4) {
-              await new Promise(resolve => setTimeout(resolve, 800 * attempt));
-              continue;
-            }
-            
-            if (containsBusy) {
-              throw new Error("(the Ai is busy try again sooner)");
-            } else {
-              throw new Error("something went wrong, click the generate button again");
-            }
-          }
-        }
-        throw lastError || new Error("something went wrong, click the generate button again");
-      };
-    }
-    return instance;
-  };
 
   const fileToGenerativePart = async (file: File) => {
     const base64EncodedDataPromise = new Promise<string>((resolve) => {
@@ -515,7 +472,10 @@ export const AILibrary: React.FC<{
   return (
     <div className={`flex flex-col h-full ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
       {/* FIXED HEADER */}
-      <header className="sticky top-0 z-50 backdrop-blur-xl bg-white/5 border-b border-white/10 p-4 flex items-center justify-between">
+      <header 
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 14px)' }}
+        className="sticky top-0 z-50 backdrop-blur-xl bg-white/5 border-b border-white/10 px-4 pb-4 flex items-center justify-between"
+      >
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 bg-[#DC2626] rounded-lg flex items-center justify-center shadow-lg shadow-[#DC2626]/20">
             <Zap size={18} className="text-white" />

@@ -1,27 +1,30 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
-import { AlertTriangle, RefreshCw, Trash2 } from 'lucide-react';
+import { AlertTriangle, RefreshCw, Trash2, Copy, Check } from 'lucide-react';
 
 interface Props {
   children: ReactNode;
+  fallback?: ReactNode;
 }
 
 interface State {
   hasError: boolean;
   error: any;
+  copied: boolean;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
   public state: State = {
     hasError: false,
-    error: null
+    error: null,
+    copied: false
   };
 
   public static getDerivedStateFromError(error: any): State {
-    return { hasError: true, error };
+    return { hasError: true, error, copied: false };
   }
 
   public componentDidCatch(error: any, errorInfo: ErrorInfo) {
-    console.error("Uncaught error in application:", error, errorInfo);
+    console.error("Uncaught error in application render tree:", error, errorInfo);
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
         localStorage.removeItem('nsg_current_quiz_progress');
@@ -41,6 +44,7 @@ export class ErrorBoundary extends Component<Props, State> {
         localStorage.removeItem('nsg_active_tab');
       }
     } catch (e) {}
+    this.setState({ hasError: false, error: null });
     if (typeof window !== 'undefined') {
       window.location.reload();
     }
@@ -72,6 +76,16 @@ export class ErrorBoundary extends Component<Props, State> {
     }
   };
 
+  private handleCopyError = () => {
+    const msg = this.getErrorMessage();
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(msg).then(() => {
+        this.setState({ copied: true });
+        setTimeout(() => this.setState({ copied: false }), 2000);
+      }).catch(() => {});
+    }
+  };
+
   private getErrorMessage = (): string => {
     const err = this.state.error;
     if (!err) return 'An unexpected error occurred while rendering.';
@@ -89,6 +103,9 @@ export class ErrorBoundary extends Component<Props, State> {
 
   public render() {
     if (this.state.hasError) {
+      if (this.props.fallback) {
+        return this.props.fallback;
+      }
       const errorMessage = this.getErrorMessage();
 
       return (
@@ -105,8 +122,16 @@ export class ErrorBoundary extends Component<Props, State> {
               </p>
             </div>
 
-            <div className="bg-black/40 border border-white/5 rounded-xl p-3 text-left overflow-x-auto max-h-28 custom-scrollbar">
-              <p className="text-[10px] font-mono text-red-400 break-all">{errorMessage}</p>
+            <div className="bg-black/40 border border-white/5 rounded-xl p-3 text-left overflow-x-auto max-h-28 custom-scrollbar relative group">
+              <p className="text-[10px] font-mono text-red-400 break-all pr-6">{errorMessage}</p>
+              <button
+                type="button"
+                onClick={this.handleCopyError}
+                className="absolute top-2 right-2 p-1 bg-white/10 hover:bg-white/20 rounded text-white/70 hover:text-white transition-all text-[10px]"
+                title="Copy error"
+              >
+                {this.state.copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+              </button>
             </div>
 
             <div className="space-y-2.5 pt-2">

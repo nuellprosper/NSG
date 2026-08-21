@@ -420,14 +420,14 @@ export const HomePage: React.FC<HomePageProps> = ({
   return (
     <div 
       id="home-page-container" 
-      className={`min-h-screen pb-24 transition-colors duration-300 ${
+      className={`min-h-screen pb-48 sm:pb-52 transition-colors duration-300 ${
         theme === 'dark' ? 'bg-[#0B0813] text-white' : 'bg-slate-50 text-slate-900'
       }`}
     >
-      {/* 1. SIGNATURE LIGHT PURPLE TOP PATCH (Sticky header - stationary with scrolling content underneath) */}
+      {/* 1. SIGNATURE LIGHT PURPLE TOP PATCH (Smooth natural scrolling header with generous viewport for content) */}
       <div 
         style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)' }}
-        className="sticky top-0 z-40 bg-gradient-to-b from-purple-600 via-purple-600 to-purple-500 text-white pb-6 px-4 sm:px-6 rounded-b-[2.5rem] shadow-xl overflow-visible"
+        className="relative z-20 bg-gradient-to-b from-purple-600 via-purple-600 to-purple-500 text-white pb-6 px-4 sm:px-6 rounded-b-[2.5rem] shadow-xl overflow-visible"
       >
         {/* Subtle decorative background topography contour lines */}
         <div className="absolute inset-0 opacity-10 pointer-events-none overflow-hidden rounded-b-[2.5rem]">
@@ -555,7 +555,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                     animate={{ opacity: 1, scale: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.95, y: 8 }}
                     transition={{ duration: 0.15 }}
-                    className={`absolute right-0 top-full mt-2 w-64 rounded-2xl p-3 shadow-2xl border z-[80] ${
+                    className={`absolute right-0 top-full mt-2 w-64 rounded-2xl p-3 shadow-2xl border z-[110] ${
                       theme === 'dark' ? 'bg-[#181427] border-purple-500/30 text-white' : 'bg-white border-slate-200 text-slate-900'
                     }`}
                   >
@@ -606,7 +606,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                   initial={{ opacity: 0, y: -5 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -5 }}
-                  className={`absolute left-0 right-0 top-full mt-2 rounded-2xl p-3 shadow-2xl border max-h-80 overflow-y-auto z-[90] ${
+                  className={`absolute left-0 right-0 top-full mt-2 rounded-2xl p-3 shadow-2xl border max-h-80 overflow-y-auto z-[120] ${
                     theme === 'dark' ? 'bg-[#181427] border-purple-500/40 text-white shadow-purple-950/60' : 'bg-white border-slate-200 text-slate-900 shadow-slate-900/20'
                   }`}
                 >

@@ -181,7 +181,10 @@ export const ChatList: React.FC<ChatListProps> = ({
   return (
     <div className="flex flex-col h-full bg-[#13111C] border-r border-white/5 relative overflow-hidden">
       {/* Sticky Top-aligned Header Component */}
-      <div className="sticky top-0 z-30 bg-gradient-to-b from-[#181628] to-[#13111C]/95 backdrop-blur-md px-6 py-4 border-b border-white/5 shrink-0">
+      <div 
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 14px)' }}
+        className="sticky top-0 z-30 bg-gradient-to-b from-[#181628] to-[#13111C]/95 backdrop-blur-md px-6 pb-4 border-b border-white/5 shrink-0"
+      >
         <div className="flex items-center justify-between">
           <div className="flex items-center justify-between w-full">
             <h1 className="text-md font-black uppercase tracking-tighter italic text-white flex items-center gap-2">

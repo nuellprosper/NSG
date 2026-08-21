@@ -191,7 +191,10 @@ export const ClassRoom: React.FC<ClassRoomProps> = ({
     <div className={`flex flex-col h-full ${theme === 'dark' ? 'bg-[#0A0714] text-white' : 'bg-slate-50 text-slate-900'} relative overflow-hidden`}>
       
       {/* Upper Professional Header */}
-      <div className="p-4 bg-[#120F1F]/90 backdrop-blur-md border-b border-white/5 flex items-center justify-between z-20">
+      <div 
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 14px)' }}
+        className="p-4 bg-[#120F1F]/90 backdrop-blur-md border-b border-white/5 flex items-center justify-between z-20"
+      >
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-gradient-to-r from-red-600 to-rose-500 rounded-xl flex items-center justify-center shadow-lg shadow-red-600/20">
             <Video size={20} className="text-white animate-pulse" />
