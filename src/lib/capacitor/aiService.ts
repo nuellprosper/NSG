@@ -1,12 +1,13 @@
 import { checkNetworkStatus, isNativePlatform } from './platform';
 import { 
   runLocalQwenInference, 
+  cleanupLlamaModel,
   AIRequestPayload, 
   AIResponseResult, 
   initWebLlmQwen,
   getQwenProgressState
 } from './aiEngine';
-import { isOmniBrainDownloaded, getOmniBrainState } from './omniBrainDownloader';
+import { isOmniBrainDownloaded, getOmniBrainState, getSavedModelPath, ESTIMATED_TOTAL_BYTES } from './omniBrainDownloader';
 
 export interface AIStatusOverview {
   isOnline: boolean;
@@ -16,7 +17,7 @@ export interface AIStatusOverview {
 }
 
 export const OFFLINE_MODEL_NOT_DOWNLOADED_MSG = 
-  "⚠️ Offline AI Notice: You are currently offline, and the offline Qwen AI Model has not been downloaded yet. Please connect to the internet once and download the offline model in Settings > Omni Brain to enable 100% offline study & quiz generation.";
+  "⚠️ Offline AI Notice: You are currently offline, and the offline Qwen 0.5B AI Model (~398.5 MB) has not been downloaded yet. Please connect to the internet once and download the offline model in Settings > Omni Brain to enable 100% offline study & quiz generation.";
 
 /**
  * Check if the on-device Qwen model weights are downloaded and ready
@@ -24,6 +25,8 @@ export const OFFLINE_MODEL_NOT_DOWNLOADED_MSG =
 export function isLocalQwenModelDownloaded(): boolean {
   return isOmniBrainDownloaded();
 }
+
+export { cleanupLlamaModel, getSavedModelPath };
 
 /**
  * Get comprehensive network and AI model availability status
@@ -36,8 +39,8 @@ export async function getNetworkAndAIStatus(): Promise<AIStatusOverview> {
   let statusMessage = "Online - Cloud AI Active";
   if (!isOnline) {
     statusMessage = isModelDownloaded 
-      ? "Offline - On-Device Qwen AI Active" 
-      : "Offline - Model Not Downloaded";
+      ? "Offline - On-Device Qwen Native AI Active" 
+      : "Offline - Model Not Downloaded (~398.5 MB needed)";
   }
 
   return {
@@ -51,7 +54,7 @@ export async function getNetworkAndAIStatus(): Promise<AIStatusOverview> {
 /**
  * Core AI Service Executor
  * 
- * Routes tasks to Cloud APIs when online, or to the On-Device Qwen Local Engine when offline.
+ * Routes tasks to Cloud APIs when online, or to the On-Device Qwen Native Engine when offline.
  * Enforces strict offline isolation (zero backend/Firebase/external API calls when offline).
  */
 export async function executeAITask(
@@ -64,11 +67,11 @@ export async function executeAITask(
   // 1. OFFLINE EXECUTION PATH
   if (!isOnline) {
     if (!isModelReady) {
-      console.warn("⚠️ Offline AI Task blocked: Qwen model is not downloaded yet.");
+      console.warn("⚠️ Offline AI Task blocked: Qwen GGUF model is not downloaded yet.");
       throw new Error(OFFLINE_MODEL_NOT_DOWNLOADED_MSG);
     }
 
-    console.log("⚡ [AI Service] Device is offline. Routing directly to On-Device Qwen Local Engine (Zero network requests).");
+    console.log("⚡ [AI Service] Device is offline. Routing directly to On-Device Native Qwen Engine (RAM-infused).");
     try {
       const localResultText = await runLocalQwenInference(payload);
       return {
@@ -105,7 +108,7 @@ export async function executeAITask(
       if (isConnectionIssue) {
         console.warn("⚠️ Cloud AI fetch encountered a network failure. Evaluating local Qwen fallback...", networkErr);
         if (isModelReady) {
-          console.log("⚡ [AI Service] Falling back to On-Device Qwen Local Engine...");
+          console.log("⚡ [AI Service] Falling back to On-Device Qwen Native Engine...");
           const fallbackText = await runLocalQwenInference(payload);
           return {
             text: fallbackText,
@@ -113,13 +116,13 @@ export async function executeAITask(
             engine: 'on-device-qwen'
           };
         } else {
-          throw new Error(`Network connection failed. To use AI while offline, please download the offline model in Settings > Omni Brain. (${networkErr?.message || 'Network error'})`);
+          throw new Error(`Network connection failed. To use AI while offline, please download the offline Qwen 0.5B model (~398.5 MB) in Settings > Omni Brain. (${networkErr?.message || 'Network error'})`);
         }
       }
 
       // If it's a quota or rate-limit issue, also attempt local model if downloaded
       if (isModelReady && (errMsg.includes("quota") || errMsg.includes("rate limit") || errMsg.includes("busy") || errMsg.includes("429"))) {
-        console.log("⚡ [AI Service] Cloud quota reached. Falling back to On-Device Qwen Local Engine...");
+        console.log("⚡ [AI Service] Cloud quota reached. Falling back to On-Device Qwen Native Engine...");
         const fallbackText = await runLocalQwenInference(payload);
         return {
           text: fallbackText,

@@ -2,7 +2,6 @@ import { isNativePlatform } from './platform';
 import { 
   GoogleAuthProvider, 
   signInWithPopup, 
-  signInWithRedirect, 
   signInWithCredential, 
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -14,7 +13,9 @@ const GOOGLE_WEB_CLIENT_ID = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string) |
   '780956680320-g2gripd8rmlalln7flapch5el5bijpbb.apps.googleusercontent.com';
 
 /**
- * Perform Google Authentication dynamically across Native Capacitor APK and Web
+ * Perform Google Authentication dynamically across Native Android/iOS (Capacitor) and Web
+ * Uses native account picker with signInWithCredential on mobile, or signInWithPopup in browser.
+ * Strictly avoids signInWithRedirect to prevent mobile WebView sessionStorage state loss.
  */
 export async function performGoogleAuth(authInstance: Auth): Promise<any> {
   const isNative = isNativePlatform();
@@ -45,23 +46,32 @@ export async function performGoogleAuth(authInstance: Auth): Promise<any> {
           const idToken = googleUser?.authentication?.idToken || googleUser?.idToken || (googleUser as any)?.serverAuthCode;
           const accessToken = googleUser?.authentication?.accessToken || (googleUser as any)?.accessToken;
           
-          // 1. Try Firebase signInWithCredential if tokens are present
-          if (idToken || accessToken) {
+          // 1. Firebase signInWithCredential with native ID token
+          if (idToken) {
             try {
-              const credential = idToken 
-                ? GoogleAuthProvider.credential(idToken, accessToken || null)
-                : GoogleAuthProvider.credential(null, accessToken);
+              const credential = GoogleAuthProvider.credential(idToken, accessToken || null);
               const userCred = await signInWithCredential(authInstance, credential);
               if (userCred && userCred.user) {
-                console.log('Native Firebase credential sign-in success:', userCred.user.email);
+                console.log('Native Firebase credential sign-in success with idToken:', userCred.user.email);
                 return userCred;
               }
             } catch (credErr: any) {
-              console.warn('Firebase signInWithCredential error, attempting verified email sync:', credErr);
+              console.warn('Firebase signInWithCredential with idToken error:', credErr);
+            }
+          } else if (accessToken) {
+            try {
+              const credential = GoogleAuthProvider.credential(null, accessToken);
+              const userCred = await signInWithCredential(authInstance, credential);
+              if (userCred && userCred.user) {
+                console.log('Native Firebase credential sign-in success with accessToken:', userCred.user.email);
+                return userCred;
+              }
+            } catch (accessErr: any) {
+              console.warn('Firebase signInWithCredential with accessToken error:', accessErr);
             }
           }
 
-          // 2. If token exchange was omitted by Google Play Services, use the OS-verified Google profile
+          // 2. If token exchange was omitted by Google Play Services, sync verified account
           if (googleUser.email) {
             const userEmail = googleUser.email.toLowerCase().trim();
             const deterministicPass = `NSG_GAuth_${googleUser.id || userEmail.replace(/[^a-zA-Z0-9]/g, '_')}_#2026`;
@@ -101,7 +111,7 @@ export async function performGoogleAuth(authInstance: Auth): Promise<any> {
           ) {
             throw new Error('Sign in cancelled by user.');
           }
-          // If native plugin failed due to missing SHA-1 or credentials, continue to fallback below
+          // If native plugin failed due to configuration, proceed to popup fallback below
         }
       }
     } catch (importErr: any) {
@@ -109,7 +119,7 @@ export async function performGoogleAuth(authInstance: Auth): Promise<any> {
     }
   }
 
-  // Web & Capacitor WebView Fallback
+  // Web & Browser Fallback: Always use signInWithPopup (never signInWithRedirect)
   const provider = new GoogleAuthProvider();
   provider.addScope('email');
   provider.addScope('profile');
@@ -118,21 +128,12 @@ export async function performGoogleAuth(authInstance: Auth): Promise<any> {
   try {
     return await signInWithPopup(authInstance, provider);
   } catch (err: any) {
-    console.warn("signInWithPopup failed or was blocked in webview/iframe:", err);
-    if (
-      err?.code === 'auth/popup-blocked' || 
-      err?.code === 'auth/cancelled-popup-request' ||
-      err?.code === 'auth/popup-closed-by-user' ||
-      err?.code === 'auth/operation-not-supported-in-this-environment' ||
-      err?.message?.includes('popup')
-    ) {
-      console.log("Attempting fallback signInWithRedirect...");
-      try {
-        return await signInWithRedirect(authInstance, provider);
-      } catch (redirectErr: any) {
-        console.warn("signInWithRedirect fallback error:", redirectErr);
-        throw redirectErr;
-      }
+    console.warn("signInWithPopup error:", err);
+    if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
+      throw new Error('Sign-in popup was closed.');
+    }
+    if (err?.code === 'auth/popup-blocked') {
+      throw new Error('Sign-in popup was blocked by the browser. Please allow popups for this site.');
     }
     throw err;
   }
