@@ -24,7 +24,7 @@ import { increment, deleteField } from 'firebase/firestore';
 import { toPng } from 'html-to-image';
 import axios from 'axios';
 import { 
-  auth, db, googleProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged,
+  auth, db, googleProvider, signInWithPopup, signOut, onAuthStateChanged,
   doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, onSnapshot, getDocs, addDoc, serverTimestamp, orderBy, limit, arrayUnion,
   createUserWithEmailAndPassword, signInWithEmailAndPassword,
   FirestoreOperation, handleFirestoreError, circularSafeStringify, sanitizeData,
@@ -66,6 +66,7 @@ import {
   isCapacitorNative, 
   requestAppPermissions, 
   runLocalQwenInference, 
+  cleanupLlamaModel,
   scheduleLocalNotification,
   isOmniBrainDownloaded,
   executeAITask,
@@ -4647,22 +4648,19 @@ export default function App() {
       return () => clearInterval(hb);
     }, [user]);
 
+  // Memory Management: Release native Llama C++ model context from RAM when leaving AI chat/tools
+  useEffect(() => {
+    if (activeTab !== 'chat') {
+      cleanupLlamaModel().catch(() => {});
+    }
+  }, [activeTab]);
+
   const userUnsubscribeRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     console.log("App Initialized. Checking API Keys...");
     console.log("Gemini Key Found:", !!getApiKey());
     console.log("HF Key Found:", !!getHfKey());
-
-    // Resolve any pending Google Sign-In redirect from native webview or mobile browser
-    getRedirectResult(auth).then((cred) => {
-      if (cred && cred.user) {
-        console.log("Successfully resolved Google Redirect login:", cred.user.email);
-        setUserNotification("Welcome back! Signed in with Google.");
-      }
-    }).catch((redirectErr) => {
-      console.warn("getRedirectResult resolution note:", redirectErr);
-    });
 
     // Safety fallback timer to prevent indefinite auth loading screen
     const authSafetyTimeout = setTimeout(() => {
