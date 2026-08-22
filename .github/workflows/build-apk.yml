@@ -16,8 +16,8 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install Dependencies
-        run: npm install --legacy-peer-deps
+      - name: Install All Dependencies (Including Native Plugins)
+        run: npm install @capacitor/android llama-cpp-capacitor @capacitor/filesystem --legacy-peer-deps
 
       - name: Build Web Assets
         run: npm run build
@@ -28,9 +28,6 @@ jobs:
             echo "Android folder missing. Adding platform..."
             npx cap add android
           fi
-
-      - name: Install Android Native Dependencies
-        run: npm install @capacitor/android llama-cpp-capacitor @capacitor/filesystem --legacy-peer-deps
 
       - name: Sync Capacitor
         run: npx cap sync android
