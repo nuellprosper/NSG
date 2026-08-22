@@ -11,7 +11,7 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -22,10 +22,20 @@ jobs:
       - name: Build Web Assets
         run: npm run build
 
+      - name: Ensure Android Platform Exists
+        run: |
+          if [ ! -d "android" ]; then
+            echo "Android folder missing. Adding platform..."
+            npx cap add android
+          fi
+
+      - name: Install Android Native Dependencies
+        run: npm install @capacitor/android llama-cpp-capacitor @capacitor/filesystem --legacy-peer-deps
+
       - name: Sync Capacitor
         run: npx cap sync android
 
-      - name: Setup Java JDK
+      - name: Setup Java JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
@@ -41,8 +51,8 @@ jobs:
           cd android
           ./gradlew assembleDebug
 
-      - name: Upload APK to Download
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nsg-offline-ai
+          name: NSG
           path: android/app/build/outputs/apk/debug/app-debug.apk
