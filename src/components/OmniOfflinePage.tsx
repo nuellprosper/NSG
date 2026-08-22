@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { 
   ArrowLeft, Download, CheckCircle2, Pause, Play, ArrowDown,
-  Wifi, WifiOff, HardDrive, ShieldCheck, RefreshCw, Trash2, Cpu
+  Wifi, WifiOff, HardDrive, ShieldCheck, RefreshCw, Trash2, Cpu, Zap
 } from 'lucide-react';
 import { 
   subscribeOmniBrainState, 
@@ -9,7 +9,8 @@ import {
   pauseOmniBrainDownload, 
   deleteOmniBrainModel,
   initOmniBrainStatus,
-  OmniBrainDownloadState
+  OmniBrainDownloadState,
+  ESTIMATED_TOTAL_BYTES
 } from '../lib/capacitor';
 
 interface OmniOfflinePageProps {
@@ -28,12 +29,13 @@ export const OmniOfflinePage: React.FC<OmniOfflinePageProps> = ({
   const [downloadState, setDownloadState] = useState<OmniBrainDownloadState>({
     status: 'idle',
     downloadedBytes: 0,
-    totalBytes: 398500000,
+    totalBytes: ESTIMATED_TOTAL_BYTES,
     progressPercent: 0,
     speedFormatted: '0 KB/s',
     downloadedFormatted: '0 MB',
     totalFormatted: '398.5 MB',
     error: null,
+    modelPath: null,
     lastUpdated: Date.now()
   });
 
@@ -76,6 +78,11 @@ export const OmniOfflinePage: React.FC<OmniOfflinePageProps> = ({
           <ArrowLeft size={16} />
           <span>Back</span>
         </button>
+
+        <div className="flex items-center gap-2 text-[11px] font-mono text-purple-300/80 bg-purple-950/40 px-3 py-1 rounded-full border border-purple-500/20">
+          <Zap size={13} className="text-purple-400" />
+          <span>Qwen2.5-0.5B GGUF</span>
+        </div>
       </div>
 
       {/* Main Center Content */}
@@ -102,7 +109,7 @@ export const OmniOfflinePage: React.FC<OmniOfflinePageProps> = ({
             Omni Offline Brain
           </h1>
           <p className="text-xs sm:text-sm text-purple-200/70 max-w-sm mx-auto leading-relaxed">
-            Use all ai powered tools online.
+            Download the native Qwen 0.5B GGUF model (~398.5 MB) to run 100% offline AI in RAM with zero internet connection.
           </p>
         </div>
 
@@ -138,15 +145,15 @@ export const OmniOfflinePage: React.FC<OmniOfflinePageProps> = ({
               )}
             </button>
           ) : (
-            <div className="w-full max-w-xs py-3.5 px-6 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2">
+            <div className="w-full max-w-xs py-3.5 px-6 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/40">
               <ShieldCheck size={18} className="text-emerald-400" />
               <span>Omni Brain Active & Saved</span>
             </div>
           )}
 
-          {/* Text under download button as requested */}
+          {/* Text under download button */}
           <p className="text-[11px] font-medium text-white/50 tracking-wide">
-            {isCompleted ? 'Weights stored in IndexedDB persistence' : 'download Omni Brain'}
+            {isCompleted ? 'Saved permanently in device local storage' : 'Direct GGUF model download • Size: ~398.5 MB'}
           </p>
         </div>
 
@@ -169,7 +176,7 @@ export const OmniOfflinePage: React.FC<OmniOfflinePageProps> = ({
                   <span>{downloadState.speedFormatted}</span>
                 </div>
 
-                {/* Real-Time Percentage Text (RED while downloading, turns GREEN when 100% complete) */}
+                {/* Real-Time Percentage Text */}
                 <span className={`font-mono text-xs font-black tracking-tight ${
                   isCompleted 
                     ? 'text-emerald-400' 
@@ -180,7 +187,7 @@ export const OmniOfflinePage: React.FC<OmniOfflinePageProps> = ({
               </div>
             </div>
 
-            {/* Live Progress Bar with Thin Purple Container Stroke & Dynamic Green Fill */}
+            {/* Live Progress Bar */}
             <div className="w-full h-3.5 rounded-full bg-purple-950/40 p-[2px] border border-purple-500/40 overflow-hidden shadow-inner">
               <div
                 className={`h-full rounded-full transition-all duration-200 ${
@@ -209,11 +216,13 @@ export const OmniOfflinePage: React.FC<OmniOfflinePageProps> = ({
             {/* Delete / Reset option for completed model */}
             {isCompleted && (
               <div className="pt-2 flex items-center justify-between text-[11px] border-t border-white/10">
-                <span className="text-white/50">Stored locally in persistent memory</span>
+                <span className="text-white/50">
+                  {downloadState.modelPath ? 'GGUF loaded from device storage' : 'Saved in local storage'}
+                </span>
                 <button
                   type="button"
                   onClick={() => {
-                    if (window.confirm("Do you want to delete the offline Omni model weights from local storage?")) {
+                    if (window.confirm("Do you want to delete the offline Qwen model weights from local storage?")) {
                       deleteOmniBrainModel();
                     }
                   }}
@@ -255,7 +264,7 @@ export const OmniOfflinePage: React.FC<OmniOfflinePageProps> = ({
 
       {/* Bottom Footer Info */}
       <div className="w-full max-w-md mx-auto text-center text-[10px] text-white/40 pb-2">
-        <span>Resumable HTTP Range Chunks • IndexedDB Local Storage • High-Speed On-Device Engine</span>
+        <span>Native Llama C++ RAM Bridge • Direct GGUF File Download • @capacitor/filesystem</span>
       </div>
     </div>
   );
