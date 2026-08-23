@@ -46,15 +46,15 @@ jobs:
           cd android
           chmod +x gradlew
 
+      - name: Build Debug APK (Generates Keystore)
+        run: |
+          cd android
+          ./gradlew assembleDebug
+
       - name: Print SHA-1 Fingerprint for Firebase
         run: |
           cd android
           ./gradlew signingReport
-
-      - name: Build Debug APK
-        run: |
-          cd android
-          ./gradlew assembleDebug
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
