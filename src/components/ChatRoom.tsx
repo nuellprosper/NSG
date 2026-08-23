@@ -1390,7 +1390,13 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         saveOmniSessionsToStorage(updatedOmniSessions);
 
         setIsOmniThinking(true);
-        onTagOmni(text, selectedChat.id);
+        try {
+          await onTagOmni(text, selectedChat.id);
+        } catch (err) {
+          console.error("Omni AI dispatch error:", err);
+        } finally {
+          setIsOmniThinking(false);
+        }
         return;
       }
 
@@ -1436,7 +1442,13 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
       if (text.toLowerCase().includes('@omni')) {
         setIsOmniThinking(true);
-        onTagOmni(text, selectedChat.id);
+        try {
+          await onTagOmni(text, selectedChat.id);
+        } catch (err) {
+          console.error("Omni AI tag error:", err);
+        } finally {
+          setIsOmniThinking(false);
+        }
       }
     } catch (err) {
       console.error("Error sending message:", err);
