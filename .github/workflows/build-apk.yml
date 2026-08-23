@@ -46,6 +46,11 @@ jobs:
           cd android
           chmod +x gradlew
 
+      - name: Print SHA-1 Fingerprint for Firebase
+        run: |
+          cd android
+          ./gradlew signingReport
+
       - name: Build Debug APK
         run: |
           cd android
