@@ -155,15 +155,13 @@ export async function initWebLlmQwen(onProgress?: (progress: number, text: strin
  * 2. Retrieves absolute file path.
  * 3. Infuses model into device RAM via `initLlama({ model: savedModelPath, n_ctx: 2048, n_threads: 4 })`.
  * 4. Runs inference via `context.completion(...)`.
- * 5. Frees device RAM immediately via `releaseAllLlama()` to prevent OOM.
+ * 5. Frees device RAM immediately via `releaseAllLlama()` in a finally block to prevent OOM.
  */
 export async function runLocalQwenInference(payload: AIRequestPayload): Promise<string> {
   // 1. Storage & Download Validation Guard
   if (!isOmniBrainDownloaded()) {
     console.warn("⚠️ Offline AI execution requested, but Qwen GGUF model is not downloaded yet.");
-    throw new Error(
-      "⚠️ Offline AI Notice: The on-device Qwen 0.5B AI Model (~398.5 MB) is not downloaded yet. Please connect to the internet once and download the offline model in Settings > Omni Brain."
-    );
+    return "Omni Brain is not downloaded yet. Please go to Settings to download the offline model.";
   }
 
   const prompt = (payload.prompt || "").trim();
@@ -176,12 +174,13 @@ export async function runLocalQwenInference(payload: AIRequestPayload): Promise<
 
   const savedModelPath = getSavedModelPath();
   const formattedPrompt = formatQwenPrompt(payload);
-  const nPredict = payload.maxTokens || 500;
+  const nPredict = payload.maxTokens || 512;
   const temperature = payload.responseMimeType === 'application/json' ? 0.2 : 0.7;
 
   console.log(`🤖 [Native Llama C++] Initiating on-device inference for prompt with model at: ${savedModelPath}`);
 
   // 2. NATIVE LLAMA C++ RAM EXECUTION (Primary Android/Capacitor Engine)
+  let nativeLlamaError: any = null;
   try {
     const { initLlama, releaseAllLlama } = await import('llama-cpp-capacitor');
     
@@ -208,13 +207,18 @@ export async function runLocalQwenInference(payload: AIRequestPayload): Promise<
     } finally {
       // Memory Management: Free up RAM immediately after task completion to prevent OOM
       console.log('🧹 [Native Llama C++] Releasing model from RAM after task completion...');
-      await releaseAllLlama();
+      try {
+        await releaseAllLlama();
+      } catch (cleanupErr) {
+        console.warn("⚠️ releaseAllLlama cleanup warning:", cleanupErr);
+      }
     }
-  } catch (nativeLlamaErr: any) {
-    console.warn("⚠️ Native Llama C++ bridge execution note:", nativeLlamaErr);
+  } catch (err: any) {
+    nativeLlamaError = err;
+    console.warn("⚠️ Native Llama C++ bridge execution note:", err);
   }
 
-  // 3. WEBGPU / BROWSER FALLBACK
+  // 3. WEBGPU / BROWSER FALLBACK (for Web development / Chrome WebGPU)
   try {
     let engine = mlcEngineInstance;
     if (!engine && typeof navigator !== 'undefined' && 'gpu' in navigator && !currentProgressState.error) {
@@ -236,7 +240,7 @@ export async function runLocalQwenInference(payload: AIRequestPayload): Promise<
       });
 
       const resultText = completion.choices[0]?.message?.content?.trim();
-      if (resultText && resultText.length > 5) {
+      if (resultText && resultText.length > 0) {
         return resultText;
       }
     }
@@ -244,69 +248,11 @@ export async function runLocalQwenInference(payload: AIRequestPayload): Promise<
     console.warn('⚠️ WebLLM WebGPU execution note:', webGpuErr);
   }
 
-  // 4. DYNAMIC ON-DEVICE CONTEXT PARSER (Ensures zero mock templates and dynamic contextual output)
-  const docMatches = prompt.match(/ATTACHED STUDY DOCUMENT \d+:.*?\n([\s\S]*?)(?=--- END OF DOCUMENT|\n\n|$)/gi) || [];
-  const noteMatches = prompt.match(/study note titled.*?\n"""\n([\s\S]*?)\n"""/gi) || [];
-  
-  const extractedTextChunks: string[] = [];
-  docMatches.forEach((m: string) => {
-    const clean = String(m).replace(/--- ATTACHED STUDY DOCUMENT \d+:.*?---\n/gi, '').trim();
-    if (clean) extractedTextChunks.push(clean);
-  });
-  noteMatches.forEach((m: string) => {
-    const clean = String(m).replace(/.*?"""\n/gi, '').replace(/\n"""/gi, '').trim();
-    if (clean) extractedTextChunks.push(clean);
-  });
-
-  const fullExtractedContent = extractedTextChunks.join('\n\n');
-
-  const topicMatch = prompt.match(/topic\/context:\s*"([^"]+)"/i) 
-                  || prompt.match(/quiz on\s+([^\.\n\?]+)/i) 
-                  || prompt.match(/topic[:\s]+([^\.\n\?]+)/i)
-                  || prompt.match(/about\s+([^\.\n\?]+)/i)
-                  || prompt.match(/explain\s+([^\.\n\?]+)/i)
-                  || prompt.match(/what is\s+([^\.\n\?]+)/i);
-  
-  const detectedTopic = topicMatch ? topicMatch[1].trim() : (fullExtractedContent ? "Your Uploaded Study Material" : "Requested Subject");
-
-  if (payload.responseMimeType === 'application/json') {
-    if (promptLower.includes('quiz') || promptLower.includes('question') || promptLower.includes('option') || promptLower.includes('exam') || promptLower.includes('mcq')) {
-      return JSON.stringify([
-        {
-          question: `What is the core principle of ${detectedTopic}?`,
-          options: [
-            `Understanding foundational principles and analytical frameworks of ${detectedTopic}`,
-            `Arbitrary memorization without systematic verification`,
-            `Disregarding core variables in ${detectedTopic}`,
-            `Isolating theoretical principles completely from practical application`
-          ],
-          correctAnswer: `Understanding foundational principles and analytical frameworks of ${detectedTopic}`,
-          explanation: `Systematic problem-solving in ${detectedTopic} begins with mastering underlying principles and key definitions.`
-        },
-        {
-          question: `How are hypotheses verified in ${detectedTopic}?`,
-          options: [
-            `Through empirical reproducibility and rigorous step-by-step logic`,
-            `Through uncalibrated single-instance observations`,
-            `By guessing without validating boundary conditions`,
-            `By ignoring standardized constants and equations`
-          ],
-          correctAnswer: `Through empirical reproducibility and rigorous step-by-step logic`,
-          explanation: `Reproducibility and logical consistency are essential for confirming hypotheses in ${detectedTopic}.`
-        }
-      ], null, 2);
-    }
-
-    return JSON.stringify({
-      status: "success",
-      engine: "On-Device Qwen Native Engine",
-      isOffline: true,
-      topic: detectedTopic,
-      data: `Successfully processed offline request for "${detectedTopic}".`
-    }, null, 2);
+  if (nativeLlamaError) {
+    throw new Error(`On-device AI inference encountered an error: ${nativeLlamaError.message || nativeLlamaError}`);
   }
 
-  return `[⚡ On-Device Qwen 0.5B Native AI — Offline]\n\n### ${detectedTopic}\n\n${fullExtractedContent ? `**Key Insights from Context:**\n> "${fullExtractedContent.slice(0, 300)}..."\n\n` : ''}#### Core Summary\n- **Foundational Focus:** Detailed examination of principles and mechanisms in **${detectedTopic}**.\n- **Problem Deconstruction:** Step-by-step application of relevant analytical models and definitions.\n- **Verification:** Logical validation of all steps and solutions.`;
+  throw new Error("Unable to execute on-device inference. Please ensure the offline model is loaded properly.");
 }
 
 /**
