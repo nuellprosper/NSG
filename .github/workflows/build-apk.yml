@@ -27,9 +27,20 @@ jobs:
 
       - name: Ensure Android Platform Exists
         run: |
-          if [ ! -d "android" ]; then
-            echo "Android folder missing. Adding platform..."
+          if [ ! -f "android/gradlew" ]; then
+            echo "Gradlew missing. Preserving custom configs and generating android platform..."
+            mkdir -p /tmp/android-backup
+            [ -f "android/app/google-services.json" ] && cp android/app/google-services.json /tmp/android-backup/
+            [ -f "android/app/src/main/res/values/strings.xml" ] && cp android/app/src/main/res/values/strings.xml /tmp/android-backup/
+
+            rm -rf android
             npx cap add android
+
+            [ -f "/tmp/android-backup/google-services.json" ] && cp /tmp/android-backup/google-services.json android/app/google-services.json
+            if [ -f "/tmp/android-backup/strings.xml" ]; then
+              mkdir -p android/app/src/main/res/values
+              cp /tmp/android-backup/strings.xml android/app/src/main/res/values/strings.xml
+            fi
           fi
 
       - name: Sync Capacitor
