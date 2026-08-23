@@ -24,7 +24,7 @@ import { increment, deleteField } from 'firebase/firestore';
 import { toPng } from 'html-to-image';
 import axios from 'axios';
 import { 
-  auth, db, googleProvider, signInWithPopup, signOut, onAuthStateChanged,
+  auth, db, googleProvider, signOut, onAuthStateChanged,
   doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, onSnapshot, getDocs, addDoc, serverTimestamp, orderBy, limit, arrayUnion,
   createUserWithEmailAndPassword, signInWithEmailAndPassword,
   FirestoreOperation, handleFirestoreError, circularSafeStringify, sanitizeData,
@@ -56,6 +56,7 @@ import {
 import { OfflineModal } from './components/OfflineModal';
 import { NativeAudioRecorder } from './components/NativeAudioRecorder';
 import { 
+  initGoogleAuth,
   performGoogleAuth, 
   initOfflineQueueSync, 
   initPushNotifications, 
@@ -64,6 +65,7 @@ import {
   useAppUrlListener, 
   isNativePlatform, 
   isCapacitorNative, 
+  checkNetworkStatus,
   requestAppPermissions, 
   runLocalQwenInference, 
   cleanupLlamaModel,
@@ -4661,6 +4663,9 @@ export default function App() {
     console.log("App Initialized. Checking API Keys...");
     console.log("Gemini Key Found:", !!getApiKey());
     console.log("HF Key Found:", !!getHfKey());
+
+    // Initialize native GoogleAuth plugin on mount
+    initGoogleAuth().catch((err) => console.warn("GoogleAuth startup initialization note:", err));
 
     // Safety fallback timer to prevent indefinite auth loading screen
     const authSafetyTimeout = setTimeout(() => {
@@ -9458,32 +9463,57 @@ ${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\nopt
   const handleTagOmni = async (text: string, chatId: string, attachments?: { url: string, type: string, name: string }[]) => {
     if (!user) return;
     try {
-      // Optimized History retrieval: Default 12 messages for fast responses, 40 if history explicitly requested
+      const isOnline = await checkNetworkStatus();
       const lowerText = text.toLowerCase();
       const isHistoryRequested = /check\s+my\s+history|history|previous\s+(?:chat|message|conversation)|what\s+did\s+I\s+say|remember\s+when|past\s+messages|check\s+history/i.test(lowerText);
       const historyLimit = isHistoryRequested ? 40 : 12;
 
-      const msgsRef = collection(db, 'chats', chatId, 'messages');
-      const qMsgs = query(msgsRef, orderBy('timestamp', 'desc'), limit(historyLimit));
-      const snapshot = await getDocs(qMsgs);
-      
       const pastMessages: any[] = [];
-      snapshot.forEach(docSnap => {
-        const d = docSnap.data();
-        if (d.text) {
-          pastMessages.push({
-            role: (d.senderId === 'omni-ai' || d.isOmniResponse) ? 'model' : 'user',
-            text: d.text
+
+      // Retrieve history: from Firestore if online, or local storage if offline
+      if (isOnline && (!chatId.startsWith('omni_') || chatId === `omni_${user.uid}`)) {
+        try {
+          const msgsRef = collection(db, 'chats', chatId, 'messages');
+          const qMsgs = query(msgsRef, orderBy('timestamp', 'desc'), limit(historyLimit));
+          const snapshot = await getDocs(qMsgs);
+          snapshot.forEach(docSnap => {
+            const d = docSnap.data();
+            if (d.text) {
+              pastMessages.push({
+                role: (d.senderId === 'omni-ai' || d.isOmniResponse) ? 'model' : 'user',
+                text: d.text
+              });
+            }
           });
+          pastMessages.reverse();
+        } catch (e) {
+          console.warn("Firestore history fetch notice, reading local storage:", e);
         }
-      });
-      // Reverse to place back in chronological order
-      pastMessages.reverse();
+      }
+
+      if (pastMessages.length === 0) {
+        try {
+          const localKey = `nsg_msgs_${chatId}`;
+          const existingLocal = localStorage.getItem(localKey);
+          if (existingLocal) {
+            const parsed = JSON.parse(existingLocal);
+            const slice = parsed.slice(-historyLimit);
+            slice.forEach((m: any) => {
+              if (m.text) {
+                pastMessages.push({
+                  role: (m.senderId === 'omni-ai' || m.isOmniResponse) ? 'model' : 'user',
+                  text: m.text
+                });
+              }
+            });
+          }
+        } catch (e) {
+          console.warn("Local storage history fetch notice:", e);
+        }
+      }
 
       // System instruction for Omni
-      const systemInstruction = {
-        parts: [{
-          text: `You are Omni by NSG, an empathetic, smart, highly personalized AI academic assistant created by NSG (founded by ABRAHAM EMMANUEL PROSPER).
+      const systemInstructionText = `You are Omni by NSG, an empathetic, smart, highly personalized AI academic assistant created by NSG (founded by ABRAHAM EMMANUEL PROSPER).
 You remember all past conversation context with the user and tailor your guidance specifically to their learning style.
 
 CRITICAL FORMATTING & CONVERSATIONAL RULES:
@@ -9493,62 +9523,26 @@ CRITICAL FORMATTING & CONVERSATIONAL RULES:
    If the user asks you to generate, create, make, or set a quiz on ANY topic, or if you suggest taking a quiz, do NOT output quiz questions as raw text in your response!
    Instead, write a warm 1-sentence intro (e.g., "I've generated a 5-question CBT quiz on Cell Biology for you!") and ALWAYS end your response with this exact tag:
    '[[GENERATE_QUIZ: <topic>, <num_questions>]]' (e.g. '[[GENERATE_QUIZ: Cell Biology, 5]]').
-   The system will automatically build the interactive quiz and attach an 'Open Generated Quiz' button to your response!`
-        }]
-      };
+   The system will automatically build the interactive quiz and attach an 'Open Generated Quiz' button to your response!`;
 
-      // Build Gemini contents array with history
-      const contents: any[] = [];
-      for (const m of pastMessages) {
-        contents.push({
-          role: m.role,
-          parts: [{ text: m.text }]
-        });
-      }
+      // Build context from history
+      const historyContext = pastMessages.map(m => `${m.role === 'user' ? 'Student' : 'Omni'}: ${m.text}`).join('\n');
+      const promptWithHistory = historyContext 
+        ? `CONVERSATION HISTORY:\n${historyContext}\n\nStudent: ${text}`
+        : text;
 
-      // Add current attachments and user message
-      const userParts: any[] = [{ text: text }];
-      if (attachments && attachments.length > 0) {
-        for (const attachment of attachments) {
-          try {
-            const res = await fetch(attachment.url);
-            const blob = await res.blob();
-            const genPart = await fileToGenerativePart(blob);
-            userParts.push(genPart);
-          } catch (err) {
-            console.error("Error processing attachment for Omni:", err);
-            userParts.push({ text: `[Attachment: ${attachment.name}]` });
-          }
-        }
-      }
-
-      if (contents.length === 0 || contents[contents.length - 1].role !== 'user' || contents[contents.length - 1].parts[0].text !== text) {
-        contents.push({ role: 'user', parts: userParts });
-      }
-
+      // Execute via robust Dual-Mode AI Service
       let reply = '';
       try {
-        const response = await getAiInstance().models.generateContent({
-          model: MODEL_NAME,
-          config: { systemInstruction },
-          contents: contents
+        const aiResponse = await executeAITask({
+          prompt: promptWithHistory,
+          systemInstruction: systemInstructionText,
+          context: historyContext
         });
-        reply = response.text || '';
-      } catch (genErr) {
-        console.error("Primary Gemini call error, falling back:", genErr);
-      }
-
-      if (!reply) {
-        try {
-          const fullPrompt = systemInstruction.parts[0].text + "\n\nCONVERSATION HISTORY:\n" + pastMessages.map(m => `${m.role === 'user' ? 'Student' : 'Omni'}: ${m.text}`).join('\n') + `\nStudent: ${text}\nOmni:`;
-          const fbRes = await getAiInstance().models.generateContent({
-            model: FLASH_MODEL || MODEL_NAME,
-            contents: fullPrompt
-          });
-          reply = fbRes.text || '';
-        } catch (e) {
-          console.error("Fallback error:", e);
-        }
+        reply = aiResponse?.text || '';
+      } catch (aiErr: any) {
+        console.error("executeAITask error:", aiErr);
+        reply = aiErr?.message || "I'm sorry, I couldn't process your request right now. Please try again in a moment.";
       }
 
       if (!reply) {
@@ -9622,8 +9616,8 @@ CRITICAL FORMATTING & CONVERSATIONAL RULES:
         console.warn("Local Omni storage update warning:", e);
       }
 
-      // Save Omni's response in Firestore if it's a peer/cloud chat
-      if (!chatId.startsWith('omni_') || chatId === `omni_${user.uid}`) {
+      // Save Omni's response in Firestore if online and it's a peer/cloud chat
+      if (isOnline && (!chatId.startsWith('omni_') || chatId === `omni_${user.uid}`)) {
         try {
           await addDoc(collection(db, 'chats', chatId, 'messages'), {
             senderId: 'omni-ai',
