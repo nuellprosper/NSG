@@ -1,7 +1,7 @@
 import { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.nsg.app',
+  appId: 'ng.name.nuellstudyguide',
   appName: 'NSG',
   webDir: 'dist',
   server: {
@@ -13,7 +13,6 @@ const config: CapacitorConfig = {
     GoogleAuth: {
       scopes: ['profile', 'email'],
       serverClientId: '780956680320-g2gripd8rmlalln7flapch5el5bijpbb.apps.googleusercontent.com',
-      clientId: '780956680320-g2gripd8rmlalln7flapch5el5bijpbb.apps.googleusercontent.com',
       forceCodeForRefreshToken: true
     }
   }
