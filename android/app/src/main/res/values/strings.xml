@@ -1,1 +1,8 @@
-..n
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NSG</string>
+    <string name="title_activity_main">NSG</string>
+    <string name="package_name">ng.name.nuellstudyguide</string>
+    <string name="custom_url_scheme">ng.name.nuellstudyguide</string>
+    <string name="server_client_id">780956680320-g2gripd8rmlalln7flapch5el5bijpbb.apps.googleusercontent.com</string>
+</resources>
