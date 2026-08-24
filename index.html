@@ -25,7 +25,7 @@
 
     <!-- Google AdSense -->
     <meta name="google-adsense-account" content="ca-pub-3216169026195971">
-    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3216169026195971" crossorigin="anonymous"></script>
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3216169026195971" crossorigin="anonymous" onerror="console.warn('AdSense script blocked or unavailable in this environment.');"></script>
     
     <!-- PWA Manifest -->
     <link rel="manifest" href="/manifest.json" />
@@ -41,10 +41,11 @@
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/sw.js')
             .then(reg => {
-              console.log('SW registered:', reg);
               if (reg.active) reg.update();
             })
-            .catch(err => console.log('SW registration failed:', err));
+            .catch(err => {
+              // Non-blocking in sandboxed environments
+            });
         });
       }
     </script>
@@ -66,11 +67,13 @@
             if (actions && document.getElementById('initial-loader')) {
               actions.style.display = 'flex';
             }
-          }, 4500);
+          }, 6000);
           window.addEventListener('error', function(e) {
-            console.error('Window error during load:', e);
-            var actions = document.getElementById('loader-fallback-actions');
-            if (actions) actions.style.display = 'flex';
+            // Ignore generic cross-origin Script error (e.g., ad blockers, external analytics)
+            if (!e || e.message === 'Script error.' || !e.filename) {
+              return;
+            }
+            console.warn('Recoverable script issue during startup:', e.message);
           });
         </script>
       </div>

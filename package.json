@@ -35,6 +35,7 @@
     "@vitejs/plugin-react": "^5.0.4",
     "autoprefixer": "^10.4.27",
     "axios": "^1.15.0",
+    "capacitor-voice-recorder": "^7.0.6",
     "cheerio": "^1.2.0",
     "dotenv": "^17.2.3",
     "esbuild": "^0.28.0",
