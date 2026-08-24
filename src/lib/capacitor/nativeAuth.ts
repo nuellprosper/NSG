@@ -10,19 +10,25 @@ import {
 export const GOOGLE_WEB_CLIENT_ID = '780956680320-g2gripd8rmlalln7flapch5el5bijpbb.apps.googleusercontent.com';
 
 /**
- * Initialize the native GoogleAuth plugin.
- * Can be called during app/component initialization or before sign-in.
+ * Initialize the GoogleAuth plugin.
+ * On Android/native (isNativePlatform()), call GoogleAuth.initialize() with NO arguments
+ * so it pulls strictly from capacitor.config.ts and strings.xml (preventing Code 10 Developer Error).
+ * Only pass the clientId and scopes config object when running on the web.
  */
 export async function initGoogleAuth(): Promise<void> {
-  if (!isNativePlatform()) return;
   try {
     const { GoogleAuth } = await import('@codetrix-studio/capacitor-google-auth');
-    await GoogleAuth.initialize({
-      clientId: GOOGLE_WEB_CLIENT_ID,
-      scopes: ['profile', 'email'],
-      grantOfflineAccess: true,
-    });
-    console.log('✅ GoogleAuth initialized successfully with client ID:', GOOGLE_WEB_CLIENT_ID);
+    if (isNativePlatform()) {
+      await GoogleAuth.initialize();
+      console.log('✅ Native GoogleAuth initialized from native config/strings.xml');
+    } else {
+      await GoogleAuth.initialize({
+        clientId: GOOGLE_WEB_CLIENT_ID,
+        scopes: ['profile', 'email'],
+        grantOfflineAccess: true,
+      });
+      console.log('✅ Web GoogleAuth initialized successfully with client ID:', GOOGLE_WEB_CLIENT_ID);
+    }
   } catch (error) {
     console.warn('⚠️ GoogleAuth initialize note:', error);
   }

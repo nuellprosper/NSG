@@ -53,8 +53,10 @@ export function isOmniBrainDownloaded(): boolean {
   const isReady = localStorage.getItem('omni_brain_ready') === 'true';
   const downloadedBytes = parseInt(localStorage.getItem('omni_brain_downloaded_bytes') || '0', 10);
   const totalBytes = parseInt(localStorage.getItem('omni_brain_total_bytes') || String(ESTIMATED_TOTAL_BYTES), 10);
-  const hasPath = !!localStorage.getItem('omni_brain_model_path');
-  return isReady || hasPath || (downloadedBytes > 0 && downloadedBytes >= totalBytes * 0.95);
+  const savedModelPath = localStorage.getItem('omni_brain_model_path');
+  const hasPath = Boolean(savedModelPath && savedModelPath.trim().length > 0);
+  const isComplete = isReady || hasPath || (downloadedBytes > 0 && downloadedBytes >= totalBytes * 0.95);
+  return isComplete;
 }
 
 export function isOmniBrainReady(): boolean {
@@ -67,7 +69,7 @@ export function isOmniBrainReady(): boolean {
 export function getSavedModelPath(): string {
   if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
     const savedPath = localStorage.getItem('omni_brain_model_path');
-    if (savedPath) return savedPath.replace(/^file:\/\//, '').replace('file://', '');
+    if (savedPath && savedPath.trim()) return savedPath.replace(/^file:\/\//, '').replace('file://', '');
   }
   return QWEN_GGUF_MODEL_FILENAME;
 }

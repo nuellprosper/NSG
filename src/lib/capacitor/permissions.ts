@@ -11,9 +11,31 @@ export interface NativePermissionResult {
 }
 
 /**
- * Request microphone permission explicitly via WebRTC / Android WebView MediaDevices
+ * Request microphone permission explicitly via Capacitor VoiceRecorder or WebRTC getUserMedia
  */
 export async function requestMicrophonePermission(): Promise<boolean> {
+  const isNative = isNativePlatform();
+
+  // Try Capacitor VoiceRecorder first if native
+  if (isNative) {
+    try {
+      const { VoiceRecorder } = await import('capacitor-voice-recorder');
+      const hasPerm = await VoiceRecorder.hasAudioRecordingPermission();
+      if (hasPerm.value) {
+        return true;
+      }
+      const req = await VoiceRecorder.requestAudioRecordingPermission();
+      if (req.value) {
+        return true;
+      } else {
+        console.warn('Microphone permission denied via VoiceRecorder plugin.');
+        return false;
+      }
+    } catch (pluginErr) {
+      console.warn('VoiceRecorder permission error, falling back to WebRTC:', pluginErr);
+    }
+  }
+
   if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
     console.warn('navigator.mediaDevices.getUserMedia is unavailable in this environment.');
     return false;
