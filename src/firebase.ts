@@ -11,23 +11,23 @@ const activeFirebaseConfig = {
 
 const app = initializeApp(activeFirebaseConfig);
 
-// Use initializeFirestore with long polling to bypass potential WebSocket restrictions
+// Initialize Firestore with auto-detect long polling and fallback handling
 export const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true,
+  experimentalAutoDetectLongPolling: true,
 }, firebaseConfig.firestoreDatabaseId || '(default)');
 
-// Enable offline persistence
-enableIndexedDbPersistence(db).catch((err) => {
-  if (err.code == 'failed-precondition') {
-    // Multiple tabs open, persistence can only be enabled
-    // in one tab at a time.
-    console.warn('Firestore persistence failed: Multiple tabs open');
-  } else if (err.code == 'unimplemented') {
-    // The current browser does not support all of the
-    // features required to enable persistence
-    console.warn('Firestore persistence failed: Browser not supported');
-  }
-});
+// Enable offline persistence gracefully
+if (typeof window !== 'undefined') {
+  enableIndexedDbPersistence(db).catch((err) => {
+    if (err.code === 'failed-precondition') {
+      // Multiple tabs open, persistence can only be enabled in one tab at a time
+      console.warn('Firestore offline persistence: multiple tabs open');
+    } else if (err.code === 'unimplemented') {
+      // The current browser does not support IndexedDB persistence
+      console.warn('Firestore offline persistence: browser not supported');
+    }
+  });
+}
 
 export const auth = getAuth(app);
 

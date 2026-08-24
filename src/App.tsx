@@ -9642,8 +9642,16 @@ CRITICAL FORMATTING & CONVERSATIONAL RULES:
           console.warn("Firestore Omni sync notice:", dbErr);
         }
       }
+
+      // Dispatch event to notify active chat views immediately
+      window.dispatchEvent(new CustomEvent('nsg_omni_message_received', {
+        detail: { chatId, message: omniMsgData }
+      }));
+
+      return omniMsgData;
     } catch (err) {
       console.error("Omni response error:", err);
+      return null;
     }
   };
 
@@ -11921,11 +11929,10 @@ Ensure these selected question types are distributed throughout the quiz questio
                 {/* Navigation items */}
                 <div className="flex flex-col gap-1.5 flex-1 animate-fadeIn">
                   {[
-                    { id: 'home',      icon: '⌂',  label: 'Command' },
-                    { id: 'chat',      icon: '◈',  label: 'Relay' },
-                    { id: 'tools',     icon: '⚡', label: 'Modules' },
-                    { id: 'community', icon: '☍',  label: 'Alliance' },
-                    { id: 'profile',   icon: '◎',  label: 'Identity' },
+                    { id: 'home',      icon: '⌂',  label: 'Home' },
+                    { id: 'tools',     icon: '⚡', label: 'Tools' },
+                    { id: 'community', icon: '☍',  label: 'Community' },
+                    { id: 'profile',   icon: '◎',  label: 'Profile' },
                   ].map(item => (
                     <button
                       key={item.id}
@@ -11940,16 +11947,6 @@ Ensure these selected question types are distributed throughout the quiz questio
                       data-active={activeTab === item.id ? 'true' : undefined}
                     >
                       <span className="text-lg leading-none">{item.icon}</span>
-
-                      {/* Unread badge */}
-                      {item.id === 'chat' && totalUnreadMessages > 0 && (
-                        <span
-                          className="absolute top-1.5 right-1.5 w-4 h-4 text-[8px] font-black flex items-center justify-center rounded-full animate-pulse"
-                          style={{ background: '#fff', color: 'var(--accent-primary)' }}
-                        >
-                          {totalUnreadMessages}
-                        </span>
-                      )}
 
                       {/* Tooltip */}
                       <span
@@ -17136,7 +17133,7 @@ Ensure these selected question types are distributed throughout the quiz questio
             }`}>HOME</span>
           </button>
 
-          {/* NOTES / TOOLS */}
+          {/* TOOLS */}
           <button 
             type="button"
             onClick={() => {
@@ -17168,42 +17165,7 @@ Ensure these selected question types are distributed throughout the quiz questio
             }`}>TOOLS</span>
           </button>
 
-          {/* CHAT - Screenshot design with speech bubble & 3 dots */}
-          <button 
-            type="button"
-            onClick={() => setActiveTab('chat')} 
-            className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all cursor-pointer relative ${
-              activeTab === 'chat' 
-                ? (theme === 'dark' ? 'text-purple-400' : 'text-purple-600') 
-                : (theme === 'dark' ? 'text-white/40 hover:text-white/80' : 'text-purple-300 hover:text-purple-600')
-            }`}
-          >
-            <div className={`p-1 rounded-xl transition-all relative ${
-              activeTab === 'chat' 
-                ? (theme === 'dark' ? 'bg-purple-500/20 text-purple-400' : 'bg-purple-100 text-purple-600')
-                : ''
-            }`}>
-              {/* Chat bubble with 3 dots */}
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                <circle cx="8" cy="11" r="1" fill="currentColor" stroke="none" />
-                <circle cx="12" cy="11" r="1" fill="currentColor" stroke="none" />
-                <circle cx="16" cy="11" r="1" fill="currentColor" stroke="none" />
-              </svg>
-            </div>
-            <span className={`text-[9.5px] uppercase tracking-wider leading-none ${
-              activeTab === 'chat' 
-                ? (theme === 'dark' ? 'font-black text-purple-300' : 'font-black text-purple-600') 
-                : (theme === 'dark' ? 'font-bold text-white/70' : 'font-bold text-black')
-            }`}>CHAT</span>
-            {totalUnreadMessages > 0 && (
-              <span className="absolute top-0 right-3 w-4 h-4 text-white text-[8px] font-bold flex items-center justify-center rounded-full bg-purple-600 border border-white">
-                {totalUnreadMessages}
-              </span>
-            )}
-          </button>
-
-          {/* SOCIAL */}
+          {/* COMMUNITY */}
           <button 
             type="button"
             onClick={() => setActiveTab('community')} 
@@ -17229,7 +17191,34 @@ Ensure these selected question types are distributed throughout the quiz questio
               activeTab === 'community' 
                 ? (theme === 'dark' ? 'font-black text-purple-300' : 'font-black text-purple-600') 
                 : (theme === 'dark' ? 'font-bold text-white/70' : 'font-bold text-black')
-            }`}>SOCIAL</span>
+            }`}>COMMUNITY</span>
+          </button>
+
+          {/* PROFILE */}
+          <button 
+            type="button"
+            onClick={() => setActiveTab('profile')} 
+            className={`flex-1 flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
+              activeTab === 'profile' 
+                ? (theme === 'dark' ? 'text-purple-400' : 'text-purple-600') 
+                : (theme === 'dark' ? 'text-white/40 hover:text-white/80' : 'text-purple-300 hover:text-purple-600')
+            }`}
+          >
+            <div className={`p-1 rounded-xl transition-all ${
+              activeTab === 'profile' 
+                ? (theme === 'dark' ? 'bg-purple-500/20 text-purple-400' : 'bg-purple-100 text-purple-600')
+                : ''
+            }`}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+            </div>
+            <span className={`text-[9.5px] uppercase tracking-wider leading-none ${
+              activeTab === 'profile' 
+                ? (theme === 'dark' ? 'font-black text-purple-300' : 'font-black text-purple-600') 
+                : (theme === 'dark' ? 'font-bold text-white/70' : 'font-bold text-black')
+            }`}>PROFILE</span>
           </button>
         </div>
       )}

@@ -846,6 +846,7 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
   const isOwner = user?.email?.toLowerCase().trim() === 'nuellkelechi@gmail.com';
 
   const toolItems = useMemo(() => [
+    { id: 'chat', title: 'Omni Chat', icon: MessageSquare, color: 'from-rose-600 via-red-600 to-red-500', desc: 'AI Study Assistant & Smart Q&A', action: () => setActiveTab('chat') },
     { id: 'courses', title: 'Courses', icon: BookOpen, color: 'from-purple-600 to-indigo-500', desc: 'Lecture Notes, PDFs & Study Materials' },
     { id: 'cgpa', title: 'MY CGPA', icon: Award, color: 'from-amber-500 to-orange-500', desc: 'Calculate CGPA and find your target CGPA for next semester' },
     { id: 'timetable', title: 'Time Table', icon: ClockIcon, color: 'from-blue-600 to-cyan-500', desc: 'Lecture, Reading & Exam Alarms' },

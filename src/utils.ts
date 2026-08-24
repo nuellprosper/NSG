@@ -249,11 +249,21 @@ export const formatSafeDate = (val: any, fallback = 'Recent'): string => {
 };
 
 export const getApiKey = () => {
-  const key = (typeof process !== 'undefined' && process.env ? process.env.GEMINI_API_KEY : '') ||
+  let storedKey = '';
+  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    storedKey = localStorage.getItem('gemini_api_key') ||
+                localStorage.getItem('nsg_gemini_api_key') ||
+                localStorage.getItem('user_gemini_api_key') ||
+                localStorage.getItem('GEMINI_API_KEY') ||
+                localStorage.getItem('custom_gemini_api_key') || '';
+  }
+
+  const key = storedKey.trim() ||
+              (typeof process !== 'undefined' && process.env ? process.env.GEMINI_API_KEY : '') ||
               (import.meta.env ? (import.meta.env.VITE_GEMINI_API_KEY || (import.meta.env as any).GEMINI_API_KEY) : '');
   const finalKey = (key || "").trim();
   if (!finalKey) {
-    console.warn("Gemini API Key is missing. Ensure GEMINI_API_KEY is set in your environment.");
+    console.warn("Gemini API Key is missing. Ensure GEMINI_API_KEY is set in your environment or Settings.");
   }
   return finalKey;
 };
