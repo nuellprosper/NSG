@@ -60,6 +60,7 @@ export function getQwenProgressState(): QwenLoadProgress {
  * Unloads native Llama C++ GGUF model from device RAM to prevent Out-Of-Memory (OOM) crashes.
  */
 export async function cleanupLlamaModel(): Promise<void> {
+  if (!isNativePlatform()) return;
   try {
     const { releaseAllLlama } = await import('llama-cpp-capacitor');
     console.log('🧹 [Native Llama C++] Releasing model context and freeing device RAM...');
@@ -172,50 +173,53 @@ export async function runLocalQwenInference(payload: AIRequestPayload): Promise<
     throw new Error("⚠️ Audio transcription requires an active internet connection. Please connect to the internet to transcribe audio.");
   }
 
-  const savedModelPath = getSavedModelPath();
+  const rawModelPath = getSavedModelPath();
+  const cleanPath = (rawModelPath || '').replace(/^file:\/\//, '').replace('file://', '');
   const formattedPrompt = formatQwenPrompt(payload);
   const nPredict = payload.maxTokens || 512;
   const temperature = payload.responseMimeType === 'application/json' ? 0.2 : 0.7;
 
-  console.log(`🤖 [Native Llama C++] Initiating on-device inference for prompt with model at: ${savedModelPath}`);
+  console.log(`🤖 [Native Llama C++] Initiating on-device inference for prompt with model at: ${cleanPath}`);
 
   // 2. NATIVE LLAMA C++ RAM EXECUTION (Primary Android/Capacitor Engine)
   let nativeLlamaError: any = null;
-  try {
-    const { initLlama, releaseAllLlama } = await import('llama-cpp-capacitor');
-    
-    console.log(`⚡ [Native Llama C++] Loading Qwen 0.5B GGUF model into device RAM...`);
-    const context = await initLlama({
-      model: savedModelPath,
-      n_ctx: 2048,
-      n_threads: 4
-    });
-
+  if (isNativePlatform()) {
     try {
-      console.log(`⚡ [Native Llama C++] Executing completion (n_predict: ${nPredict}, temp: ${temperature})...`);
-      const result = await context.completion({
-        prompt: formattedPrompt,
-        n_predict: nPredict,
-        temperature
+      const { initLlama, releaseAllLlama } = await import('llama-cpp-capacitor');
+      
+      console.log(`⚡ [Native Llama C++] Loading Qwen 0.5B GGUF model into device RAM...`);
+      const context = await initLlama({
+        model: cleanPath,
+        n_ctx: 2048,
+        n_threads: 4
       });
 
-      const generatedText = (result?.text || result?.content || "").trim();
-      if (generatedText) {
-        console.log(`✅ [Native Llama C++] On-device completion succeeded (${generatedText.length} chars)`);
-        return generatedText;
-      }
-    } finally {
-      // Memory Management: Free up RAM immediately after task completion to prevent OOM
-      console.log('🧹 [Native Llama C++] Releasing model from RAM after task completion...');
       try {
-        await releaseAllLlama();
-      } catch (cleanupErr) {
-        console.warn("⚠️ releaseAllLlama cleanup warning:", cleanupErr);
+        console.log(`⚡ [Native Llama C++] Executing completion (n_predict: ${nPredict}, temp: ${temperature})...`);
+        const result = await context.completion({
+          prompt: formattedPrompt,
+          n_predict: nPredict,
+          temperature
+        });
+
+        const generatedText = (result?.text || result?.content || "").trim();
+        if (generatedText) {
+          console.log(`✅ [Native Llama C++] On-device completion succeeded (${generatedText.length} chars)`);
+          return generatedText;
+        }
+      } finally {
+        // Memory Management: Free up RAM immediately after task completion to prevent OOM
+        console.log('🧹 [Native Llama C++] Releasing model from RAM after task completion...');
+        try {
+          await releaseAllLlama();
+        } catch (cleanupErr) {
+          console.warn("⚠️ releaseAllLlama cleanup warning:", cleanupErr);
+        }
       }
+    } catch (err: any) {
+      nativeLlamaError = err;
+      console.warn("⚠️ Native Llama C++ bridge execution note:", err);
     }
-  } catch (err: any) {
-    nativeLlamaError = err;
-    console.warn("⚠️ Native Llama C++ bridge execution note:", err);
   }
 
   // 3. WEBGPU / BROWSER FALLBACK (for Web development / Chrome WebGPU)

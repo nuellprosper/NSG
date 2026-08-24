@@ -67,7 +67,7 @@ export function isOmniBrainReady(): boolean {
 export function getSavedModelPath(): string {
   if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
     const savedPath = localStorage.getItem('omni_brain_model_path');
-    if (savedPath) return savedPath;
+    if (savedPath) return savedPath.replace(/^file:\/\//, '').replace('file://', '');
   }
   return QWEN_GGUF_MODEL_FILENAME;
 }
@@ -445,12 +445,14 @@ export async function deleteOmniBrainModel(): Promise<void> {
     }
   }
 
-  // Release any active RAM contexts
-  try {
-    const { releaseAllLlama } = await import('llama-cpp-capacitor');
-    await releaseAllLlama();
-  } catch (e) {
-    // Ignore if not loaded
+  // Release any active RAM contexts on native
+  if (isCapacitorNative()) {
+    try {
+      const { releaseAllLlama } = await import('llama-cpp-capacitor');
+      await releaseAllLlama();
+    } catch (e) {
+      // Ignore if not loaded
+    }
   }
 
   try {
