@@ -4,7 +4,8 @@ import {
   Copy, User, BookOpen, FileText, X,
   Plus, Image as ImageIcon, ArrowDown, Loader2, Maximize2,
   Menu, ChevronDown, SquarePen, MoreHorizontal, ArrowUp, ArrowRight,
-  Pin, Trash2, Edit3, Check, MoreVertical, MessageSquare, Zap, Trophy
+  Pin, Trash2, Edit3, Check, MoreVertical, MessageSquare, Zap, Trophy,
+  Camera, Settings, Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
@@ -83,8 +84,8 @@ const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniRepl
         rehypePlugins={[rehypeKatex]}
         components={{
           a({ node, href, children, ...props }: any) {
-            const text = String(children || '');
-            const lowerText = text.toLowerCase();
+            const childText = String(children || '');
+            const lowerText = childText.toLowerCase();
             const lowerHref = (href || '').toLowerCase();
             if (lowerText.includes('quiz') || lowerText.includes('generate') || lowerHref.includes('quiz')) {
               return (
@@ -92,7 +93,7 @@ const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniRepl
                   type="button"
                   onClick={(e) => {
                     e.preventDefault();
-                    const cleanTopic = text.replace(/generate|quiz|start|take|link|here/gi, '').trim() || 'Study Quiz';
+                    const cleanTopic = childText.replace(/generate|quiz|start|take|link|here/gi, '').trim() || 'Study Quiz';
                     if (generateQuiz) {
                       generateQuiz(cleanTopic, 5, 'Medium', true);
                     } else {
@@ -100,83 +101,97 @@ const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniRepl
                       window.dispatchEvent(evt);
                     }
                   }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#DC2626] hover:bg-red-600 text-white font-bold text-xs rounded-lg shadow cursor-pointer my-1 transition-all"
+                  className="inline-flex items-center gap-1.5 my-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 via-rose-600 to-red-600 text-white font-bold text-xs uppercase tracking-wider shadow-md hover:opacity-90 active:scale-95 transition-all cursor-pointer"
                 >
-                  <Zap size={12} className="fill-white" />
-                  <span>{text || 'Generate Quiz'}</span>
+                  <span>⚡ Take Quiz: {cleanTopicName(childText)}</span>
                 </button>
               );
             }
-            return <a href={href} target="_blank" rel="noopener noreferrer" className="text-purple-400 underline hover:text-purple-300" {...props}>{children}</a>;
+            return (
+              <a 
+                href={href} 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                className="text-red-400 hover:text-red-300 underline font-medium"
+                {...props}
+              >
+                {children}
+              </a>
+            );
           },
           h1({ children }) {
-            return <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight mt-4 mb-2 border-b border-white/10 pb-1 font-display">{children}</h1>;
+            return <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight mt-4 mb-2">{children}</h1>;
           },
           h2({ children }) {
-            return <h2 className="text-lg sm:text-xl font-extrabold text-white tracking-tight mt-3 mb-1.5 font-display">{children}</h2>;
+            return <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight mt-3 mb-2">{children}</h2>;
           },
           h3({ children }) {
-            return <h3 className="text-base sm:text-lg font-bold text-red-400 tracking-tight mt-2.5 mb-1 font-display">{children}</h3>;
-          },
-          strong({ children }) {
-            return <strong className="font-extrabold text-white bg-red-500/10 px-1 py-0.5 rounded border border-red-500/20">{children}</strong>;
+            return <h3 className="text-base sm:text-lg font-bold text-white tracking-tight mt-3 mb-1.5">{children}</h3>;
           },
           p({ children }) {
-            return <p className="my-2 leading-relaxed text-slate-100 text-sm sm:text-base font-normal">{children}</p>;
+            return <p className="text-sm sm:text-base font-normal leading-relaxed text-slate-100 mb-3">{children}</p>;
+          },
+          ul({ children }) {
+            return <ul className="list-disc pl-5 space-y-1.5 mb-3 text-sm sm:text-base text-slate-100">{children}</ul>;
+          },
+          ol({ children }) {
+            return <ol className="list-decimal pl-5 space-y-1.5 mb-3 text-sm sm:text-base text-slate-100">{children}</ol>;
           },
           li({ children }) {
-            return <li className="my-1 leading-relaxed text-sm sm:text-base font-normal text-slate-200">{children}</li>;
+            return <li className="leading-relaxed">{children}</li>;
           },
-          code({ className, children, ...props }: any) {
-            const match = /language-(\w+)/.exec(className || '');
-            const codeVal = String(children).replace(/\n$/, '');
-            return className && match ? (
-              <div className="relative group/code my-3 rounded-xl overflow-hidden border border-white/10 bg-[#090810] font-mono w-full">
-                <div className="px-4 py-2 bg-white/5 border-b border-white/5 flex items-center justify-between text-white/50 text-[9px] font-bold uppercase tracking-widest">
-                  <span>{match[1]}</span>
-                  <button 
+          strong({ children }) {
+            return <strong className="font-bold text-white">{children}</strong>;
+          },
+          code({ inline, className, children, ...props }: any) {
+            return inline ? (
+              <code className="px-1.5 py-0.5 rounded bg-white/10 text-red-300 font-mono text-xs font-semibold" {...props}>
+                {children}
+              </code>
+            ) : (
+              <div className="relative my-3 rounded-xl overflow-hidden bg-[#13111C] border border-white/10 font-mono text-xs">
+                <div className="flex items-center justify-between px-3 py-1.5 bg-white/5 border-b border-white/5 text-white/50 text-[10px]">
+                  <span>Code</span>
+                  <button
                     onClick={() => {
-                      navigator.clipboard.writeText(codeVal);
-                      const evt = new CustomEvent('show_global_notify', { detail: 'Code block copied!' });
+                      navigator.clipboard.writeText(String(children));
+                      const evt = new CustomEvent('show_global_notify', { detail: 'Code copied!' });
                       window.dispatchEvent(evt);
                     }}
-                    className="px-2 py-1 hover:bg-white/10 rounded text-red-400 transition-colors active:scale-95 text-[9px] font-bold uppercase"
-                    title="Copy Code"
+                    className="hover:text-white transition-colors"
                   >
-                    Copy Block
+                    Copy
                   </button>
                 </div>
-                <pre className="p-4 overflow-x-auto text-[12px] leading-relaxed text-slate-200">
-                  <code {...props} className={className}>{children}</code>
+                <pre className="p-3 overflow-x-auto text-slate-200">
+                  <code>{children}</code>
                 </pre>
               </div>
-            ) : (
-              <code {...props} className={`bg-white/10 px-1.5 py-0.5 rounded text-[12px] font-mono text-red-400 ${className || ''}`}>{children}</code>
             );
           }
         }}
       >
         {cleanMarkdownText}
       </ReactMarkdown>
-      {isTyping && (
-        <span className="inline-block w-2 h-4 bg-red-600 animate-pulse ml-1 align-middle" />
-      )}
 
       {quizMatch && (
         <div className="mt-4 p-4 rounded-2xl bg-[#1A162B] border border-red-500/30 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 w-full">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 to-red-600 flex items-center justify-center text-white shadow-md shrink-0">
-              <FileText size={18} className="text-white" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 via-rose-600 to-red-600 flex items-center justify-center text-white shadow-md shrink-0">
+              <Trophy size={18} className="text-amber-300" />
             </div>
             <div>
-              <p className="text-xs font-bold text-white">{quizMatch[2]}</p>
-              <p className="text-[10px] text-white/60 font-medium">{quizMatch[3]} Questions Practice Quiz</p>
+              <p className="text-xs font-bold text-white">{quizMatch[1]?.trim() || "Interactive Quiz"}</p>
+              <p className="text-[10px] text-white/60 font-medium">{quizMatch[3] || 5} Questions Ready</p>
             </div>
           </div>
           <button
             onClick={() => {
               if (onOpenQuizById) {
-                onOpenQuizById(quizMatch[1]);
+                onOpenQuizById(quizMatch[2]?.trim());
+              } else {
+                const evt = new CustomEvent('trigger_open_quiz_id', { detail: { quizId: quizMatch[2]?.trim() } });
+                window.dispatchEvent(evt);
               }
             }}
             className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-purple-600 via-rose-600 to-red-600 hover:opacity-95 text-white font-bold text-xs rounded-xl shadow-lg flex items-center justify-center gap-2 cursor-pointer transition-all hover:scale-[1.02] active:scale-95 shrink-0"
@@ -218,6 +233,10 @@ const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniRepl
   );
 };
 
+function cleanTopicName(raw: string) {
+  return raw.replace(/generate|quiz|start|take|link|here/gi, '').trim() || 'Study Quiz';
+}
+
 // Press and Hold hook (0.5s trigger)
 const useLongPress = (onLongPress: () => void, ms = 500) => {
   const timerRef = useRef<any>(null);
@@ -245,7 +264,7 @@ const useLongPress = (onLongPress: () => void, ms = 500) => {
   };
 };
 
-// User Message Item with Read More / Show Less truncation and Copy on Hold
+// User Message Item - Gemini-style pill bubble
 const UserMessageItem: React.FC<{ 
   msg: Message; 
   user: any; 
@@ -253,30 +272,18 @@ const UserMessageItem: React.FC<{
   onZoomImage?: (url: string) => void; 
 }> = ({ msg, onZoomImage }) => {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [showCopyPopup, setShowCopyPopup] = useState(false);
   const text = msg.text || '';
-  const isLong = text.length > 220;
-  const displayText = isLong && !isExpanded ? text.substring(0, 220) + '...' : text;
-
-  const longPressProps = useLongPress(() => {
-    setShowCopyPopup(true);
-  }, 500);
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(text);
-    setShowCopyPopup(false);
-    const evt = new CustomEvent('show_global_notify', { detail: 'Message copied to clipboard!' });
-    window.dispatchEvent(evt);
-  };
+  const isLong = text.length > 240;
+  const displayText = isLong && !isExpanded ? text.substring(0, 240) + '...' : text;
 
   return (
     <div className="w-full py-2.5 px-3 sm:px-6 flex justify-end font-sans relative">
-      <div className="max-w-[88%] sm:max-w-[75%] bg-[#1E1A2E]/90 border border-white/10 rounded-[22px] px-4 py-3 shadow-md text-left relative group select-text hover:border-white/20 transition-all">
+      <div className="max-w-[88%] sm:max-w-[75%] bg-[#1E1B24]/90 sm:bg-neutral-800/90 backdrop-blur-md border border-white/10 rounded-3xl p-4 shadow-md text-left relative group select-text hover:border-white/20 transition-all">
         {msg.mediaUrl && (
           <div className="mb-2.5">
             <div 
               onClick={() => onZoomImage?.(msg.mediaUrl)}
-              className="relative group/img max-w-[220px] h-36 rounded-xl overflow-hidden border border-white/15 bg-black/40 cursor-pointer shadow-lg hover:border-red-500/50 transition-all"
+              className="relative group/img max-w-[220px] h-36 rounded-2xl overflow-hidden border border-white/15 bg-black/40 cursor-pointer shadow-lg hover:border-red-500/50 transition-all"
             >
               <img 
                 referrerPolicy="no-referrer" 
@@ -309,14 +316,14 @@ const UserMessageItem: React.FC<{
   );
 };
 
-interface OmniChatWorkspaceProps {
+export interface OmniChatWorkspaceProps {
   messages: Message[];
   inputText: string;
   setInputText: (text: string) => void;
   isThinking: boolean;
   isRecording: boolean;
   onSendMessage: () => void;
-  onStopGeneration: () => void;
+  onStopGeneration?: () => void;
   onStartVoiceRecord: () => void;
   onStopVoiceRecord: () => void;
   onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -381,6 +388,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [viewingFullImageUrl, setViewingFullImageUrl] = useState<string | null>(null);
   const [showPlusMenu, setShowPlusMenu] = useState(false);
@@ -391,16 +399,37 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [showHistoryDrawer, setShowHistoryDrawer] = useState(false);
 
+  // Model selection state: 'flash' or 'brain'
+  const [selectedModel, setSelectedModel] = useState<'flash' | 'brain'>(() => {
+    return (localStorage.getItem('nsg_omni_selected_model') as 'flash' | 'brain') || 'flash';
+  });
+
   // State for session context menu (Rename, Pin, Delete)
   const [activeMenuSessionId, setActiveMenuSessionId] = useState<string | null>(null);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [renameTitleInput, setRenameTitleInput] = useState('');
 
-  // Copy popup for Omni responses
-  const [activeOmniCopyMsgId, setActiveOmniCopyMsgId] = useState<string | null>(null);
-
   const initiallyLoadedIdsRef = useRef<Set<string>>(new Set());
   const [initialLoadDone, setInitialLoadDone] = useState(false);
+
+  // Outside click listener for popup menus
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as HTMLElement;
+      if (showPlusMenu && !target.closest('#omni_plus_menu_container') && !target.closest('#omni_plus_menu_btn')) {
+        setShowPlusMenu(false);
+      }
+      if (showModelDropdown && !target.closest('#omni_model_dropdown_container') && !target.closest('#omni_model_btn')) {
+        setShowModelDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [showPlusMenu, showModelDropdown]);
 
   useEffect(() => {
     if (!initialLoadDone && messages.length > 0) {
@@ -449,33 +478,23 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
     }
   }, [messages, isThinking]);
 
-  useEffect(() => {
-    const forceScroll = () => {
-      if (scrollContainerRef.current) {
-        scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
-      }
-    };
-    forceScroll();
-    const t1 = setTimeout(forceScroll, 80);
-    const t2 = setTimeout(forceScroll, 250);
-    return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-    };
-  }, []);
-
   const handleScroll = () => {
-    if (scrollContainerRef.current) {
-      const container = scrollContainerRef.current;
-      const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 120;
-      setShowScrollDown(!isAtBottom);
-    }
+    if (!scrollContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 120;
+    setShowScrollDown(!isNearBottom);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      onSendMessage();
+      if (inputText.trim() || attachedImage) {
+        onSendMessage();
+        const textarea = document.getElementById('omni-workspace-chat-textarea');
+        if (textarea) {
+          (textarea as HTMLTextAreaElement).style.height = 'auto';
+        }
+      }
     }
   };
 
@@ -491,38 +510,92 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
         style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)' }}
         className="px-4 pb-3 bg-[#0F0E17]/90 backdrop-blur-md border-b border-white/5 flex items-center justify-between shrink-0 z-10"
       >
+        {/* Double-horizontal-bar menu button (=) on left */}
         <button 
-          id="omni_back_nav_btn"
+          id="omni_menu_drawer_btn"
           onClick={() => setShowHistoryDrawer(true)}
-          className="p-2 rounded-xl text-white/70 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-          title="Chat History"
+          className="p-2.5 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer flex flex-col justify-center gap-1.5 w-10 h-10 items-center"
+          title="Menu / Chat History"
         >
-          <Menu size={20} />
+          <div className="w-5 h-0.5 bg-white/90 rounded-full" />
+          <div className="w-5 h-0.5 bg-white/90 rounded-full" />
         </button>
 
-        {/* Center Model Selector Dropdown - Strictly OMNI */}
-        <div className="relative">
+        {/* Center Model Selector Dropdown */}
+        <div id="omni_model_dropdown_container" className="relative">
           <button 
+            id="omni_model_btn"
             onClick={() => setShowModelDropdown(!showModelDropdown)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-white font-bold text-sm hover:bg-white/10 transition-all cursor-pointer"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white/5 border border-white/10 text-white font-semibold text-sm hover:bg-white/10 transition-all cursor-pointer"
           >
-            <span>Omni</span>
-            <ChevronDown size={14} className="text-white/60" />
+            <span>{selectedModel === 'brain' ? 'Omni Brain' : 'Omni Flash'}</span>
+            <ChevronDown size={14} className={`text-white/60 transition-transform duration-200 ${showModelDropdown ? 'rotate-180' : ''}`} />
           </button>
+
+          <AnimatePresence>
+            {showModelDropdown && (
+              <motion.div
+                initial={{ opacity: 0, y: -5, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -5, scale: 0.95 }}
+                className="absolute top-10 left-1/2 -translate-x-1/2 bg-[#1A162B] border border-white/10 p-1.5 rounded-2xl min-w-[220px] shadow-2xl z-50 flex flex-col gap-1 text-left"
+              >
+                <button
+                  onClick={() => {
+                    setSelectedModel('flash');
+                    localStorage.setItem('nsg_omni_selected_model', 'flash');
+                    setShowModelDropdown(false);
+                  }}
+                  className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                    selectedModel === 'flash' ? 'bg-red-600/20 text-red-400 border border-red-500/30' : 'text-white/80 hover:bg-white/5'
+                  }`}
+                >
+                  <div>
+                    <p className="font-bold text-white flex items-center gap-1">
+                      <Sparkles size={12} className="text-red-400" /> Omni Flash
+                    </p>
+                    <p className="text-[10px] text-white/50">Fast Cloud AI Assistant</p>
+                  </div>
+                  {selectedModel === 'flash' && <Check size={14} className="text-red-400" />}
+                </button>
+
+                <button
+                  onClick={() => {
+                    setSelectedModel('brain');
+                    localStorage.setItem('nsg_omni_selected_model', 'brain');
+                    setShowModelDropdown(false);
+                  }}
+                  className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                    selectedModel === 'brain' ? 'bg-red-600/20 text-red-400 border border-red-500/30' : 'text-white/80 hover:bg-white/5'
+                  }`}
+                >
+                  <div>
+                    <p className="font-bold text-white flex items-center gap-1">
+                      <Zap size={12} className="text-amber-400" /> Omni Brain
+                    </p>
+                    <p className="text-[10px] text-white/50">On-Device Local Qwen Model</p>
+                  </div>
+                  {selectedModel === 'brain' && <Check size={14} className="text-red-400" />}
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Right Action Icons: New Chat & Close */}
         <div className="flex items-center gap-1">
           <button 
+            id="omni_new_chat_top_btn"
             onClick={() => {
               if (onNewChat) onNewChat();
             }}
-            className="p-2 rounded-xl text-white/70 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+            className="p-2 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
             title="Start New Chat"
           >
-            <SquarePen size={18} />
+            <SquarePen size={19} />
           </button>
           <button 
+            id="omni_close_workspace_btn"
             onClick={onClose}
             className="p-2 rounded-xl text-white/50 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
             title="Close Workspace"
@@ -532,7 +605,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
         </div>
       </div>
 
-      {/* SLIDING CHAT HISTORY DRAWER */}
+      {/* SLIDING CHAT HISTORY DRAWER (LEFT PANEL) */}
       <AnimatePresence>
         {showHistoryDrawer && (
           <>
@@ -550,28 +623,29 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
               className="fixed top-0 left-0 bottom-0 w-80 max-w-[85vw] bg-[#131020] border-r border-white/10 z-50 flex flex-col shadow-2xl p-4 text-left"
             >
+              {/* Drawer Top Header */}
               <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-4">
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg bg-[#DC2626]/20 border border-[#DC2626]/40 flex items-center justify-center text-[#DC2626]">
-                    <MessageSquare size={16} />
+                  <div className="w-8 h-8 rounded-lg bg-[#DC2626]/20 border border-[#DC2626]/40 flex items-center justify-center text-[#DC2626] font-black">
+                    O
                   </div>
-                  <h3 className="text-sm font-black uppercase text-white tracking-wider">Omni Chat History</h3>
+                  <h3 className="text-sm font-black uppercase text-white tracking-wider">Omni</h3>
                 </div>
                 <button 
                   onClick={() => setShowHistoryDrawer(false)}
-                  className="p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/5"
+                  className="p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/5 cursor-pointer"
                 >
                   <X size={18} />
                 </button>
               </div>
 
-              {/* New Chat Button inside drawer */}
+              {/* Start New Chat Button */}
               <button
                 onClick={() => {
                   if (onNewChat) onNewChat();
                   setShowHistoryDrawer(false);
                 }}
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#DC2626] to-red-700 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg hover:opacity-95 active:scale-95 transition-all mb-4"
+                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#DC2626] to-red-700 text-white font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg hover:opacity-95 active:scale-95 transition-all mb-4 cursor-pointer"
               >
                 <Plus size={16} />
                 <span>Start New Omni Chat</span>
@@ -579,6 +653,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
 
               {/* Chat Sessions List */}
               <div className="flex-1 overflow-y-auto space-y-2 custom-scrollbar pr-1">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-white/40 mb-2 px-1">Recent Chats</p>
                 {chatSessions.length === 0 ? (
                   <div className="text-center py-12 text-white/30 space-y-2">
                     <MessageSquare size={32} className="mx-auto text-white/20" />
@@ -669,7 +744,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                                       setRenamingSessionId(session.id);
                                       setRenameTitleInput(session.title);
                                     }}
-                                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-white/10 text-xs text-white/90 font-medium"
+                                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-white/10 text-xs text-white/90 font-medium cursor-pointer"
                                   >
                                     <Edit3 size={13} className="text-blue-400" /> Rename
                                   </button>
@@ -680,7 +755,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                                       setActiveMenuSessionId(null);
                                       if (onPinSession) onPinSession(session.id);
                                     }}
-                                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-white/10 text-xs text-white/90 font-medium"
+                                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-white/10 text-xs text-white/90 font-medium cursor-pointer"
                                   >
                                     <Pin size={13} className={isPinned ? 'text-yellow-400' : 'text-white/40'} /> 
                                     {isPinned ? 'Unpin' : 'Pin'}
@@ -692,7 +767,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                                       setActiveMenuSessionId(null);
                                       if (onDeleteSession) onDeleteSession(session.id);
                                     }}
-                                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-red-500/20 text-xs text-red-400 font-medium"
+                                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-red-500/20 text-xs text-red-400 font-medium cursor-pointer"
                                   >
                                     <Trash2 size={13} /> Delete
                                   </button>
@@ -705,6 +780,35 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                     );
                   })
                 )}
+              </div>
+
+              {/* Drawer Footer: User Profile + PLUS badge + Settings Gear */}
+              <div className="border-t border-white/10 pt-3 mt-3 flex items-center justify-between">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-red-600 to-rose-500 flex items-center justify-center text-white font-bold text-xs shrink-0 overflow-hidden border border-white/10">
+                    {user?.photoURL ? (
+                      <img referrerPolicy="no-referrer" src={user.photoURL} alt="Avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      <span>{(user?.displayName || userHandle || 'U').charAt(0).toUpperCase()}</span>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-white truncate">{user?.displayName || userHandle || 'Nuell Student'}</p>
+                    <span className="inline-block px-1.5 py-0.2 bg-red-600/30 border border-red-500/40 text-red-400 text-[9px] font-black uppercase rounded tracking-wider">
+                      PLUS
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowHistoryDrawer(false);
+                    if (setAppActiveTab) setAppActiveTab('settings');
+                  }}
+                  className="p-2 rounded-xl text-white/50 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                  title="Settings"
+                >
+                  <Settings size={18} />
+                </button>
               </div>
             </motion.div>
           </>
@@ -729,7 +833,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
               <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">How can I help you today?</h1>
             </div>
 
-            {/* Clean, minimalist suggestion pills */}
+            {/* Clean suggestion pills */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full mt-2 text-left">
               {[
                 { 
@@ -778,7 +882,6 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
               } else {
                 const idKey = msg.id || `msg_hash_${msg.text?.length || 0}_${(msg.text || '').substring(0, 30)}`;
                 const isNewResponse = initialLoadDone && !initiallyLoadedIdsRef.current.has(idKey);
-                const isCopyActive = activeOmniCopyMsgId === (msg.id || String(index));
 
                 return (
                   <div 
@@ -796,7 +899,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                       />
                     </div>
 
-                    {/* Permanent clean action bar under each Omni response: Copy button only */}
+                    {/* Action bar under Omni response: Copy button */}
                     <div className="mt-2.5 flex items-center justify-start gap-2 pt-1">
                       <button
                         type="button"
@@ -851,7 +954,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
         )}
       </AnimatePresence>
 
-      {/* Floating Bottom Control Panel */}
+      {/* Bottom Control Panel */}
       <div className="w-full bg-[#0F0E17]/90 backdrop-blur-md pb-4 pt-2 px-4 shrink-0 z-20 flex flex-col items-center">
         
         {/* Stop generation button */}
@@ -863,7 +966,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
               animate={{ scale: 1, y: 0, opacity: 1 }}
               exit={{ scale: 0.9, y: 10, opacity: 0 }}
               onClick={onStopGeneration}
-              className="mb-2 px-4 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-full font-bold text-xs shadow-lg transition-all flex items-center gap-2"
+              className="mb-2 px-4 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-full font-bold text-xs shadow-lg transition-all flex items-center gap-2 cursor-pointer"
             >
               <StopCircle size={14} /> Stop
             </motion.button>
@@ -883,7 +986,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                 <p className="text-[10px] font-bold text-red-400 uppercase tracking-wider flex items-center gap-1.5">
                   <BookOpen size={12} /> Select Academic Note
                 </p>
-                <button onClick={() => setShowNoteSelector(false)} className="text-white/40 hover:text-white">
+                <button onClick={() => setShowNoteSelector(false)} className="text-white/40 hover:text-white cursor-pointer">
                   <X size={12} />
                 </button>
               </div>
@@ -898,10 +1001,10 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                         setSelectedImportedNote(n);
                         setShowNoteSelector(false);
                       }}
-                      className="flex flex-col items-start p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 transition-all text-left w-full cursor-pointer"
+                      className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 text-left transition-all cursor-pointer"
                     >
-                      <span className="text-xs font-bold text-white line-clamp-1">{n.title || 'Untitled note'}</span>
-                      <span className="text-[10px] text-zinc-400 line-clamp-1 mt-0.5">{typeof n.content === 'string' ? (n.content.substring(0, 80) || 'Empty note') : (n.content?.text ? n.content.text.substring(0, 80) : 'Empty note')}</span>
+                      <p className="text-xs font-bold text-white truncate">{n.title || 'Untitled Note'}</p>
+                      <p className="text-[10px] text-white/40 truncate">{n.content?.substring(0, 40) || 'Empty'}</p>
                     </button>
                   ))}
                 </div>
@@ -910,73 +1013,53 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
           )}
         </AnimatePresence>
 
-        {/* Imported Note Box */}
+        {/* Selected Note Chip Preview */}
         <AnimatePresence>
           {selectedImportedNote && (
             <motion.div
-              initial={{ opacity: 0, y: 10 }}
+              initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 10 }}
-              className="w-full max-w-3xl bg-[#171424] border border-white/10 rounded-2xl p-3 flex items-center justify-between gap-3 text-left mb-2"
+              exit={{ opacity: 0, y: 5 }}
+              className="mb-2 max-w-3xl w-full flex items-center justify-between bg-red-600/20 border border-red-500/40 rounded-xl px-3 py-1.5"
             >
-              <div className="flex items-center gap-2.5 overflow-hidden">
-                <div className="w-8 h-8 rounded-lg bg-red-600/20 border border-red-500/30 flex items-center justify-center shrink-0">
-                  <FileText size={16} className="text-red-400" />
-                </div>
-                <div className="truncate">
-                  <h4 className="text-xs font-bold text-white truncate">{selectedImportedNote.title || 'Untitled Note'}</h4>
-                </div>
+              <div className="flex items-center gap-2 overflow-hidden">
+                <BookOpen size={14} className="text-red-400 shrink-0" />
+                <span className="text-xs font-medium text-white truncate">Attached Note: {selectedImportedNote.title}</span>
               </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  onClick={() => {
-                    setInputText(`Please analyze and summarize this study note:\nTitle: ${selectedImportedNote.title}\nContent:\n${selectedImportedNote.content}`);
-                    setSelectedImportedNote(null);
-                  }}
-                  className="px-3 py-1.5 rounded-xl bg-white/10 text-white font-bold text-[10px] uppercase hover:bg-white/20 transition-all cursor-pointer"
-                >
-                  Analyze
-                </button>
-                <button
-                  onClick={() => setSelectedImportedNote(null)}
-                  className="p-1 hover:bg-white/10 rounded-lg text-white/50 hover:text-white"
-                >
-                  <X size={14} />
-                </button>
-              </div>
+              <button
+                onClick={() => setSelectedImportedNote(null)}
+                className="text-white/50 hover:text-white p-1 cursor-pointer"
+              >
+                <X size={14} />
+              </button>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Draft Attached Image Container */}
+        {/* Selected Image Attachment Preview */}
         <AnimatePresence>
           {attachedImage && (
             <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 10 }}
-              className="w-full max-w-3xl bg-[#171424] border border-white/10 rounded-2xl p-2.5 flex items-center justify-between gap-3 mb-2"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="mb-2 max-w-3xl w-full flex items-center justify-between bg-[#1A162B] border border-white/10 rounded-2xl p-2 shadow-xl"
             >
-              <div className="flex items-center gap-3 overflow-hidden">
-                <div className="relative w-10 h-10 rounded-xl overflow-hidden border border-white/15 shrink-0 bg-black">
-                  <img src={attachedImage.previewUrl} alt="Attached draft" className="w-full h-full object-cover" />
-                  {isUploadingImage && (
-                    <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
-                      <Loader2 size={14} className="text-red-500 animate-spin" />
-                    </div>
-                  )}
-                </div>
-                <div className="leading-tight overflow-hidden text-left">
-                  <p className="text-xs text-white/80 font-medium truncate">{attachedImage.file.name}</p>
+              <div className="flex items-center gap-3">
+                <img 
+                  referrerPolicy="no-referrer"
+                  src={attachedImage.previewUrl} 
+                  alt="Attachment Preview" 
+                  className="w-12 h-12 object-cover rounded-xl border border-white/10"
+                />
+                <div>
+                  <p className="text-xs font-bold text-white truncate max-w-[200px]">{attachedImage.file.name}</p>
+                  <p className="text-[10px] text-white/40">{(attachedImage.file.size / 1024).toFixed(1)} KB</p>
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  setAttachedImage(null);
-                  setIsUploadingImage(false);
-                }}
+                onClick={() => setAttachedImage(null)}
                 className="p-1.5 hover:bg-white/10 rounded-xl text-white/50 hover:text-white transition-all cursor-pointer"
                 title="Remove attachment"
               >
@@ -990,12 +1073,12 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
         <div className="w-full max-w-3xl bg-[#171424] border border-white/10 rounded-[32px] p-2 shadow-2xl flex items-center gap-2 relative">
           
           {/* Plus Attachment Button */}
-          <div className="relative">
+          <div id="omni_plus_menu_container" className="relative">
             <button
               type="button"
               id="omni_plus_menu_btn"
               onClick={() => setShowPlusMenu(!showPlusMenu)}
-              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border ${
+              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all border cursor-pointer ${
                 showPlusMenu 
                   ? 'bg-red-600 text-white border-red-500' 
                   : 'bg-white/5 text-white/60 border-white/10 hover:text-white hover:bg-white/10'
@@ -1008,46 +1091,56 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
             {/* Plus Menu Popup */}
             <AnimatePresence>
               {showPlusMenu && (
-                <>
-                  <div className="fixed inset-0 z-30" onClick={() => setShowPlusMenu(false)} />
-                  <motion.div
-                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                    className="absolute bottom-14 left-0 bg-[#1A162B] border border-white/10 p-2 rounded-2xl min-w-[160px] shadow-2xl z-40 flex flex-col gap-1 text-left"
+                <motion.div
+                  initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                  className="absolute bottom-14 left-0 bg-[#1A162B] border border-white/10 p-2 rounded-2xl min-w-[170px] shadow-2xl z-40 flex flex-col gap-1 text-left"
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPlusMenu(false);
+                      galleryInputRef.current?.click();
+                    }}
+                    className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/5 text-xs font-bold transition-all text-left w-full cursor-pointer"
                   >
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowPlusMenu(false);
-                        setShowNoteSelector(!showNoteSelector);
-                      }}
-                      className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/5 text-xs font-bold transition-all text-left w-full"
-                    >
-                      <BookOpen size={14} className="text-red-400" /> Notes
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowPlusMenu(false);
-                        galleryInputRef.current?.click();
-                      }}
-                      className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/5 text-xs font-bold transition-all text-left w-full"
-                    >
-                      <ImageIcon size={14} className="text-blue-400" /> Gallery
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowPlusMenu(false);
-                        fileInputRef.current?.click();
-                      }}
-                      className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/5 text-xs font-bold transition-all text-left w-full"
-                    >
-                      <Paperclip size={14} className="text-emerald-400" /> Files
-                    </button>
-                  </motion.div>
-                </>
+                    <ImageIcon size={14} className="text-blue-400" /> Photos (Gallery)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPlusMenu(false);
+                      cameraInputRef.current?.click();
+                    }}
+                    className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/5 text-xs font-bold transition-all text-left w-full cursor-pointer"
+                  >
+                    <Camera size={14} className="text-purple-400" /> Camera (Photo)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPlusMenu(false);
+                      fileInputRef.current?.click();
+                    }}
+                    className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/5 text-xs font-bold transition-all text-left w-full cursor-pointer"
+                  >
+                    <Paperclip size={14} className="text-emerald-400" /> Files / Documents
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPlusMenu(false);
+                      setShowNoteSelector(!showNoteSelector);
+                    }}
+                    className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/5 text-xs font-bold transition-all text-left w-full cursor-pointer"
+                  >
+                    <BookOpen size={14} className="text-red-400" /> Upload Note to Omni
+                  </button>
+                </motion.div>
               )}
             </AnimatePresence>
           </div>
@@ -1066,6 +1159,15 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
             onChange={handleImagePickerChange}
             className="hidden"
             accept="image/*"
+          />
+
+          <input 
+            type="file"
+            ref={cameraInputRef}
+            onChange={handleImagePickerChange}
+            className="hidden"
+            accept="image/*"
+            capture="environment"
           />
 
           {/* Textarea */}
@@ -1103,15 +1205,15 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
               id="omni_voice_record_btn"
               type="button"
               onClick={isRecording ? onStopVoiceRecord : onStartVoiceRecord}
-              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
+              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all cursor-pointer ${
                 isRecording ? 'bg-red-600 text-white animate-pulse' : 'text-white/50 hover:text-white hover:bg-white/5'
               }`}
-              title="Voice"
+              title="Voice Input"
             >
               <Mic size={18} />
             </button>
 
-            {/* Circular Send Arrow Button matching reference screenshot */}
+            {/* Circular Send Arrow Button */}
             <button
               id="omni_send_message_btn"
               type="button"
@@ -1132,7 +1234,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                   ? 'bg-[#DC2626] hover:bg-red-500 text-white shadow-lg cursor-pointer active:scale-95'
                   : 'bg-white/10 text-white/30 cursor-not-allowed'
               }`}
-              title="Send"
+              title="Send message"
             >
               <ArrowUp size={18} />
             </button>
@@ -1153,7 +1255,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
           >
             <button
               onClick={() => setViewingFullImageUrl(null)}
-              className="absolute top-6 right-6 p-3 rounded-full bg-white/10 text-white hover:bg-white/20 transition-all z-10"
+              className="absolute top-6 right-6 p-3 rounded-full bg-white/10 text-white hover:bg-white/20 transition-all z-10 cursor-pointer"
             >
               <X size={20} />
             </button>
@@ -1170,4 +1272,3 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
     </div>
   );
 };
-

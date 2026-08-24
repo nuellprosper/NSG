@@ -1207,7 +1207,22 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
           setMessages([]);
         }
       }
-      return;
+
+      // Real-time listener for local Omni events
+      const omniMsgListener = (e: any) => {
+        const detail = e.detail;
+        if (detail && detail.chatId === selectedChat.id && detail.message) {
+          setMessages(prev => {
+            if (prev.some(m => m.id === detail.message.id)) return prev;
+            return [...prev, detail.message];
+          });
+          setIsOmniThinking(false);
+        }
+      };
+      window.addEventListener('nsg_omni_message_received', omniMsgListener);
+      return () => {
+        window.removeEventListener('nsg_omni_message_received', omniMsgListener);
+      };
     }
 
     lastMessageIdRef.current = null; // Reset for new chat load
@@ -1391,7 +1406,22 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
         setIsOmniThinking(true);
         try {
-          await onTagOmni(text, selectedChat.id);
+          const aiReplyMsg: any = await onTagOmni(text, selectedChat.id);
+          if (aiReplyMsg && aiReplyMsg.text) {
+            setMessages(prev => {
+              if (prev.some(m => m.id === aiReplyMsg.id)) return prev;
+              return [...prev, aiReplyMsg];
+            });
+          } else {
+            const localKey = `nsg_msgs_${selectedChat.id}`;
+            const localRaw = localStorage.getItem(localKey);
+            if (localRaw) {
+              try {
+                const parsed = JSON.parse(localRaw);
+                setMessages(parsed);
+              } catch (e) {}
+            }
+          }
         } catch (err) {
           console.error("Omni AI dispatch error:", err);
         } finally {
@@ -2454,133 +2484,47 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
           </div>
         )}
       </AnimatePresence>
-      {/* Left Pane (Chat List) */}
-      <div className={`flex flex-col border-r border-[#2C2142]/40 bg-gradient-to-b from-[#181628] to-[#0E0C16] overflow-hidden h-full transition-all duration-300 ${isDesktop ? 'w-[400px] shrink-0' : (selectedChat ? 'hidden' : 'w-full')}`}>
-        <ChatList
-          chats={chats}
-          selectedChat={selectedChat}
-          setSelectedChat={setSelectedChat}
+      {/* Single Active Chat Page with Sliding History Drawer */}
+      <div className="flex flex-col flex-1 h-full w-full overflow-hidden">
+        <OmniChatWorkspace
+          messages={messages as any[]}
+          inputText={inputText}
+          setInputText={setInputText}
+          isThinking={isOmniThinking}
+          isRecording={isRecording}
+          onSendMessage={handleSendMessage}
+          onStopGeneration={() => setIsOmniThinking(false)}
+          onStartVoiceRecord={startRecording}
+          onStopVoiceRecord={stopRecording}
+          onFileUpload={handleFileUpload}
+          uploadToCloudinary={uploadToCloudinary}
+          onSendImageMessage={handleSendOmniImage}
+          onClose={() => {
+            if (setAppActiveTab) {
+              setAppActiveTab('tools');
+            } else if (setToolsSubTab) {
+              setToolsSubTab('menu');
+            }
+          }}
           user={user}
           userHandle={userHandle}
           theme={theme}
-          searchQuery={searchQuery}
-          setSearchQuery={setSearchQuery}
-          subFilter={subFilter}
-          setSubFilter={setSubFilter}
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          getChatName={getChatName}
-          getChatPhoto={getChatPhoto}
-          getChatUsername={getChatUsername}
-          onNewChatTrigger={() => setIsAddingChat(true)}
-          onOpenSettings={() => setViewingUser({ ...user, fullName: user.displayName || 'Me', username: userHandle, about: 'NSG Premium Scholar' })}
-          selectedChatIds={selectedChatIds}
-          isSelectionMode={isSelectionMode}
-          setIsSelectionMode={setIsSelectionMode}
-          toggleChatSelection={toggleChatSelection}
-          onBatchDelete={bulkDeleteChats}
-          memberProfiles={memberProfiles}
+          userNotes={userNotes}
+          onOpenNote={onOpenNote}
+          setAppActiveTab={setAppActiveTab}
+          setToolsSubTab={setToolsSubTab}
+          setImportedQuizNote={setImportedQuizNote}
+          setQuizTopic={setQuizTopic}
+          generateQuiz={generateQuiz}
+          onOpenQuizById={onOpenQuizById}
+          chatSessions={omniSessions}
+          activeSessionId={selectedChat?.id || 'omni_main'}
+          onSelectSession={handleSelectOmniSession}
+          onNewChat={handleNewOmniChat}
+          onRenameSession={handleRenameOmniSession}
+          onPinSession={handlePinOmniSession}
+          onDeleteSession={handleDeleteOmniSession}
         />
-      </div>
-
-      {/* Right Pane (Conversation) */}
-      <div className={`flex flex-col flex-1 h-full overflow-hidden ${!isDesktop && !selectedChat ? 'hidden' : 'flex'}`}>
-        {selectedChat ? (
-          selectedChat.isOmni || selectedChat.id.startsWith('omni_') ? (
-            <OmniChatWorkspace
-              messages={messages as any[]}
-              inputText={inputText}
-              setInputText={setInputText}
-              isThinking={isOmniThinking}
-              isRecording={isRecording}
-              onSendMessage={handleSendMessage}
-              onStopGeneration={() => setIsOmniThinking(false)}
-              onStartVoiceRecord={startRecording}
-              onStopVoiceRecord={stopRecording}
-              onFileUpload={handleFileUpload}
-              uploadToCloudinary={uploadToCloudinary}
-              onSendImageMessage={handleSendOmniImage}
-              onClose={() => setSelectedChat(null)}
-              user={user}
-              userHandle={userHandle}
-              theme={theme}
-              userNotes={userNotes}
-              onOpenNote={onOpenNote}
-              setAppActiveTab={setAppActiveTab}
-              setToolsSubTab={setToolsSubTab}
-              setImportedQuizNote={setImportedQuizNote}
-              setQuizTopic={setQuizTopic}
-              generateQuiz={generateQuiz}
-              onOpenQuizById={onOpenQuizById}
-              chatSessions={omniSessions}
-              activeSessionId={selectedChat?.id}
-              onSelectSession={handleSelectOmniSession}
-              onNewChat={handleNewOmniChat}
-              onRenameSession={handleRenameOmniSession}
-              onPinSession={handlePinOmniSession}
-              onDeleteSession={handleDeleteOmniSession}
-            />
-          ) : (
-            <PeerChatWorkspace
-              chat={selectedChat}
-              messages={messages as any[]}
-              inputText={inputText}
-              setInputText={setInputText}
-              onSendMessage={handleSendMessage}
-              onShareNoteClick={() => setShowNoteShareOverlay(true)}
-              onStartCall={startCall}
-              onVoiceUpload={(url, duration) => {
-                const msgData = {
-                  senderId: user.uid,
-                  senderHandle: userHandle,
-                  senderName: user.displayName || userHandle,
-                  text: 'Sent audio',
-                  timestamp: new Date(),
-                  type: 'audio',
-                  mediaUrl: url,
-                  duration: duration,
-                  encrypted: true
-                };
-                const { collection, addDoc } = require('firebase/firestore');
-                addDoc(collection(db, 'chats', selectedChat.id, 'messages'), msgData);
-              }}
-              onFileUpload={handleFileUpload}
-              onClose={() => setSelectedChat(null)}
-              user={user}
-              userHandle={userHandle}
-              theme={theme}
-              userNotes={userNotes}
-              onOpenNote={onOpenNote}
-              targetUserData={getOtherMemberInfo(selectedChat) ? {
-                displayName: (getOtherMemberInfo(selectedChat) as any)?.displayName || 'Scholar',
-                fullName: (getOtherMemberInfo(selectedChat) as any)?.fullName || (getOtherMemberInfo(selectedChat) as any)?.displayName || 'NSG Scholar',
-                photoURL: (getOtherMemberInfo(selectedChat) as any)?.photoURL || undefined,
-                email: (getOtherMemberInfo(selectedChat) as any)?.email || undefined,
-                about: (getOtherMemberInfo(selectedChat) as any)?.about || 'Verified NSG Peer',
-                university: (getOtherMemberInfo(selectedChat) as any)?.university || 'University of Benin',
-                department: (getOtherMemberInfo(selectedChat) as any)?.department || 'Computer Engineering',
-                faculty: (getOtherMemberInfo(selectedChat) as any)?.faculty || 'Engineering',
-                level: (getOtherMemberInfo(selectedChat) as any)?.level || '300 Level',
-                points: (getOtherMemberInfo(selectedChat) as any)?.points || 250,
-                streak: (getOtherMemberInfo(selectedChat) as any)?.streak || 14,
-                lastSeen: (getOtherMemberInfo(selectedChat) as any)?.lastSeen || null
-              } : undefined}
-              onMessageContextMenu={(e, msg) => {
-                e.preventDefault();
-                setOverlayMessage(msg as any);
-                setOverlayPosition({ x: e.clientX, y: e.clientY });
-              }}
-            />
-          )
-        ) : isDesktop ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-white/5 p-12 text-center bg-black/40">
-            <div className="w-24 h-24 rounded-full bg-white/5 flex items-center justify-center mb-6 shadow-[0_0_50px_rgba(220,38,38,0.1)] border border-white/5 animate-pulse">
-              <Brain size={48} className="text-red-650/40" />
-            </div>
-            <h3 className="text-md font-black uppercase tracking-widest text-[#DC2626] mb-2 opacity-50 italic">NSG Workspace</h3>
-            <p className="max-w-xs text-[10px] font-black leading-relaxed opacity-20 uppercase tracking-widest">Select a chat to start messaging</p>
-          </div>
-        ) : null}
       </div>
 
       {/* Floating Rich Context Actions Pop-up Menu */}
