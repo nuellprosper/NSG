@@ -89,8 +89,24 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
   initialFacultyFilter = null,
   initialDepartmentFilter = null
 }) => {
-  // Course List State (starts empty, populated strictly from Firestore / uploads)
-  const [courses, setCourses] = useState<CourseMaterial[]>([]);
+  // Course List State (populated from local storage and real-time Firestore)
+  const [courses, setCourses] = useState<CourseMaterial[]>(() => {
+    try {
+      const localSaved = JSON.parse(localStorage.getItem('omni_user_uploaded_courses') || '[]');
+      const sharedSaved = JSON.parse(localStorage.getItem('shared_user_courses') || '[]');
+      const cached = JSON.parse(localStorage.getItem('omni_cached_courses') || '[]');
+      const combined = [...localSaved, ...sharedSaved, ...cached];
+      const seen = new Set<string>();
+      return combined.filter((c: any) => {
+        if (!c || !c.id) return false;
+        if (seen.has(c.id)) return false;
+        seen.add(c.id);
+        return true;
+      });
+    } catch (e) {
+      return [];
+    }
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [likedCourseIds, setLikedCourseIds] = useState<Set<string>>(() => {
     try {
@@ -209,6 +225,16 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
         setSelectedCourse(null);
       }
       
+      // 3. Remove from localStorage cache
+      try {
+        const localSaved = JSON.parse(localStorage.getItem('omni_user_uploaded_courses') || '[]');
+        localStorage.setItem('omni_user_uploaded_courses', JSON.stringify(localSaved.filter((c: any) => c.id !== courseToDelete.id)));
+        const sharedSaved = JSON.parse(localStorage.getItem('shared_user_courses') || '[]');
+        localStorage.setItem('shared_user_courses', JSON.stringify(sharedSaved.filter((c: any) => c.id !== courseToDelete.id)));
+        const cached = JSON.parse(localStorage.getItem('omni_cached_courses') || '[]');
+        localStorage.setItem('omni_cached_courses', JSON.stringify(cached.filter((c: any) => c.id !== courseToDelete.id)));
+      } catch (e) {}
+
       triggerHaptic();
       if (setUserNotification) {
         setUserNotification(`🗑️ Successfully deleted ${courseToDelete.code}`);
@@ -223,6 +249,14 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
       if (selectedCourse?.id === courseToDelete.id) {
         setSelectedCourse(null);
       }
+      try {
+        const localSaved = JSON.parse(localStorage.getItem('omni_user_uploaded_courses') || '[]');
+        localStorage.setItem('omni_user_uploaded_courses', JSON.stringify(localSaved.filter((c: any) => c.id !== courseToDelete.id)));
+        const sharedSaved = JSON.parse(localStorage.getItem('shared_user_courses') || '[]');
+        localStorage.setItem('shared_user_courses', JSON.stringify(sharedSaved.filter((c: any) => c.id !== courseToDelete.id)));
+        const cached = JSON.parse(localStorage.getItem('omni_cached_courses') || '[]');
+        localStorage.setItem('omni_cached_courses', JSON.stringify(cached.filter((c: any) => c.id !== courseToDelete.id)));
+      } catch (e) {}
       if (setUserNotification) {
         setUserNotification(`Course removed.`);
       }
@@ -341,8 +375,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
   // Fetch Firestore Courses in real-time
   useEffect(() => {
     try {
-      const q = query(collection(db, 'courses'), orderBy('createdAt', 'desc'));
-      const unsub = onSnapshot(q, (snapshot) => {
+      const unsub = onSnapshot(collection(db, 'courses'), (snapshot) => {
         if (!snapshot.empty) {
           const firestoreCourses: CourseMaterial[] = snapshot.docs.map((docSnap) => {
             const data = docSnap.data();
@@ -471,6 +504,9 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
           });
 
           setCourses(dedupedCourses);
+          try {
+            localStorage.setItem('omni_cached_courses', JSON.stringify(dedupedCourses));
+          } catch (e) {}
 
           // Update selected course in place if active
           if (selectedCourseRef.current) {
@@ -480,18 +516,42 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
             }
           }
         } else {
-          // If Firestore is empty, load locally saved courses
+          // If Firestore returns empty, load locally saved and cached courses
           try {
             const localSaved = JSON.parse(localStorage.getItem('omni_user_uploaded_courses') || '[]');
             const sharedSaved = JSON.parse(localStorage.getItem('shared_user_courses') || '[]');
-            const allLocal = [...localSaved, ...sharedSaved];
-            setCourses(allLocal);
-          } catch (e) {
-            setCourses([]);
-          }
+            const cached = JSON.parse(localStorage.getItem('omni_cached_courses') || '[]');
+            const allLocal = [...localSaved, ...sharedSaved, ...cached];
+            const seen = new Set<string>();
+            const deduped = allLocal.filter((c: any) => {
+              if (!c || !c.id) return false;
+              if (seen.has(c.id)) return false;
+              seen.add(c.id);
+              return true;
+            });
+            if (deduped.length > 0) {
+              setCourses(deduped);
+            }
+          } catch (e) {}
         }
       }, (err) => {
-        console.warn("Firestore courses snapshot notice:", err);
+        console.warn("Firestore courses snapshot notice (loading local cache):", err);
+        try {
+          const localSaved = JSON.parse(localStorage.getItem('omni_user_uploaded_courses') || '[]');
+          const sharedSaved = JSON.parse(localStorage.getItem('shared_user_courses') || '[]');
+          const cached = JSON.parse(localStorage.getItem('omni_cached_courses') || '[]');
+          const allLocal = [...localSaved, ...sharedSaved, ...cached];
+          const seen = new Set<string>();
+          const deduped = allLocal.filter((c: any) => {
+            if (!c || !c.id) return false;
+            if (seen.has(c.id)) return false;
+            seen.add(c.id);
+            return true;
+          });
+          if (deduped.length > 0) {
+            setCourses(deduped);
+          }
+        } catch (e) {}
       });
       return () => unsub();
     } catch (err) {
@@ -1031,8 +1091,13 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
         }
       }
 
-      // Add to local state
+      // Add to local state and localStorage for instant persistence across sessions and offline APK
       setCourses(prev => [newCourse, ...prev.filter(c => c.id !== newCourse.id)]);
+      try {
+        const localCourses = JSON.parse(localStorage.getItem('omni_user_uploaded_courses') || '[]');
+        const updated = [newCourse, ...localCourses.filter((c: any) => c.id !== newCourse.id)];
+        localStorage.setItem('omni_user_uploaded_courses', JSON.stringify(updated));
+      } catch (e) {}
 
       setUserNotification(`🎉 Successfully published ${newCourse.code}!`);
       setIsUploadModalOpen(false);

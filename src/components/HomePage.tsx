@@ -48,8 +48,24 @@ export const HomePage: React.FC<HomePageProps> = ({
   openCoursesWithFilter,
   setUserNotification
 }) => {
-  // Course State from Firestore
-  const [courses, setCourses] = useState<CourseMaterial[]>([]);
+  // Course State from Firestore and Local Storage
+  const [courses, setCourses] = useState<CourseMaterial[]>(() => {
+    try {
+      const localSaved = JSON.parse(localStorage.getItem('omni_user_uploaded_courses') || '[]');
+      const sharedSaved = JSON.parse(localStorage.getItem('shared_user_courses') || '[]');
+      const cached = JSON.parse(localStorage.getItem('omni_cached_courses') || '[]');
+      const combined = [...localSaved, ...sharedSaved, ...cached];
+      const seen = new Set<string>();
+      return combined.filter((c: any) => {
+        if (!c || !c.id) return false;
+        if (seen.has(c.id)) return false;
+        seen.add(c.id);
+        return true;
+      });
+    } catch (e) {
+      return [];
+    }
+  });
   const [likedCourseIds, setLikedCourseIds] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem('omni_liked_courses');
@@ -88,8 +104,7 @@ export const HomePage: React.FC<HomePageProps> = ({
   // Fetch Firestore Courses
   useEffect(() => {
     try {
-      const q = query(collection(db, 'courses'), orderBy('createdAt', 'desc'));
-      const unsub = onSnapshot(q, (snapshot) => {
+      const unsub = onSnapshot(collection(db, 'courses'), (snapshot) => {
         if (!snapshot.empty) {
           const list: CourseMaterial[] = snapshot.docs.map((docSnap) => {
             const data = docSnap.data();
@@ -135,16 +150,60 @@ export const HomePage: React.FC<HomePageProps> = ({
               createdAt: data.createdAt
             };
           });
-          setCourses(list);
+
+          // Merge with local uploads
+          let merged = [...list];
+          try {
+            const localSaved = JSON.parse(localStorage.getItem('omni_user_uploaded_courses') || '[]');
+            const sharedSaved = JSON.parse(localStorage.getItem('shared_user_courses') || '[]');
+            [...localSaved, ...sharedSaved].forEach((localCourse: any) => {
+              if (localCourse && (localCourse.title || localCourse.code)) {
+                const normalizedCode = (localCourse.code || localCourse.courseCode || 'COURSE').toUpperCase();
+                const alreadyExists = merged.some(fc => 
+                  fc.id === localCourse.id || 
+                  (fc.code && fc.code.toUpperCase() === normalizedCode && fc.title.toLowerCase() === (localCourse.title || '').toLowerCase())
+                );
+                if (!alreadyExists) {
+                  merged.unshift(localCourse);
+                }
+              }
+            });
+          } catch (e) {}
+
+          const seen = new Set<string>();
+          const deduped = merged.filter(c => {
+            if (!c || !c.id) return false;
+            if (seen.has(c.id)) return false;
+            seen.add(c.id);
+            return true;
+          });
+
+          setCourses(deduped);
+          try {
+            localStorage.setItem('omni_cached_courses', JSON.stringify(deduped));
+          } catch (e) {}
         } else {
-          setCourses([]);
+          try {
+            const localSaved = JSON.parse(localStorage.getItem('omni_user_uploaded_courses') || '[]');
+            const sharedSaved = JSON.parse(localStorage.getItem('shared_user_courses') || '[]');
+            const cached = JSON.parse(localStorage.getItem('omni_cached_courses') || '[]');
+            const combined = [...localSaved, ...sharedSaved, ...cached];
+            if (combined.length > 0) setCourses(combined);
+          } catch (e) {}
         }
       }, (err) => {
-        console.error('Error fetching courses for home:', err);
+        console.warn('Firestore courses snapshot notice on home (using local cache):', err);
+        try {
+          const localSaved = JSON.parse(localStorage.getItem('omni_user_uploaded_courses') || '[]');
+          const sharedSaved = JSON.parse(localStorage.getItem('shared_user_courses') || '[]');
+          const cached = JSON.parse(localStorage.getItem('omni_cached_courses') || '[]');
+          const combined = [...localSaved, ...sharedSaved, ...cached];
+          if (combined.length > 0) setCourses(combined);
+        } catch (e) {}
       });
       return () => unsub();
     } catch (e) {
-      console.error('Courses fetch setup error:', e);
+      console.warn('Courses fetch setup error:', e);
     }
   }, []);
 
