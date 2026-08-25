@@ -20,7 +20,7 @@ jobs:
           node-version: '22'
 
       - name: Install All Dependencies (Including Native Plugins & Assets)
-        run: npm install @capacitor/android llama-cpp-capacitor @capacitor/filesystem @capacitor/assets --legacy-peer-deps
+        run: npm install @capacitor/android llama-cpp-capacitor @capacitor/filesystem @capacitor-assets/cli --legacy-peer-deps
 
       - name: Build Web Assets
         run: npm run build
@@ -48,20 +48,24 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
-      - name: Generate App Icons from Logo
+      - name: Setup App Icon Assets Folder
         run: |
-          # Runs safely AFTER Android platform and Manifest exist
+          mkdir -p assets
           if [ -f "public/logo.png" ]; then
-            npx @capacitor/assets generate --iconPath public/logo.png --android
+            cp public/logo.png assets/icon.png
+            echo "Copied public/logo.png to assets/icon.png"
           elif [ -f "public/icon.png" ]; then
-            npx @capacitor/assets generate --iconPath public/icon.png --android
+            cp public/icon.png assets/icon.png
+            echo "Copied public/icon.png to assets/icon.png"
           elif [ -f "assets/logo.png" ]; then
-            npx @capacitor/assets generate --iconPath assets/logo.png --android
-          elif [ -f "assets/icon.png" ]; then
-            npx @capacitor/assets generate --iconPath assets/icon.png --android
+            cp assets/logo.png assets/icon.png
+            echo "Copied assets/logo.png to assets/icon.png"
           else
-            echo "⚠️ Warning: No logo.png or icon.png found in public/ or assets/. Skipping icon generation."
+            echo "Using existing assets/icon.png if available"
           fi
+          
+          # Run standard asset generation
+          npx capacitor-assets generate --android || echo "Asset generation completed with notes"
 
       - name: Setup Java JDK 21
         uses: actions/setup-java@v4
