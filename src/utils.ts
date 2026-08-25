@@ -255,16 +255,17 @@ export const getApiKey = () => {
                 localStorage.getItem('nsg_gemini_api_key') ||
                 localStorage.getItem('user_gemini_api_key') ||
                 localStorage.getItem('GEMINI_API_KEY') ||
+                localStorage.getItem('omni_cloud_api_key') ||
+                localStorage.getItem('omni_api_key') ||
                 localStorage.getItem('custom_gemini_api_key') || '';
   }
 
+  const windowKey = typeof window !== 'undefined' ? ((window as any).__GEMINI_API_KEY__ || '') : '';
   const key = storedKey.trim() ||
-              (typeof process !== 'undefined' && process.env ? process.env.GEMINI_API_KEY : '') ||
-              (import.meta.env ? (import.meta.env.VITE_GEMINI_API_KEY || (import.meta.env as any).GEMINI_API_KEY) : '');
+              windowKey.trim() ||
+              (typeof process !== 'undefined' && process.env ? (process.env.GEMINI_API_KEY || (process.env as any).VITE_GEMINI_API_KEY) : '') ||
+              (typeof import.meta !== 'undefined' && import.meta.env ? (import.meta.env.VITE_GEMINI_API_KEY || (import.meta.env as any).GEMINI_API_KEY) : '');
   const finalKey = (key || "").trim();
-  if (!finalKey) {
-    console.warn("Gemini API Key is missing. Ensure GEMINI_API_KEY is set in your environment or Settings.");
-  }
   return finalKey;
 };
 

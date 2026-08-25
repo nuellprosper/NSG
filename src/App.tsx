@@ -10463,7 +10463,7 @@ Ensure these selected question types are distributed throughout the quiz questio
           console.warn("Gemini primary quiz generation error, attempting fallback lite/flash model:", e);
           try {
             const resFallback = await aiInstance.models.generateContent({
-              model: "gemini-2.5-flash",
+              model: "gemini-3.1-flash-lite",
               contents: [{ role: 'user', parts: contentsParts }],
               config: {
                 responseMimeType: "application/json"
