@@ -19,11 +19,26 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install All Dependencies (Including Native Plugins)
-        run: npm install @capacitor/android llama-cpp-capacitor @capacitor/filesystem --legacy-peer-deps
+      - name: Install All Dependencies (Including Native Plugins & Assets)
+        run: npm install @capacitor/android llama-cpp-capacitor @capacitor/filesystem @capacitor/assets --legacy-peer-deps
 
       - name: Build Web Assets
         run: npm run build
+
+      - name: Generate App Icons from Logo
+        run: |
+          # Looks for logo.png or icon.png in public/ or assets/ folders and generates native icons
+          if [ -f "public/logo.png" ]; then
+            npx @capacitor/assets generate --iconPath public/logo.png --android
+          elif [ -f "public/icon.png" ]; then
+            npx @capacitor/assets generate --iconPath public/icon.png --android
+          elif [ -f "assets/logo.png" ]; then
+            npx @capacitor/assets generate --iconPath assets/logo.png --android
+          elif [ -f "assets/icon.png" ]; then
+            npx @capacitor/assets generate --iconPath assets/icon.png --android
+          else
+            echo "⚠️ Warning: No logo.png or icon.png found in public/ or assets/. Skipping icon generation."
+          fi
 
       - name: Ensure Android Platform Exists
         run: |
