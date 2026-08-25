@@ -8,7 +8,7 @@ import {
   getQwenProgressState
 } from './aiEngine';
 import { isOmniBrainDownloaded, getOmniBrainState, getSavedModelPath, ESTIMATED_TOTAL_BYTES } from './omniBrainDownloader';
-import { getApiKey, MODEL_NAME, FLASH_MODEL } from '../../utils';
+import { getApiKey, MODEL_NAME, FLASH_MODEL, callTogetherAI, callOpenRouter, getHfInstance, HF_MODELS } from '../../utils';
 
 export interface AIStatusOverview {
   isOnline: boolean;
@@ -30,7 +30,7 @@ export function isLocalQwenModelDownloaded(): boolean {
 export { cleanupLlamaModel, getSavedModelPath };
 
 /**
- * Get comprehensive network and AI model availability status
+ * Get comprehensive network and AI status
  */
 export async function getNetworkAndAIStatus(): Promise<AIStatusOverview> {
   const isOnline = await checkNetworkStatus();
@@ -53,79 +53,131 @@ export async function getNetworkAndAIStatus(): Promise<AIStatusOverview> {
 }
 
 /**
- * Reliable Cloud AI Fetcher with strict Timeout (AbortController)
- * Prevents hanging states if the network drops mid-request.
+ * Reliable Cloud AI Fetcher with strict Timeout (AbortController) and multi-provider fallback.
+ * Tries Gemini direct -> Server AI Proxy -> Groq / Together / OpenRouter / HF
  */
 export async function fetchCloudAIWithTimeout(
   payload: AIRequestPayload,
   timeoutMs = 15000
 ): Promise<string> {
   const apiKey = getApiKey();
-  if (!apiKey) {
-    throw new Error("Gemini API key is not configured.");
-  }
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-  const model = MODEL_NAME || 'gemini-2.5-flash';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
-  const contents: any[] = [];
-  if (payload.systemInstruction) {
-    // Gemini supports systemInstruction or prepended text
-  }
-
   const promptText = payload.systemInstruction 
     ? `${payload.systemInstruction}\n\nStudent: ${payload.prompt}\nOmni:`
     : payload.prompt;
 
-  const requestBody = {
-    contents: [
-      {
-        parts: [{ text: promptText }]
-      }
-    ],
-    generationConfig: {
-      temperature: payload.responseMimeType === 'application/json' ? 0.2 : 0.7,
-      maxOutputTokens: payload.maxTokens || 1024,
-      responseMimeType: payload.responseMimeType || 'text/plain'
-    }
-  };
+  // 1. Direct Gemini REST call if API Key is available
+  if (apiKey && apiKey !== 'offline_fallback_key') {
+    const candidateModels = [MODEL_NAME || 'gemini-3.1-flash-lite', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+    for (const model of candidateModels) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
+        const requestBody = {
+          contents: [
+            {
+              parts: [{ text: promptText }]
+            }
+          ],
+          generationConfig: {
+            temperature: payload.responseMimeType === 'application/json' ? 0.2 : 0.7,
+            maxOutputTokens: payload.maxTokens || 1024,
+            responseMimeType: payload.responseMimeType || 'text/plain'
+          }
+        };
+
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody),
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (res.ok) {
+          const data = await res.json();
+          const candidate = data?.candidates?.[0];
+          const textPart = candidate?.content?.parts?.[0]?.text;
+          if (textPart && textPart.trim()) {
+            return textPart.trim();
+          }
+        }
+      } catch (geminiErr: any) {
+        console.warn(`[Gemini REST ${model} attempt]:`, geminiErr?.message || geminiErr);
+      }
+    }
+  }
+
+  // 2. Try Server AI Proxy Endpoint (/api/ai/chat)
   try {
-    const res = await fetch(url, {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const proxyRes = await fetch('/api/ai/chat', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(requestBody),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: payload.prompt,
+        systemInstruction: payload.systemInstruction,
+        maxTokens: payload.maxTokens || 1024,
+        responseMimeType: payload.responseMimeType
+      }),
       signal: controller.signal
     });
-
     clearTimeout(timeoutId);
 
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => '');
-      throw new Error(`Cloud API HTTP Error ${res.status}: ${errBody || res.statusText}`);
+    if (proxyRes.ok) {
+      const data = await proxyRes.json();
+      if (data?.text && data.text.trim()) {
+        return data.text.trim();
+      }
     }
-
-    const data = await res.json();
-    const candidate = data?.candidates?.[0];
-    const textPart = candidate?.content?.parts?.[0]?.text;
-    
-    if (!textPart) {
-      throw new Error("Cloud AI returned empty response.");
-    }
-
-    return textPart.trim();
-  } catch (err: any) {
-    clearTimeout(timeoutId);
-    if (err.name === 'AbortError') {
-      throw new Error(`Cloud AI request timed out after ${Math.round(timeoutMs / 1000)}s.`);
-    }
-    throw err;
+  } catch (proxyErr) {
+    // Silently continue to next cloud provider
   }
+
+  // 3. Try Together AI
+  try {
+    const togetherText = await callTogetherAI(promptText);
+    if (togetherText && togetherText.trim()) {
+      return togetherText.trim();
+    }
+  } catch (togetherErr) {}
+
+  // 4. Try OpenRouter
+  try {
+    const openRouterText = await callOpenRouter(promptText);
+    if (openRouterText && openRouterText.trim()) {
+      return openRouterText.trim();
+    }
+  } catch (openRouterErr) {}
+
+  // 5. Try Hugging Face
+  try {
+    const hfInstance = getHfInstance();
+    if (hfInstance) {
+      const hfRes = await hfInstance.chatCompletion({
+        model: HF_MODELS?.TEXT || "meta-llama/Llama-3.1-8B-Instruct",
+        messages: [
+          ...(payload.systemInstruction ? [{ role: "system" as const, content: payload.systemInstruction }] : []),
+          { role: "user" as const, content: payload.prompt }
+        ],
+        max_tokens: payload.maxTokens || 1024,
+      });
+      const text = hfRes.choices[0]?.message?.content || '';
+      if (text && text.trim()) {
+        return text.trim();
+      }
+    }
+  } catch (hfErr) {}
+
+  // If local model is downloaded, use local Qwen
+  if (isLocalQwenModelDownloaded()) {
+    return await runLocalQwenInference(payload);
+  }
+
+  throw new Error("Unable to connect to cloud AI service. Please check your internet connection or switch to Omni Brain (offline mode).");
 }
 
 /**
@@ -145,7 +197,7 @@ export async function executeAITask(
   // 1. OFFLINE EXECUTION PATH
   if (!isOnline) {
     if (!isModelReady) {
-      console.warn("⚠️ Offline AI Task blocked: Qwen GGUF model is not downloaded yet.");
+      console.warn("⚠️ Offline AI Task: Qwen model is not downloaded yet.");
       return {
         text: OFFLINE_MODEL_NOT_DOWNLOADED_MSG,
         isLocalInference: false,
@@ -153,7 +205,7 @@ export async function executeAITask(
       };
     }
 
-    console.log("⚡ [AI Service] Device is offline. Routing directly to On-Device Native Qwen Engine (RAM-infused).");
+    console.log("⚡ [AI Service] Device is offline. Routing directly to On-Device Native Qwen Engine.");
     try {
       const localResultText = await runLocalQwenInference(payload);
       return {
@@ -178,47 +230,24 @@ export async function executeAITask(
       engine: 'cloud-gemini'
     };
   } catch (networkErr: any) {
-    const errMsg = String(networkErr?.message || networkErr).toLowerCase();
-    const isConnectionIssue = 
-      errMsg.includes("failed to fetch") || 
-      errMsg.includes("networkerror") || 
-      errMsg.includes("offline") ||
-      errMsg.includes("timeout") ||
-      errMsg.includes("load failed") ||
-      errMsg.includes("abort") ||
-      errMsg.includes("econnrefused") ||
-      !navigator.onLine;
-
-    if (isConnectionIssue) {
-      console.warn("⚠️ Cloud AI fetch encountered a network failure. Evaluating local Qwen fallback...", networkErr);
-      if (isModelReady) {
-        console.log("⚡ [AI Service] Network dropped. Falling back to On-Device Qwen Native Engine...");
+    console.warn("⚠️ Cloud AI fetch failed, checking local Qwen fallback...", networkErr?.message || networkErr);
+    
+    if (isModelReady) {
+      try {
+        console.log("⚡ [AI Service] Falling back to On-Device Qwen Native Engine...");
         const fallbackText = await runLocalQwenInference(payload);
         return {
           text: fallbackText,
           isLocalInference: true,
           engine: 'on-device-qwen'
         };
-      } else {
-        return {
-          text: OFFLINE_MODEL_NOT_DOWNLOADED_MSG,
-          isLocalInference: false,
-          engine: 'on-device-qwen'
-        };
-      }
+      } catch (localErr) {}
     }
 
-    // Rate-limiting / quota issue fallback
-    if (isModelReady && (errMsg.includes("quota") || errMsg.includes("rate limit") || errMsg.includes("busy") || errMsg.includes("429"))) {
-      console.log("⚡ [AI Service] Cloud quota reached. Falling back to On-Device Qwen Native Engine...");
-      const fallbackText = await runLocalQwenInference(payload);
-      return {
-        text: fallbackText,
-        isLocalInference: true,
-        engine: 'on-device-qwen'
-      };
-    }
-
-    throw networkErr;
+    return {
+      text: "I'm having trouble connecting to the cloud AI service right now. Please check your internet connection or download Omni Brain in settings for offline support.",
+      isLocalInference: false,
+      engine: 'cloud-gemini'
+    };
   }
 }

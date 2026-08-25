@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core';
 import { isNativePlatform } from './platform';
 import { 
   GoogleAuthProvider, 
@@ -11,24 +12,25 @@ export const GOOGLE_WEB_CLIENT_ID = '780956680320-g2gripd8rmlalln7flapch5el5bijp
 
 /**
  * Initialize the GoogleAuth plugin.
- * On Android/native (isNativePlatform()), call GoogleAuth.initialize() with NO arguments
- * so it pulls strictly from capacitor.config.ts and strings.xml (preventing Code 10 Developer Error).
- * Only pass the clientId and scopes config object when running on the web.
+ * On Android/iOS (Capacitor.isNativePlatform()), DO NOT call GoogleAuth.initialize() with a config object,
+ * as it overrides strings.xml and causes a Code 10 error.
+ * Just log that native auto-init is used.
+ * If the platform is Web, call it with the clientId and scopes.
  */
 export async function initGoogleAuth(): Promise<void> {
   try {
-    const { GoogleAuth } = await import('@codetrix-studio/capacitor-google-auth');
-    if (isNativePlatform()) {
-      await GoogleAuth.initialize();
-      console.log('✅ Native GoogleAuth initialized from native config/strings.xml');
-    } else {
-      await GoogleAuth.initialize({
-        clientId: GOOGLE_WEB_CLIENT_ID,
-        scopes: ['profile', 'email'],
-        grantOfflineAccess: true,
-      });
-      console.log('✅ Web GoogleAuth initialized successfully with client ID:', GOOGLE_WEB_CLIENT_ID);
+    if (Capacitor.isNativePlatform()) {
+      console.log('✅ Native GoogleAuth: Using native auto-init from strings.xml (no config object passed to prevent Code 10 error)');
+      return;
     }
+
+    const { GoogleAuth } = await import('@codetrix-studio/capacitor-google-auth');
+    await GoogleAuth.initialize({
+      clientId: GOOGLE_WEB_CLIENT_ID,
+      scopes: ['profile', 'email'],
+      grantOfflineAccess: true,
+    });
+    console.log('✅ Web GoogleAuth initialized successfully with client ID:', GOOGLE_WEB_CLIENT_ID);
   } catch (error) {
     console.warn('⚠️ GoogleAuth initialize note:', error);
   }
