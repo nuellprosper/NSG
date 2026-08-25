@@ -25,21 +25,6 @@ jobs:
       - name: Build Web Assets
         run: npm run build
 
-      - name: Generate App Icons from Logo
-        run: |
-          # Looks for logo.png or icon.png in public/ or assets/ folders and generates native icons
-          if [ -f "public/logo.png" ]; then
-            npx @capacitor/assets generate --iconPath public/logo.png --android
-          elif [ -f "public/icon.png" ]; then
-            npx @capacitor/assets generate --iconPath public/icon.png --android
-          elif [ -f "assets/logo.png" ]; then
-            npx @capacitor/assets generate --iconPath assets/logo.png --android
-          elif [ -f "assets/icon.png" ]; then
-            npx @capacitor/assets generate --iconPath assets/icon.png --android
-          else
-            echo "⚠️ Warning: No logo.png or icon.png found in public/ or assets/. Skipping icon generation."
-          fi
-
       - name: Ensure Android Platform Exists
         run: |
           if [ ! -f "android/gradlew" ]; then
@@ -62,6 +47,21 @@ jobs:
 
       - name: Sync Capacitor
         run: npx cap sync android
+
+      - name: Generate App Icons from Logo
+        run: |
+          # Runs safely AFTER Android platform and Manifest exist
+          if [ -f "public/logo.png" ]; then
+            npx @capacitor/assets generate --iconPath public/logo.png --android
+          elif [ -f "public/icon.png" ]; then
+            npx @capacitor/assets generate --iconPath public/icon.png --android
+          elif [ -f "assets/logo.png" ]; then
+            npx @capacitor/assets generate --iconPath assets/logo.png --android
+          elif [ -f "assets/icon.png" ]; then
+            npx @capacitor/assets generate --iconPath assets/icon.png --android
+          else
+            echo "⚠️ Warning: No logo.png or icon.png found in public/ or assets/. Skipping icon generation."
+          fi
 
       - name: Setup Java JDK 21
         uses: actions/setup-java@v4
