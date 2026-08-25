@@ -2122,6 +2122,82 @@ app.get("/api/lookup-user", async (req, res) => {
   }
 });
 
+// Server-side AI Proxy for Native Mobile App and Web clients
+app.post("/api/ai/chat", async (req, res) => {
+  const { prompt, systemInstruction, maxTokens, responseMimeType } = req.body || {};
+  if (!prompt || typeof prompt !== 'string') {
+    return res.status(400).json({ error: "Prompt is required" });
+  }
+
+  const promptText = systemInstruction 
+    ? `${systemInstruction}\n\nUser: ${prompt}\nOmni:` 
+    : prompt;
+
+  // 1. Try Gemini
+  if (genAI) {
+    try {
+      const response = await genAI.models.generateContent({
+        model: 'gemini-3.1-flash-lite',
+        contents: promptText,
+        config: {
+          maxOutputTokens: maxTokens || 1024,
+          responseMimeType: responseMimeType || 'text/plain'
+        }
+      });
+      const text = response.text || '';
+      if (text) {
+        return res.json({ text, provider: 'gemini' });
+      }
+    } catch (geminiErr: any) {
+      console.warn("[/api/ai/chat] Gemini attempt failed, falling back to Groq/HF:", geminiErr?.message || geminiErr);
+    }
+  }
+
+  // 2. Try Groq
+  if (groq) {
+    try {
+      const messages: any[] = [];
+      if (systemInstruction) {
+        messages.push({ role: 'system', content: systemInstruction });
+      }
+      messages.push({ role: 'user', content: prompt });
+      const completion = await groq.chat.completions.create({
+        messages,
+        model: 'llama-3.3-70b-versatile',
+        max_tokens: maxTokens || 1024,
+      });
+      const text = completion.choices[0]?.message?.content || '';
+      if (text) {
+        return res.json({ text, provider: 'groq' });
+      }
+    } catch (groqErr: any) {
+      console.warn("[/api/ai/chat] Groq fallback failed:", groqErr?.message || groqErr);
+    }
+  }
+
+  // 3. Try Hugging Face
+  if (hf && process.env.HUGGINGFACE_API_KEY) {
+    try {
+      const hfRes = await hf.chatCompletion({
+        model: HF_MODELS.TEXT || "meta-llama/Llama-3.1-8B-Instruct",
+        messages: [
+          ...(systemInstruction ? [{ role: "system" as const, content: systemInstruction }] : []),
+          { role: "user" as const, content: prompt }
+        ],
+        max_tokens: maxTokens || 1024,
+      });
+      const text = hfRes.choices[0]?.message?.content || '';
+      if (text) {
+        return res.json({ text, provider: 'huggingface' });
+      }
+    } catch (hfErr: any) {
+      console.warn("[/api/ai/chat] HuggingFace fallback failed:", hfErr?.message || hfErr);
+    }
+  }
+
+  return res.status(503).json({ error: "AI service temporarily unavailable. Please check your connection." });
+});
+
 // Email endpoints
 app.post("/api/send-welcome-email", async (req, res) => {
   const { email, name } = req.body;
