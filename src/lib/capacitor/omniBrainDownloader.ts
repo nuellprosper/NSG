@@ -251,6 +251,157 @@ if (typeof window !== 'undefined') {
 }
 
 /**
+ * Convert Blob to Base64 data string
+ */
+export function convertBlobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      resolve(reader.result as string);
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Production-grade download of Omni Brain model binary with streaming chunks and base64 filesystem persistence
+ */
+export async function downloadOmniBrainBinary(onProgress: (progress: number) => void): Promise<string> {
+  const GGUF_DOWNLOAD_URL = QWEN_DIRECT_DOWNLOAD_URL;
+  
+  try {
+    updateState({
+      status: 'downloading',
+      error: null,
+      speedFormatted: 'Downloading...'
+    });
+
+    const response = await fetch(GGUF_DOWNLOAD_URL);
+    if (!response.ok || !response.body) throw new Error('Failed to fetch GGUF model binary.');
+
+    const reader = response.body.getReader();
+    const contentLength = +(response.headers.get('Content-Length') || '') || ESTIMATED_TOTAL_BYTES;
+    let receivedLength = 0;
+    const chunks: Uint8Array[] = [];
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        chunks.push(value);
+        receivedLength += value.length;
+        const progress = Math.round((receivedLength / contentLength) * 100);
+        onProgress(Math.min(progress, 100));
+      }
+    }
+
+    const blob = new Blob(chunks);
+    const base64Data = await new Promise<string>((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result as string);
+      fr.onerror = reject;
+      fr.readAsDataURL(blob);
+    });
+
+    const savedFile = await Filesystem.writeFile({
+      path: 'qwen2.5-0.5b-instruct.gguf',
+      data: base64Data,
+      directory: Directory.Data,
+      recursive: true
+    });
+
+    const modelUri = savedFile.uri;
+    localStorage.setItem('omni_brain_model_path', modelUri);
+    markOmniBrainComplete(receivedLength, modelUri);
+    onProgress(100);
+    return modelUri;
+  } catch (error: any) {
+    console.error('Failed to download model binary:', error);
+    updateState({
+      status: 'error',
+      error: error?.message || 'Failed to download model binary'
+    });
+    throw error;
+  }
+}
+
+/**
+ * Production-grade download of Omni Brain model binary to device Data directory
+ */
+export async function downloadOmniBrainModel(onProgress?: (progress: number) => void): Promise<string> {
+  const MODEL_URL = QWEN_DIRECT_DOWNLOAD_URL;
+  const fileName = 'qwen2.5-0.5b-instruct.gguf';
+
+  try {
+    updateState({
+      status: 'downloading',
+      error: null,
+      speedFormatted: 'Downloading...'
+    });
+
+    // Native Capacitor direct download optimization
+    if (isCapacitorNative()) {
+      try {
+        const downloadResult = await Filesystem.downloadFile({
+          url: MODEL_URL,
+          path: fileName,
+          directory: Directory.Data,
+          progress: true,
+          recursive: true
+        });
+
+        let absolutePath = downloadResult.path;
+        if (!absolutePath) {
+          const uriRes = await Filesystem.getUri({
+            directory: Directory.Data,
+            path: fileName
+          });
+          absolutePath = uriRes.uri ? uriRes.uri.replace(/^file:\/\//, '') : fileName;
+        }
+
+        localStorage.setItem('omni_brain_model_path', absolutePath);
+        markOmniBrainComplete(ESTIMATED_TOTAL_BYTES, absolutePath);
+        if (onProgress) onProgress(100);
+        return absolutePath;
+      } catch (nativeDownloadErr) {
+        console.warn('Direct native download error, falling back to fetch & base64 write:', nativeDownloadErr);
+      }
+    }
+
+    // Download using standard fetch, then write binary via Capacitor Filesystem
+    const response = await fetch(MODEL_URL);
+    if (!response.ok) {
+      throw new Error(`HTTP error ${response.status}: ${response.statusText}`);
+    }
+
+    const blob = await response.blob();
+    const base64Data = await convertBlobToBase64(blob);
+
+    const savedFile = await Filesystem.writeFile({
+      path: fileName,
+      data: base64Data,
+      directory: Directory.Data,
+      recursive: true
+    });
+
+    // Save the physical absolute path to localStorage for the chat engine
+    const absolutePath = savedFile.uri ? savedFile.uri.replace(/^file:\/\//, '') : fileName;
+    localStorage.setItem('omni_brain_model_path', absolutePath);
+    markOmniBrainComplete(blob.size || ESTIMATED_TOTAL_BYTES, absolutePath);
+    if (onProgress) onProgress(100);
+    return absolutePath;
+  } catch (error: any) {
+    console.error('Failed to download model binary:', error);
+    updateState({
+      status: 'error',
+      error: error?.message || 'Failed to download model binary'
+    });
+    throw error;
+  }
+}
+
+/**
  * Start or Resume Download of Qwen GGUF Model weights
  * Uses @capacitor/filesystem on Native Android/iOS or Chunk Streaming in Web
  */

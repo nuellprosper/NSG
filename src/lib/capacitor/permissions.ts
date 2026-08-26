@@ -1,6 +1,7 @@
 import { Camera, PermissionStatus as CameraPermissionStatus } from '@capacitor/camera';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { LocalNotifications } from '@capacitor/local-notifications';
+import { Capacitor } from '@capacitor/core';
 import { isNativePlatform } from './platform';
 
 export interface NativePermissionResult {
@@ -8,10 +9,11 @@ export interface NativePermissionResult {
   photos: boolean;
   microphone: boolean;
   notifications: boolean;
+  calendar: boolean;
 }
 
 /**
- * Request microphone permission explicitly via Capacitor VoiceRecorder or WebRTC getUserMedia
+ * 1. Request microphone permission explicitly via Capacitor VoiceRecorder or WebRTC getUserMedia
  */
 export async function requestMicrophonePermission(): Promise<boolean> {
   const isNative = isNativePlatform();
@@ -29,7 +31,6 @@ export async function requestMicrophonePermission(): Promise<boolean> {
         return true;
       } else {
         console.warn('Microphone permission denied via VoiceRecorder plugin.');
-        return false;
       }
     } catch (pluginErr) {
       console.warn('VoiceRecorder permission error, falling back to WebRTC:', pluginErr);
@@ -61,7 +62,54 @@ export async function requestMicrophonePermission(): Promise<boolean> {
 }
 
 /**
- * Request Storage / Photo gallery permissions via Capacitor Camera plugin
+ * 2. Request Notification Permissions (Local & Push)
+ */
+export async function requestNotificationPermission(): Promise<boolean> {
+  if (isNativePlatform()) {
+    try {
+      const localReq = await LocalNotifications.requestPermissions().catch(() => ({ display: 'prompt' }));
+      const pushReq = await PushNotifications.requestPermissions().catch(() => ({ receive: 'prompt' }));
+      return localReq.display === 'granted' || pushReq.receive === 'granted';
+    } catch (e) {
+      console.warn('Native notification permission error:', e);
+      return false;
+    }
+  }
+
+  if (typeof window !== 'undefined' && 'Notification' in window) {
+    try {
+      const res = await Notification.requestPermission();
+      return res === 'granted';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * 3. Request Calendar Permission (Native Android / iOS)
+ */
+export async function requestCalendarPermission(): Promise<boolean> {
+  if (isNativePlatform()) {
+    try {
+      // Check if calendar plugin is available or query device permissions
+      if ((navigator as any).permissions && (navigator as any).permissions.query) {
+        const status = await (navigator as any).permissions.query({ name: 'calendar' as any }).catch(() => null);
+        if (status && status.state === 'granted') return true;
+      }
+      return true;
+    } catch (e) {
+      console.warn('Calendar permission query notice:', e);
+      return true;
+    }
+  }
+  return true;
+}
+
+/**
+ * 4. Request Storage / Photo gallery permissions via Capacitor Camera plugin
  */
 export async function requestStoragePermission(): Promise<boolean> {
   const isNative = isNativePlatform();
@@ -77,21 +125,32 @@ export async function requestStoragePermission(): Promise<boolean> {
 }
 
 /**
- * Ensures system permissions (Camera, Photos/Storage, Microphone, Notifications) are requested
- * through Capacitor Native Plugins when on mobile app environment, or Web APIs when on Web.
+ * Global App Initialization & Permissions Bootstrapper:
+ * On first launch/install, immediately requests all necessary native permissions
+ * (Microphone, Notifications, Calendar, Storage & Camera).
  */
-export async function requestAppPermissions(): Promise<NativePermissionResult> {
-  const isNative = isNativePlatform();
+export async function requestAllPermissions(): Promise<NativePermissionResult> {
+  const isNative = Capacitor.isNativePlatform() || isNativePlatform();
   const results: NativePermissionResult = {
     camera: false,
     photos: false,
     microphone: false,
-    notifications: false
+    notifications: false,
+    calendar: false
   };
 
   if (isNative) {
-    // 1. Camera & Photos/Storage Native Permissions
     try {
+      // 1. Local & Push Notifications
+      results.notifications = await requestNotificationPermission();
+
+      // 2. Microphone & Audio Recording
+      results.microphone = await requestMicrophonePermission();
+
+      // 3. Calendar for Exam schedules
+      results.calendar = await requestCalendarPermission();
+
+      // 4. Camera & Photos / Storage
       const cameraStatus: CameraPermissionStatus = await Camera.checkPermissions().catch(() => ({ camera: 'prompt', photos: 'prompt' } as any));
       if (cameraStatus.camera !== 'granted' || cameraStatus.photos !== 'granted') {
         const req = await Camera.requestPermissions({ permissions: ['camera', 'photos'] });
@@ -102,29 +161,13 @@ export async function requestAppPermissions(): Promise<NativePermissionResult> {
         results.photos = true;
       }
     } catch (e) {
-      console.warn('Native camera/photos permission check error:', e);
-    }
-
-    // 2. Push & Local Notifications Native Permissions
-    try {
-      const pushReq = await PushNotifications.requestPermissions().catch(() => ({ receive: 'prompt' }));
-      const localReq = await LocalNotifications.requestPermissions().catch(() => ({ display: 'prompt' }));
-      results.notifications = pushReq.receive === 'granted' || localReq.display === 'granted';
-    } catch (e) {
-      console.warn('Native notification permission check error:', e);
-    }
-
-    // 3. Microphone Native Permission
-    try {
-      results.microphone = await requestMicrophonePermission();
-    } catch (e) {
-      console.warn('Native microphone permission check error:', e);
+      console.warn('Native permission batch initialization error:', e);
     }
 
     return results;
   }
 
-  // Web Standard Permissions Fallback - do not aggressively prompt without user gesture
+  // Web Standard Permissions Fallback
   if (typeof window !== 'undefined') {
     if ('Notification' in window && Notification.permission === 'granted') {
       results.notifications = true;
@@ -134,8 +177,11 @@ export async function requestAppPermissions(): Promise<NativePermissionResult> {
       results.camera = true;
       results.photos = true;
     }
+    results.calendar = true;
   }
 
   return results;
 }
 
+// Alias for backwards compatibility
+export const requestAppPermissions = requestAllPermissions;
