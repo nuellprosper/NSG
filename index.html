@@ -53,7 +53,24 @@
     
     <!-- Google AdSense -->
     <meta name="google-adsense-account" content="ca-pub-3216169026195971">
-    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3216169026195971" crossorigin="anonymous" onerror="console.warn('AdSense script blocked or unavailable in this environment.');"></script>
+    <script>
+      (function() {
+        try {
+          var host = window.location.hostname || '';
+          if (host.includes('run.app') || host === 'localhost' || host === '127.0.0.1') {
+            return;
+          }
+          var s = document.createElement('script');
+          s.async = true;
+          s.src = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3216169026195971";
+          s.crossOrigin = "anonymous";
+          s.onerror = function() {
+            // Silently swallow in ad-blocked environments
+          };
+          document.head.appendChild(s);
+        } catch (e) {}
+      })();
+    </script>
     
     <!-- PWA Manifest -->
     <link rel="manifest" href="/manifest.json" />
