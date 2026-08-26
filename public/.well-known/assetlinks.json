@@ -1,1 +1,13 @@
-.
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "ng.name.nuellstudyguide",
+      "sha256_cert_fingerprints": [
+        "14:6D:E9:7C:15:35:7C:5D:86:11:98:B5:1D:62:3C:81:45:EA:AE:61:94:3E:0F:42:43:16:E6:B3:50:55:04:A4",
+        "FA:C6:17:45:DC:09:03:78:6F:B9:ED:E6:2A:96:2B:39:9F:73:48:F0:BB:6F:89:9B:83:32:66:75:91:03:3B:9C"
+      ]
+    }
+  }
+]
