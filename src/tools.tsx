@@ -1775,8 +1775,8 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
 
                       {quizDocuments && quizDocuments.length > 0 && (
                         <div className="flex flex-wrap gap-2">
-                          {quizDocuments.map((docItem: any) => (
-                            <div key={docItem.id} className={`border rounded-xl p-2.5 flex items-center gap-2.5 ${
+                          {quizDocuments.map((docItem: any, docIdx: number) => (
+                            <div key={`${docItem.id || 'doc'}-${docIdx}`} className={`border rounded-xl p-2.5 flex items-center gap-2.5 ${
                               theme === 'dark' ? 'bg-purple-950/40 border-purple-500/40 text-white' : 'bg-purple-50 border-purple-200 text-slate-900'
                             }`}>
                               <FileText size={16} className="text-purple-600" />
@@ -2069,7 +2069,7 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
           {!isGeneratingQuiz && quizState === 'preview' && quizQuestions && quizQuestions.length > 0 && (
             <div className="space-y-6 pb-24">
               {/* Quiz Header Info */}
-              <div className="p-5 rounded-3xl bg-[#120D24] border border-purple-500/20 space-y-3 shadow-xl">
+              <div className="p-5 rounded-3xl bg-[#120D24] border border-purple-500/20 space-y-3 shadow-xl overflow-hidden max-w-full">
                 <div className="flex items-center justify-between">
                   <span className="px-3 py-1 rounded-full bg-purple-500/20 border border-purple-500/30 text-purple-300 text-[10px] font-extrabold uppercase tracking-widest">
                     Quiz Preview
@@ -2078,10 +2078,10 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                     0 of {quizQuestions.length} Answered
                   </span>
                 </div>
-                <h2 className="text-xl font-black text-white leading-tight">
+                <h2 className="text-xl font-black text-white leading-tight break-words [overflow-wrap:anywhere] max-w-full">
                   {quizTopic || "Generated Quiz"}
                 </h2>
-                <div className="flex items-center gap-4 text-xs font-bold text-white/60 pt-1">
+                <div className="flex items-center gap-4 text-xs font-bold text-white/60 pt-1 flex-wrap">
                   <span>Difficulty: <strong className="text-purple-300">{quizDifficulty}</strong></span>
                   <span>Total Questions: <strong className="text-purple-300">{quizQuestions.length}</strong></span>
                 </div>
