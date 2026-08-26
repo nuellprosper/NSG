@@ -32,6 +32,7 @@ export interface Message {
   starredBy?: string[]; // Users who bookmarked this message
   reactions?: Reaction[]; // Floating Reaction collection
   duration?: number; // Voice message duration in seconds
+  isOmniResponse?: boolean;
 }
 
 export interface Chat {
