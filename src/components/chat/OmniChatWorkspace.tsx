@@ -13,6 +13,8 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { Message } from '../../types/chat';
+import { getAiInstance, FLASH_MODEL } from '../../utils';
+import { Capacitor } from '@capacitor/core';
 import { 
   subscribeOmniBrainState, 
   startOrResumeOmniBrainDownload, 
@@ -134,10 +136,93 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
     }
   }, [currentStreamedText]);
 
-  // Model selection state: 'flash' (Gemini Cloud) or 'brain' (On-Device Local Qwen)
+  // Platform-specific model list: Omni Brain is only available on native device
+  const isNative = Capacitor.isNativePlatform();
+  const availableModels = [
+    { 
+      id: 'flash' as const, 
+      label: 'Omni Flash',
+      sub: 'Online Gemini Cloud Assistant',
+      icon: Sparkles,
+      color: 'text-red-400',
+      activeBg: 'bg-red-600/20 text-red-300 border border-red-500/30',
+      iconBg: 'bg-red-600/20 border-red-500/30'
+    },
+    ...(isNative ? [{ 
+      id: 'brain' as const, 
+      label: 'Omni Brain',
+      sub: 'On-Device Local Qwen Model',
+      icon: Zap,
+      color: 'text-amber-400',
+      activeBg: 'bg-amber-500/20 text-amber-300 border border-amber-500/30',
+      iconBg: 'bg-amber-500/20 border-amber-500/30'
+    }] : [])
+  ];
+
+  // Model selection state: 'flash' (Gemini Cloud) or 'brain' (On-Device Local Qwen - native only)
   const [selectedModel, setSelectedModel] = useState<'flash' | 'brain'>(() => {
+    if (!Capacitor.isNativePlatform()) return 'flash';
     return (localStorage.getItem('nsg_omni_selected_model') as 'flash' | 'brain') || 'flash';
   });
+
+  // Ensure if running on web preview/browser, default exclusively to cloud models
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform() && selectedModel === 'brain') {
+      setSelectedModel('flash');
+      localStorage.setItem('nsg_omni_selected_model', 'flash');
+    }
+  }, [selectedModel]);
+
+  // Auto-generate title with AI after the first interaction
+  useEffect(() => {
+    if (messages.length >= 2 && onRenameSession && activeSessionId && activeSessionId !== 'omni_main') {
+      const currentSession = chatSessions.find(s => s.id === activeSessionId);
+      const currentChatTitle = currentSession?.title || 'New Chat';
+      const isDefaultTitle = !currentChatTitle || 
+        currentChatTitle === 'New Chat' || 
+        currentChatTitle === 'New Omni Chat' || 
+        currentChatTitle.startsWith('New ') || 
+        currentChatTitle.endsWith('...');
+
+      if (isDefaultTitle) {
+        const userFirstPrompt = messages.find(m => !m.isOmniResponse && m.senderId !== 'omni-ai')?.text || messages[0]?.text || '';
+        const aiFirstResponse = messages.find(m => m.isOmniResponse || m.senderId === 'omni-ai')?.text || '';
+        if (userFirstPrompt) {
+          const quickFallback = userFirstPrompt.trim().split(/\s+/).slice(0, 4).join(' ');
+          const formattedFallback = quickFallback ? (quickFallback.charAt(0).toUpperCase() + quickFallback.slice(1)) : 'Omni AI Chat';
+          
+          // Apply fallback immediately so title isn't 'New Chat'
+          onRenameSession(activeSessionId, formattedFallback);
+
+          // Asynchronously query AI for high quality academic title
+          (async () => {
+            try {
+              const ai = getAiInstance();
+              if (ai?.models?.generateContent) {
+                const res = await ai.models.generateContent({
+                  model: FLASH_MODEL || 'gemini-2.5-flash',
+                  contents: [
+                    {
+                      role: 'user',
+                      parts: [{
+                        text: `Generate a concise, professional 2 to 4 word academic subject title for this user query/conversation.\nQuery: "${userFirstPrompt}"\n${aiFirstResponse ? `AI Summary: "${aiFirstResponse.slice(0, 100)}"` : ''}\n\nRules:\n- Strictly output ONLY the 2 to 4 word title (e.g., "Epiglottitis Clinical Review", "Nigerian Constitutional Law", "Calculus & Limits", "Cell Structure Biology").\n- Do NOT use quotation marks, punctuation, or generic filler.`
+                      }]
+                    }
+                  ]
+                });
+                const cleanAiTitle = res.text?.trim().replace(/^["']|["']$/g, '').replace(/[#*]/g, '');
+                if (cleanAiTitle && cleanAiTitle.length > 2 && cleanAiTitle.length < 50) {
+                  onRenameSession(activeSessionId, cleanAiTitle);
+                }
+              }
+            } catch (err) {
+              console.warn("AI session auto-titling notice:", err);
+            }
+          })();
+        }
+      }
+    }
+  }, [messages.length, activeSessionId, chatSessions, onRenameSession]);
 
   // State for tracking Omni Brain model download status
   const [brainDownloadState, setBrainDownloadState] = useState<OmniBrainDownloadState>({
@@ -192,6 +277,16 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
       window.removeEventListener('omni_stream_reset', handleStreamReset);
     };
   }, []);
+
+  // State for tracking expanded user messages
+  const [expandedUserMsgIds, setExpandedUserMsgIds] = useState<Record<string, boolean>>({});
+
+  const toggleUserMsgExpand = (msgKey: string) => {
+    setExpandedUserMsgIds(prev => ({
+      ...prev,
+      [msgKey]: !prev[msgKey]
+    }));
+  };
 
   // State for session context menu (Rename, Pin, Delete)
   const [activeMenuSessionId, setActiveMenuSessionId] = useState<string | null>(null);
@@ -328,7 +423,11 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
           <button 
             id="omni_model_btn"
             type="button"
-            onClick={() => setShowModelDropdown(!showModelDropdown)}
+            onClick={() => {
+              if (availableModels.length > 1) {
+                setShowModelDropdown(!showModelDropdown);
+              }
+            }}
             className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold text-xs sm:text-sm transition-all cursor-pointer shadow-sm"
           >
             <div className="flex items-center gap-1.5">
@@ -339,75 +438,61 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
               )}
               <span>{selectedModel === 'brain' ? 'Omni Brain' : 'Omni Flash'}</span>
             </div>
-            <ChevronDown size={14} className={`text-white/60 transition-transform duration-200 ${showModelDropdown ? 'rotate-180' : ''}`} />
+            {availableModels.length > 1 && (
+              <ChevronDown size={14} className={`text-white/60 transition-transform duration-200 ${showModelDropdown ? 'rotate-180' : ''}`} />
+            )}
           </button>
 
           {/* Model Dropdown Popup */}
           <AnimatePresence>
-            {showModelDropdown && (
+            {showModelDropdown && availableModels.length > 1 && (
               <motion.div
                 initial={{ opacity: 0, y: -5, scale: 0.95 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -5, scale: 0.95 }}
                 className="absolute top-11 left-1/2 -translate-x-1/2 bg-[#171424] border border-white/15 p-2 rounded-2xl min-w-[240px] shadow-2xl z-50 flex flex-col gap-1.5 text-left backdrop-blur-xl"
               >
-                {/* Omni Flash Option */}
-                <button
-                  type="button"
-                  onClick={() => handleModelSelect('flash')}
-                  className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition-all w-full cursor-pointer ${
-                    selectedModel === 'flash' 
-                      ? 'bg-red-600/20 text-red-300 border border-red-500/30' 
-                      : 'text-white/80 hover:bg-white/5'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-7 h-7 rounded-lg bg-red-600/20 border border-red-500/30 flex items-center justify-center text-red-400 shrink-0">
-                      <Sparkles size={14} />
-                    </div>
-                    <div>
-                      <p className="font-bold text-white leading-tight">Omni Flash</p>
-                      <p className="text-[10px] text-white/50">Online Gemini Cloud Assistant</p>
-                    </div>
-                  </div>
-                  {selectedModel === 'flash' && <Check size={16} className="text-red-400" />}
-                </button>
-
-                {/* Omni Brain Option */}
-                <button
-                  type="button"
-                  onClick={() => handleModelSelect('brain')}
-                  className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition-all w-full cursor-pointer ${
-                    selectedModel === 'brain' 
-                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' 
-                      : 'text-white/80 hover:bg-white/5'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-7 h-7 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
-                      <Zap size={14} />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <p className="font-bold text-white leading-tight">Omni Brain</p>
-                        {hasBrainModel && (
-                          <span className="px-1.5 py-0.2 bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-[8px] font-black rounded uppercase">
-                            Ready
-                          </span>
-                        )}
+                {availableModels.map((model) => {
+                  const isSelected = selectedModel === model.id;
+                  const IconComponent = model.icon;
+                  return (
+                    <button
+                      key={model.id}
+                      type="button"
+                      onClick={() => handleModelSelect(model.id)}
+                      className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition-all w-full cursor-pointer ${
+                        isSelected 
+                          ? model.activeBg 
+                          : 'text-white/80 hover:bg-white/5'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className={`w-7 h-7 rounded-lg ${model.iconBg} flex items-center justify-center ${model.color} shrink-0`}>
+                          <IconComponent size={14} />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <p className="font-bold text-white leading-tight">{model.label}</p>
+                            {model.id === 'brain' && hasBrainModel && (
+                              <span className="px-1.5 py-0.2 bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-[8px] font-black rounded uppercase">
+                                Ready
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-white/50">{model.sub}</p>
+                        </div>
                       </div>
-                      <p className="text-[10px] text-white/50">On-Device Local Qwen Model</p>
-                    </div>
-                  </div>
-                  {selectedModel === 'brain' && <Check size={16} className="text-amber-400" />}
-                </button>
+                      {isSelected && <Check size={16} className={model.color} />}
+                    </button>
+                  );
+                })}
               </motion.div>
             )}
           </AnimatePresence>
         </div>
 
-        {/* Right Icon: New Chat (✏️ SquarePen) */}
-        <div className="flex items-center gap-1 shrink-0">
+        {/* Right Actions: New Chat (✏️ SquarePen) shifted left, followed by X button that leads back to main tools page */}
+        <div className="flex items-center gap-1.5 shrink-0 ml-1">
           <button 
             id="omni_new_chat_btn"
             type="button"
@@ -415,10 +500,26 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
               if (onNewChat) onNewChat();
               setLiveStreamText('');
             }}
-            className="p-2 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+            className="p-2 rounded-xl text-white/80 hover:text-white hover:bg-white/10 active:scale-95 transition-all cursor-pointer mr-0.5"
             title="Start New Chat"
           >
             <SquarePen size={20} />
+          </button>
+          <button 
+            id="omni_close_to_tools_btn"
+            type="button"
+            onClick={() => {
+              if (onClose) {
+                onClose();
+              } else if (setAppActiveTab) {
+                setAppActiveTab('tools');
+                if (setToolsSubTab) setToolsSubTab('menu');
+              }
+            }}
+            className="p-2 rounded-xl text-white/80 hover:text-white hover:bg-red-500/20 hover:text-red-400 active:scale-95 transition-all cursor-pointer"
+            title="Exit to Tools"
+          >
+            <X size={20} />
           </button>
         </div>
       </div>
@@ -645,8 +746,8 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
         )}
       </AnimatePresence>
 
-      {/* DYNAMIC VIEW: IF OMNI BRAIN IS SELECTED BUT NOT DOWNLOADED, DISPLAY DOWNLOAD SCREEN */}
-      {selectedModel === 'brain' && !hasBrainModel ? (
+      {/* DYNAMIC VIEW: IF OMNI BRAIN IS SELECTED ON NATIVE BUT NOT DOWNLOADED, DISPLAY DOWNLOAD SCREEN */}
+      {isNative && selectedModel === 'brain' && !hasBrainModel ? (
         <div className="flex-1 overflow-y-auto w-full p-4 sm:p-8 flex flex-col items-center justify-center text-center select-none">
           <div className="max-w-md w-full bg-[#171424] border border-amber-500/30 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
             
@@ -800,9 +901,16 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                 
                 if (isMe) {
                   /* USER BUBBLES: Compact, blurred pill container aligned to the right (bg-neutral-800/90 text-white rounded-3xl p-4 max-w-[88%] ml-auto mb-6) */
+                  const msgKey = msg.id || `usr-${index}`;
+                  const isLongMsg = (msg.text || '').length > 280;
+                  const isExpanded = !!expandedUserMsgIds[msgKey];
+                  const displayedText = isLongMsg && !isExpanded 
+                    ? msg.text.slice(0, 280) + '...' 
+                    : msg.text;
+
                   return (
-                    <div key={`${msg.id || 'usr'}-${index}`} className="w-full flex justify-end">
-                      <div className="bg-neutral-800/90 text-white rounded-3xl p-4 max-w-[88%] sm:max-w-[75%] ml-auto mb-6 backdrop-blur-md border border-white/10 shadow-lg text-left select-text relative">
+                    <div key={msgKey} className="w-full flex justify-end">
+                      <div className="bg-neutral-800/90 text-white rounded-3xl p-4 max-w-[88%] sm:max-w-[75%] ml-auto mb-6 backdrop-blur-md border border-white/10 shadow-lg text-left select-text relative overflow-hidden break-words [overflow-wrap:anywhere]">
                         {msg.mediaUrl && (
                           <div className="mb-2.5">
                             <div 
@@ -823,124 +931,221 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                             </div>
                           </div>
                         )}
-                        <p className="text-sm font-medium tracking-tight text-white leading-relaxed whitespace-pre-wrap">
-                          {msg.text}
+                        <p className="text-sm font-medium tracking-tight text-white leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere] max-w-full">
+                          {displayedText}
                         </p>
+                        {isLongMsg && (
+                          <button
+                            type="button"
+                            onClick={() => toggleUserMsgExpand(msgKey)}
+                            className="mt-2 text-[11px] font-bold text-red-400 hover:text-red-300 transition-colors uppercase tracking-wider block cursor-pointer"
+                          >
+                            {isExpanded ? 'Show less' : 'Read more...'}
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
                 } else {
                   /* AI BUBBLES: NO bubble cards or borders. The AI text must be full-width (w-full) to allow Markdown, tables, and code blocks to use full screen */
+                  const quizReadyRegex = /\[\[QUIZ_READY:\s*([^,\]]+)(?:,\s*([^,\]]+))?(?:,\s*(\d+))?\s*\]\]/i;
+                  const quizGenRegex = /\[\[GENERATE_QUIZ:\s*([^,\]]+)(?:,\s*(\d+))?\s*\]\]/i;
+
+                  const quizReadyMatch = (msg.text || '').match(quizReadyRegex);
+                  const quizGenMatch = (msg.text || '').match(quizGenRegex);
+
+                  const cleanContent = (msg.text || '')
+                    .replace(quizReadyRegex, '')
+                    .replace(quizGenRegex, '')
+                    .trim();
+
                   return (
                     <div 
                       key={`${msg.id || 'omni'}-${index}`} 
                       className="w-full py-2 mb-6 flex flex-col text-left select-text"
                     >
                       <div className="w-full min-w-0">
-                        <ReactMarkdown 
-                          remarkPlugins={[remarkMath]} 
-                          rehypePlugins={[rehypeKatex]}
-                          components={{
-                            a({ node, href, children, ...props }: any) {
-                              const childText = String(children || '');
-                              const lowerText = childText.toLowerCase();
-                              if (lowerText.includes('quiz') || lowerText.includes('generate')) {
-                                return (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      const cleanTopic = cleanTopicName(childText);
-                                      if (generateQuiz) {
-                                        generateQuiz(cleanTopic, 5, 'Medium', true);
-                                      } else {
-                                        const evt = new CustomEvent('trigger_quiz_gen', { detail: { topic: cleanTopic, count: 5 } });
-                                        window.dispatchEvent(evt);
-                                      }
-                                    }}
-                                    className="inline-flex items-center gap-1.5 my-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 via-rose-600 to-red-600 text-white font-bold text-xs uppercase tracking-wider shadow-md hover:opacity-90 active:scale-95 transition-all cursor-pointer"
-                                  >
-                                    <span>⚡ Take Quiz: {cleanTopicName(childText)}</span>
-                                  </button>
-                                );
-                              }
-                              return (
-                                <a 
-                                  href={href} 
-                                  target="_blank" 
-                                  rel="noopener noreferrer" 
-                                  className="text-red-400 hover:text-red-300 underline font-medium"
-                                  {...props}
-                                >
-                                  {children}
-                                </a>
-                              );
-                            },
-                            h1({ children }) {
-                              return <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight mt-4 mb-2">{children}</h1>;
-                            },
-                            h2({ children }) {
-                              return <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight mt-3 mb-2">{children}</h2>;
-                            },
-                            h3({ children }) {
-                              return <h3 className="text-base sm:text-lg font-bold text-white tracking-tight mt-3 mb-1.5">{children}</h3>;
-                            },
-                            p({ children }) {
-                              return <p className="text-sm sm:text-base font-normal leading-relaxed text-slate-100 mb-3">{children}</p>;
-                            },
-                            ul({ children }) {
-                              return <ul className="list-disc pl-5 space-y-1.5 mb-3 text-sm sm:text-base text-slate-100">{children}</ul>;
-                            },
-                            ol({ children }) {
-                              return <ol className="list-decimal pl-5 space-y-1.5 mb-3 text-sm sm:text-base text-slate-100">{children}</ol>;
-                            },
-                            li({ children }) {
-                              return <li className="leading-relaxed">{children}</li>;
-                            },
-                            table({ children }) {
-                              return (
-                                <div className="w-full overflow-x-auto my-4 rounded-xl border border-white/10 bg-white/[0.02]">
-                                  <table className="w-full text-left text-xs sm:text-sm border-collapse">{children}</table>
-                                </div>
-                              );
-                            },
-                            th({ children }) {
-                              return <th className="p-2.5 bg-white/10 font-bold text-white border-b border-white/10">{children}</th>;
-                            },
-                            td({ children }) {
-                              return <td className="p-2.5 border-b border-white/5 text-slate-200">{children}</td>;
-                            },
-                            code({ inline, className, children, ...props }: any) {
-                              return inline ? (
-                                <code className="px-1.5 py-0.5 rounded bg-white/10 text-red-300 font-mono text-xs font-semibold" {...props}>
-                                  {children}
-                                </code>
-                              ) : (
-                                <div className="relative my-3 rounded-xl overflow-hidden bg-[#13111C] border border-white/10 font-mono text-xs w-full">
-                                  <div className="flex items-center justify-between px-3 py-1.5 bg-white/5 border-b border-white/5 text-white/50 text-[10px]">
-                                    <span>Code</span>
+                        {cleanContent ? (
+                          <ReactMarkdown 
+                            remarkPlugins={[remarkMath]} 
+                            rehypePlugins={[rehypeKatex]}
+                            components={{
+                              a({ node, href, children, ...props }: any) {
+                                const childText = String(children || '');
+                                const lowerText = childText.toLowerCase();
+                                if (lowerText.includes('quiz') || lowerText.includes('generate')) {
+                                  return (
                                     <button
                                       type="button"
-                                      onClick={() => {
-                                        navigator.clipboard.writeText(String(children));
-                                        const evt = new CustomEvent('show_global_notify', { detail: 'Code copied!' });
-                                        window.dispatchEvent(evt);
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        const cleanTopic = cleanTopicName(childText);
+                                        if (generateQuiz) {
+                                          generateQuiz(cleanTopic, 5, 'Medium', true);
+                                        } else {
+                                          const evt = new CustomEvent('trigger_quiz_gen', { detail: { topic: cleanTopic, count: 5 } });
+                                          window.dispatchEvent(evt);
+                                        }
                                       }}
-                                      className="hover:text-white transition-colors cursor-pointer"
+                                      className="inline-flex items-center gap-1.5 my-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 via-rose-600 to-red-600 text-white font-bold text-xs uppercase tracking-wider shadow-md hover:opacity-90 active:scale-95 transition-all cursor-pointer"
                                     >
-                                      Copy
+                                      <span>⚡ Take Quiz: {cleanTopicName(childText)}</span>
                                     </button>
+                                  );
+                                }
+                                return (
+                                  <a 
+                                    href={href} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer" 
+                                    className="text-red-400 hover:text-red-300 underline font-medium"
+                                    {...props}
+                                  >
+                                    {children}
+                                  </a>
+                                );
+                              },
+                              h1({ children }) {
+                                return <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight mt-4 mb-2">{children}</h1>;
+                              },
+                              h2({ children }) {
+                                return <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight mt-3 mb-2">{children}</h2>;
+                              },
+                              h3({ children }) {
+                                return <h3 className="text-base sm:text-lg font-bold text-white tracking-tight mt-3 mb-1.5">{children}</h3>;
+                              },
+                              p({ children }) {
+                                return <p className="text-sm sm:text-base font-normal leading-relaxed text-slate-100 mb-3">{children}</p>;
+                              },
+                              ul({ children }) {
+                                return <ul className="list-disc pl-5 space-y-1.5 mb-3 text-sm sm:text-base text-slate-100">{children}</ul>;
+                              },
+                              ol({ children }) {
+                                return <ol className="list-decimal pl-5 space-y-1.5 mb-3 text-sm sm:text-base text-slate-100">{children}</ol>;
+                              },
+                              li({ children }) {
+                                return <li className="leading-relaxed">{children}</li>;
+                              },
+                              table({ children }) {
+                                return (
+                                  <div className="w-full overflow-x-auto my-4 rounded-xl border border-white/10 bg-white/[0.02]">
+                                    <table className="w-full text-left text-xs sm:text-sm border-collapse">{children}</table>
                                   </div>
-                                  <pre className="p-3 overflow-x-auto text-slate-200 w-full">
-                                    <code>{children}</code>
-                                  </pre>
-                                </div>
-                              );
-                            }
-                          }}
-                        >
-                          {msg.text}
-                        </ReactMarkdown>
+                                );
+                              },
+                              th({ children }) {
+                                return <th className="p-2.5 bg-white/10 font-bold text-white border-b border-white/10">{children}</th>;
+                              },
+                              td({ children }) {
+                                return <td className="p-2.5 border-b border-white/5 text-slate-200">{children}</td>;
+                              },
+                              code({ inline, className, children, ...props }: any) {
+                                return inline ? (
+                                  <code className="px-1.5 py-0.5 rounded bg-white/10 text-red-300 font-mono text-xs font-semibold" {...props}>
+                                    {children}
+                                  </code>
+                                ) : (
+                                  <div className="relative my-3 rounded-xl overflow-hidden bg-[#13111C] border border-white/10 font-mono text-xs w-full">
+                                    <div className="flex items-center justify-between px-3 py-1.5 bg-white/5 border-b border-white/5 text-white/50 text-[10px]">
+                                      <span>Code</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          navigator.clipboard.writeText(String(children));
+                                          const evt = new CustomEvent('show_global_notify', { detail: 'Code copied!' });
+                                          window.dispatchEvent(evt);
+                                        }}
+                                        className="hover:text-white transition-colors cursor-pointer"
+                                      >
+                                        Copy
+                                      </button>
+                                    </div>
+                                    <pre className="p-3 overflow-x-auto text-slate-200 w-full">
+                                      <code>{children}</code>
+                                    </pre>
+                                  </div>
+                                );
+                              }
+                            }}
+                          >
+                            {cleanContent}
+                          </ReactMarkdown>
+                        ) : null}
+
+                        {/* Interactive Quiz Ready Card if Omni has completed generating the quiz */}
+                        {quizReadyMatch && (
+                          <div className="my-3 p-4 sm:p-5 bg-gradient-to-r from-red-950/40 via-[#DC2626]/15 to-purple-950/40 border border-[#DC2626]/30 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-left shadow-xl overflow-hidden max-w-full">
+                            <div className="flex items-center gap-3.5 w-full sm:w-auto min-w-0">
+                              <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-[#DC2626] to-purple-600 flex items-center justify-center text-white shrink-0 shadow-md">
+                                <Trophy size={20} />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[9px] font-black uppercase text-red-400 tracking-widest leading-none mb-1">Interactive Quiz Ready</p>
+                                <p className="text-xs sm:text-sm font-black text-white uppercase tracking-tight truncate">
+                                  {quizReadyMatch[2]?.trim() || "Academic Quiz"}
+                                </p>
+                                <p className="text-[10px] text-white/60 font-medium">
+                                  {quizReadyMatch[3]?.trim() || "5"} Interactive Questions Ready
+                                </p>
+                              </div>
+                            </div>
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                const targetQuizId = quizReadyMatch[1]?.trim();
+                                if (onOpenQuizById && targetQuizId) {
+                                  onOpenQuizById(targetQuizId);
+                                } else {
+                                  const evt = new CustomEvent('open_quiz_by_id', { detail: { quizId: targetQuizId } });
+                                  window.dispatchEvent(evt);
+                                  if (setAppActiveTab) setAppActiveTab('tools');
+                                  if (setToolsSubTab) setToolsSubTab('quiz');
+                                }
+                              }}
+                              className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-[#DC2626] to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-lg shadow-red-600/30 transition-all text-center flex items-center justify-center gap-2 shrink-0 cursor-pointer border border-white/20 active:scale-95 whitespace-nowrap"
+                            >
+                              <Play size={13} className="fill-white" /> Open Generated Quiz
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Interactive Generate Quiz Card if Omni provided a trigger tag */}
+                        {quizGenMatch && !quizReadyMatch && (
+                          <div className="my-3 p-4 sm:p-5 bg-[#DC2626]/10 border border-[#DC2626]/20 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-left shadow-md overflow-hidden max-w-full">
+                            <div className="flex items-center gap-3.5 w-full sm:w-auto min-w-0">
+                              <div className="w-11 h-11 rounded-xl bg-[#DC2626]/20 flex items-center justify-center text-[#DC2626] shrink-0">
+                                <Trophy size={20} />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[9px] font-black uppercase text-red-400 tracking-widest leading-none mb-1">Generated Quiz Available</p>
+                                <p className="text-xs sm:text-sm font-black text-white uppercase tracking-tight truncate">
+                                  {quizGenMatch[1]?.trim() || "Study Quiz"}
+                                </p>
+                                <p className="text-[10px] text-white/50">
+                                  {quizGenMatch[2]?.trim() || "5"} Practice Questions
+                                </p>
+                              </div>
+                            </div>
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                const quizTopicText = quizGenMatch[1]?.trim() || "Study Quiz";
+                                const quizCountNum = parseInt(quizGenMatch[2]?.trim() || "5", 10) || 5;
+                                if (generateQuiz) {
+                                  generateQuiz(quizTopicText, quizCountNum, 'Medium', true);
+                                } else {
+                                  const evt = new CustomEvent('trigger_quiz_gen', { detail: { topic: quizTopicText, count: quizCountNum } });
+                                  window.dispatchEvent(evt);
+                                }
+                                if (setAppActiveTab) setAppActiveTab('tools');
+                                if (setToolsSubTab) setToolsSubTab('quiz');
+                              }}
+                              className="w-full sm:w-auto px-5 py-2.5 bg-[#DC2626] hover:bg-red-500 text-white text-xs font-bold uppercase tracking-wider rounded-xl shadow transition-all text-center flex items-center justify-center gap-2 shrink-0 cursor-pointer active:scale-95 whitespace-nowrap"
+                            >
+                              <Play size={13} className="fill-white" /> Take Quiz
+                            </button>
+                          </div>
+                        )}
                       </div>
 
                       {/* Action buttons under full-width AI message */}
@@ -948,7 +1153,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            navigator.clipboard.writeText(msg.text);
+                            navigator.clipboard.writeText(cleanContent);
                             setCopiedMsgId(msg.id || `idx-${index}`);
                             setTimeout(() => setCopiedMsgId(null), 2000);
                           }}
@@ -981,7 +1186,10 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
                       remarkPlugins={[remarkMath]} 
                       rehypePlugins={[rehypeKatex]}
                     >
-                      {liveStreamText}
+                      {liveStreamText
+                        .replace(/\[\[QUIZ_READY:\s*([^,\]]+)(?:,\s*([^,\]]+))?(?:,\s*(\d+))?\s*\]\]/gi, '')
+                        .replace(/\[\[GENERATE_QUIZ:\s*([^,\]]+)(?:,\s*(\d+))?\s*\]\]/gi, '')
+                        .trim()}
                     </ReactMarkdown>
                     <span className="inline-block w-2 h-4 bg-red-500 animate-pulse ml-1 align-middle" />
                   </div>
