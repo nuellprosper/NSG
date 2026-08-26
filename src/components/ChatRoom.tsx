@@ -19,6 +19,7 @@ import { OmniChatWorkspace } from './OmniChatWorkspace';
 import { PeerChatWorkspace } from './PeerChatWorkspace';
 import { MessageOverlay } from './MessageOverlay';
 import { requestMicrophonePermission, getSupportedAudioMimeType } from '../lib/audioRecorder';
+import { getAiInstance, FLASH_MODEL } from '../utils';
 
 const extractYoutubeLinks = (text: string): string[] => {
   if (!text) return [];
@@ -41,16 +42,27 @@ interface TypewriterTextProps {
 const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniReply, onFinish }) => {
   const [displayedText, setDisplayedText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+
+  const quizReadyRegex = /\[\[QUIZ_READY:\s*([^,\]]+)(?:,\s*([^,\]]+))?(?:,\s*(\d+))?\s*\]\]/i;
+  const quizGenRegex = /\[\[GENERATE_QUIZ:\s*([^,\]]+)(?:,\s*(\d+))?\s*\]\]/i;
+
+  const quizReadyMatch = (text || '').match(quizReadyRegex);
+  const quizGenMatch = (text || '').match(quizGenRegex);
+
+  const cleanFullText = (text || '')
+    .replace(quizReadyRegex, '')
+    .replace(quizGenRegex, '')
+    .trim();
   
   useEffect(() => {
     if (!isOmniReply) {
-      setDisplayedText(text);
+      setDisplayedText(cleanFullText);
       return;
     }
     
     const cached = sessionStorage.getItem(`typed_msg_nsg_${msgId}`);
     if (cached) {
-      setDisplayedText(text);
+      setDisplayedText(cleanFullText);
       return;
     }
     
@@ -58,19 +70,19 @@ const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniRepl
     let index = 0;
     const interval = setInterval(() => {
       index += 6; // Fast type stream simulation characters increment
-      if (index >= text.length) {
-        setDisplayedText(text);
+      if (index >= cleanFullText.length) {
+        setDisplayedText(cleanFullText);
         setIsTyping(false);
         sessionStorage.setItem(`typed_msg_nsg_${msgId}`, 'true');
         clearInterval(interval);
         if (onFinish) onFinish();
       } else {
-        setDisplayedText(text.substring(0, index));
+        setDisplayedText(cleanFullText.substring(0, index));
       }
     }, 20);
     
     return () => clearInterval(interval);
-  }, [text, msgId, isOmniReply, onFinish]);
+  }, [cleanFullText, msgId, isOmniReply, onFinish]);
 
   return (
     <div className="relative">
@@ -151,6 +163,35 @@ const TypewriterText: React.FC<TypewriterTextProps> = ({ text, msgId, isOmniRepl
       >
         {displayedText}
       </ReactMarkdown>
+
+      {/* Interactive Quiz Ready Card if available */}
+      {quizReadyMatch && (
+        <div className="mt-3 p-3.5 bg-gradient-to-r from-red-950/40 via-[#DC2626]/15 to-purple-950/40 border border-[#DC2626]/30 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-left shadow-lg">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-[#DC2626] to-purple-600 flex items-center justify-center text-white shrink-0 shadow-sm">
+              <Zap size={15} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[8px] font-black uppercase text-red-400 tracking-widest leading-none mb-0.5">Quiz Ready</p>
+              <p className="text-xs font-black text-white uppercase tracking-tight truncate">{quizReadyMatch[2]?.trim() || "Academic Quiz"}</p>
+            </div>
+          </div>
+          <button 
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const targetQuizId = quizReadyMatch[1]?.trim();
+              const evt = new CustomEvent('open_quiz_by_id', { detail: { quizId: targetQuizId } });
+              window.dispatchEvent(evt);
+            }}
+            className="w-full sm:w-auto px-4 py-2 bg-gradient-to-r from-[#DC2626] to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-[10px] font-black uppercase tracking-wider rounded-lg shadow transition-all flex items-center justify-center gap-1.5 cursor-pointer shrink-0 active:scale-95"
+          >
+            <Play size={11} className="fill-white" /> Open Quiz
+          </button>
+        </div>
+      )}
+
       {isTyping && (
         <span className="inline-block w-2 h-4 bg-red-600 animate-pulse ml-1 align-middle" />
       )}
@@ -297,18 +338,20 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
   const [omniSessions, setOmniSessions] = useState<any[]>(() => {
     try {
       const saved = localStorage.getItem(`nsg_omni_sessions_${user?.uid || 'guest'}`);
-      return saved ? JSON.parse(saved) : [
-        {
-          id: 'omni_main',
-          title: 'General Omni Chat',
-          timestamp: 'Today',
-          isPinned: true,
-          messages: []
-        }
-      ];
-    } catch (e) {
-      return [{ id: 'omni_main', title: 'General Omni Chat', timestamp: 'Today', isPinned: true, messages: [] }];
-    }
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return [
+      {
+        id: 'omni_main',
+        title: 'General Omni Chat',
+        timestamp: 'Today',
+        isPinned: true,
+        messages: []
+      }
+    ];
   });
 
   const saveOmniSessionsToStorage = (updatedSessions: any[]) => {
@@ -316,7 +359,89 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
     try {
       localStorage.setItem(`nsg_omni_sessions_${user?.uid || 'guest'}`, JSON.stringify(updatedSessions));
     } catch (e) {}
+
+    // Synchronize to Firestore for logged-in user
+    if (user?.uid) {
+      updatedSessions.forEach((session: any) => {
+        try {
+          const sessionRef = doc(db, 'users', user.uid, 'chatSessions', session.id);
+          const sanitizedMsgs = (session.messages || []).map((m: any) => ({
+            id: m.id || `msg-${Date.now()}-${Math.random()}`,
+            senderId: m.senderId || 'omni-ai',
+            senderHandle: m.senderHandle || 'omni',
+            senderName: m.senderName || '',
+            text: m.text || '',
+            timestamp: typeof m.timestamp === 'number' ? m.timestamp : (m.timestamp?.toDate ? m.timestamp.toDate().getTime() : Date.now()),
+            type: m.type || 'text',
+            isOmniResponse: Boolean(m.isOmniResponse || m.senderId === 'omni-ai'),
+            mediaUrl: m.mediaUrl || null,
+            replyTo: m.replyTo || null
+          }));
+
+          setDoc(sessionRef, {
+            id: session.id,
+            title: session.title || 'Omni AI Chat',
+            timestamp: session.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            lastMessage: session.lastMessage || (sanitizedMsgs[sanitizedMsgs.length - 1]?.text || 'Omni AI Chat'),
+            isPinned: Boolean(session.isPinned),
+            messages: sanitizedMsgs,
+            history: sanitizedMsgs,
+            uid: user.uid,
+            updatedAt: serverTimestamp()
+          }, { merge: true }).catch(() => {});
+        } catch (err) {}
+      });
+    }
   };
+
+  // Real-time Firestore sync for Omni chat sessions
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    const q = query(collection(db, 'users', user.uid, 'chatSessions'), limit(50));
+    const unsub = onSnapshot(q, (snapshot) => {
+      if (!snapshot.empty) {
+        const cloudSessions = snapshot.docs.map(docSnap => {
+          const d = docSnap.data();
+          const msgs = Array.isArray(d.messages) ? d.messages : (Array.isArray(d.history) ? d.history : []);
+          return {
+            id: docSnap.id,
+            title: d.title || 'Omni AI Chat',
+            timestamp: d.timestamp || 'Today',
+            isPinned: Boolean(d.isPinned),
+            lastMessage: d.lastMessage || (msgs.length > 0 ? msgs[msgs.length - 1].text : 'Omni AI Chat'),
+            messages: msgs
+          };
+        });
+
+        setOmniSessions(prev => {
+          const map = new Map<string, any>();
+          prev.forEach(s => map.set(s.id, s));
+          cloudSessions.forEach(cs => {
+            const existing = map.get(cs.id);
+            if (!existing || (cs.messages && cs.messages.length >= (existing.messages?.length || 0))) {
+              map.set(cs.id, cs);
+              if (cs.messages && cs.messages.length > 0) {
+                try {
+                  localStorage.setItem(`nsg_msgs_${cs.id}`, circularSafeStringify(cs.messages));
+                } catch (e) {}
+              }
+            }
+          });
+          const merged = Array.from(map.values());
+          merged.sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0));
+          try {
+            localStorage.setItem(`nsg_omni_sessions_${user.uid}`, JSON.stringify(merged));
+          } catch (e) {}
+          return merged;
+        });
+      }
+    }, (err) => {
+      console.warn("Firestore chatSessions listener error", err);
+    });
+
+    return () => unsub();
+  }, [user?.uid]);
 
   const handleNewOmniChat = () => {
     const newId = `omni_${Date.now()}`;
@@ -341,36 +466,63 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
   const handleSelectOmniSession = (sessionId: string) => {
     const session = omniSessions.find(s => s.id === sessionId);
-    if (session) {
-      setSelectedChat({
-        id: session.id,
-        name: session.title || 'Omni AI Assistant',
-        isOmni: true,
-        unreadBy: [],
-        members: [user?.uid || 'guest']
-      } as any);
-      setMessages(session.messages || []);
+    let msgs: Message[] = [];
+    try {
+      const local = localStorage.getItem(`nsg_msgs_${sessionId}`);
+      if (local) {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          msgs = parsed;
+        }
+      }
+    } catch (e) {}
+    if (msgs.length === 0 && session && Array.isArray(session.messages)) {
+      msgs = session.messages;
     }
+
+    setSelectedChat({
+      id: sessionId,
+      name: session?.title || 'Omni AI Assistant',
+      isOmni: true,
+      unreadBy: [],
+      members: [user?.uid || 'guest']
+    } as any);
+    setMessages(msgs);
   };
 
   const handleRenameOmniSession = (sessionId: string, newTitle: string) => {
-    const updated = omniSessions.map(s => s.id === sessionId ? { ...s, title: newTitle } : s);
-    saveOmniSessionsToStorage(updated);
+    setOmniSessions(prev => {
+      const updated = prev.map(s => s.id === sessionId ? { ...s, title: newTitle } : s);
+      saveOmniSessionsToStorage(updated);
+      return updated;
+    });
   };
 
   const handlePinOmniSession = (sessionId: string) => {
-    const updated = omniSessions.map(s => s.id === sessionId ? { ...s, isPinned: !s.isPinned } : s);
-    // Sort pinned to top
-    updated.sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0));
-    saveOmniSessionsToStorage(updated);
+    setOmniSessions(prev => {
+      const updated = prev.map(s => s.id === sessionId ? { ...s, isPinned: !s.isPinned } : s);
+      updated.sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0));
+      saveOmniSessionsToStorage(updated);
+      return updated;
+    });
   };
 
   const handleDeleteOmniSession = (sessionId: string) => {
-    const updated = omniSessions.filter(s => s.id !== sessionId);
-    saveOmniSessionsToStorage(updated);
+    setOmniSessions(prev => {
+      const updated = prev.filter(s => s.id !== sessionId);
+      saveOmniSessionsToStorage(updated);
+      return updated;
+    });
+    try {
+      localStorage.removeItem(`nsg_msgs_${sessionId}`);
+      if (user?.uid) {
+        deleteDoc(doc(db, 'users', user.uid, 'chatSessions', sessionId)).catch(() => {});
+      }
+    } catch (e) {}
     if (selectedChat?.id === sessionId) {
-      if (updated.length > 0) {
-        handleSelectOmniSession(updated[0].id);
+      const remaining = omniSessions.filter(s => s.id !== sessionId);
+      if (remaining.length > 0) {
+        handleSelectOmniSession(remaining[0].id);
       } else {
         handleNewOmniChat();
       }
@@ -1168,44 +1320,47 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
 
   useEffect(() => {
     if (!selectedChat) return;
-    
-    // Load from local storage or omniSessions first
-    const localMsgs = localStorage.getItem(`nsg_msgs_${selectedChat.id}`);
-    if (localMsgs) {
-      try {
-        setMessages(JSON.parse(localMsgs));
-      } catch (e) {
-        console.error("Local messages parse error", e);
-        setMessages([]);
-      }
-    } else {
-      if (selectedChat.isOmni || selectedChat.id.startsWith('omni_')) {
-        const matchingSession = omniSessions.find(s => s.id === selectedChat.id);
-        if (matchingSession && matchingSession.messages && matchingSession.messages.length > 0) {
-          setMessages(matchingSession.messages);
-        } else {
-          setMessages([]);
-        }
-      } else {
-        setMessages([]);
-      }
-    }
 
     if (selectedChat.isOmni || selectedChat.id.startsWith('omni_')) {
-      const matchingSession = omniSessions.find(s => s.id === selectedChat.id);
-      if (matchingSession && matchingSession.messages && matchingSession.messages.length > 0) {
-        setMessages(matchingSession.messages);
-      } else {
+      let currentBest: Message[] = [];
+      try {
         const localMsgs = localStorage.getItem(`nsg_msgs_${selectedChat.id}`);
         if (localMsgs) {
-          try {
-            setMessages(JSON.parse(localMsgs));
-          } catch (e) {
-            setMessages([]);
+          const parsed = JSON.parse(localMsgs);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            currentBest = parsed;
           }
-        } else {
-          setMessages([]);
         }
+      } catch (e) {
+        console.error("Local messages parse error", e);
+      }
+
+      const matchingSession = omniSessions.find(s => s.id === selectedChat.id);
+      if (matchingSession && Array.isArray(matchingSession.messages) && matchingSession.messages.length > currentBest.length) {
+        currentBest = matchingSession.messages;
+      }
+
+      setMessages(currentBest);
+
+      // Also check Firestore for latest cloud messages if user is authenticated
+      if (user?.uid) {
+        getDoc(doc(db, 'users', user.uid, 'chatSessions', selectedChat.id)).then((docSnap) => {
+          if (docSnap.exists()) {
+            const d = docSnap.data();
+            const cloudMsgs = Array.isArray(d.messages) ? d.messages : (Array.isArray(d.history) ? d.history : []);
+            if (cloudMsgs.length > 0) {
+              setMessages(prev => {
+                if (cloudMsgs.length >= prev.length) {
+                  try {
+                    localStorage.setItem(`nsg_msgs_${selectedChat.id}`, circularSafeStringify(cloudMsgs));
+                  } catch (e) {}
+                  return cloudMsgs;
+                }
+                return prev;
+              });
+            }
+          }
+        }).catch(() => {});
       }
 
       // Real-time listener for local Omni events
@@ -1214,7 +1369,11 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         if (detail && detail.chatId === selectedChat.id && detail.message) {
           setMessages(prev => {
             if (prev.some(m => m.id === detail.message.id)) return prev;
-            return [...prev, detail.message];
+            const next = [...prev, detail.message];
+            try {
+              localStorage.setItem(`nsg_msgs_${selectedChat.id}`, circularSafeStringify(next));
+            } catch (err) {}
+            return next;
           });
           setIsOmniThinking(false);
         }
@@ -1393,11 +1552,12 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         const updatedOmniSessions = omniSessions.map(s => {
           if (s.id === selectedChat.id) {
             const existingMsgs = Array.isArray(s.messages) ? s.messages : [];
+            const withUser = existingMsgs.some((m: any) => m.id === optimisticMsg.id) ? existingMsgs : [...existingMsgs, optimisticMsg];
             return {
               ...s,
               lastMessage: text,
               timestamp: 'Just now',
-              messages: [...existingMsgs, optimisticMsg]
+              messages: withUser
             };
           }
           return s;
@@ -1407,10 +1567,37 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         setIsOmniThinking(true);
         try {
           const aiReplyMsg: any = await onTagOmni(text, selectedChat.id);
+          let newTotalLength = 2;
           if (aiReplyMsg && aiReplyMsg.text) {
             setMessages(prev => {
               if (prev.some(m => m.id === aiReplyMsg.id)) return prev;
-              return [...prev, aiReplyMsg];
+              const next = [...prev, aiReplyMsg];
+              newTotalLength = next.length;
+              try {
+                localStorage.setItem(`nsg_msgs_${selectedChat.id}`, circularSafeStringify(next));
+              } catch (e) {}
+              return next;
+            });
+
+            // Update omniSessions with the AI response included and save
+            setOmniSessions(prev => {
+              const updatedWithAi = prev.map(s => {
+                if (s.id === selectedChat.id) {
+                  const existing = Array.isArray(s.messages) ? s.messages : [];
+                  const withAi = existing.some((m: any) => m.id === aiReplyMsg.id)
+                    ? existing
+                    : [...existing, aiReplyMsg];
+                  return {
+                    ...s,
+                    lastMessage: aiReplyMsg.text,
+                    timestamp: 'Just now',
+                    messages: withAi
+                  };
+                }
+                return s;
+              });
+              saveOmniSessionsToStorage(updatedWithAi);
+              return updatedWithAi;
             });
           } else {
             const localKey = `nsg_msgs_${selectedChat.id}`;
@@ -1419,8 +1606,53 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
               try {
                 const parsed = JSON.parse(localRaw);
                 setMessages(parsed);
+                newTotalLength = parsed.length;
               } catch (e) {}
             }
+          }
+
+          // After the first AI response chunk completes:
+          const currentSession = omniSessions.find(s => s.id === selectedChat.id);
+          const currentChatTitle = currentSession?.title || selectedChat.name || 'New Chat';
+          const isDefaultTitle = !currentChatTitle || 
+            currentChatTitle === 'New Chat' || 
+            currentChatTitle === 'New Omni Chat' || 
+            currentChatTitle.startsWith('New ') || 
+            currentChatTitle.endsWith('...');
+
+          if ((newTotalLength === 2 || (currentSession?.messages?.length ?? 0) <= 2) && isDefaultTitle) {
+            const userFirstPrompt = text;
+            const quickFallback = userFirstPrompt.trim().split(/\s+/).slice(0, 4).join(' ');
+            const formattedFallback = quickFallback ? (quickFallback.charAt(0).toUpperCase() + quickFallback.slice(1)) : 'Omni AI Chat';
+            handleRenameOmniSession(selectedChat.id, formattedFallback);
+            setSelectedChat(prev => prev ? { ...prev, name: formattedFallback } : prev);
+
+            // Asynchronously generate intelligent AI academic title
+            (async () => {
+              try {
+                const ai = getAiInstance();
+                if (ai?.models?.generateContent) {
+                  const res = await ai.models.generateContent({
+                    model: FLASH_MODEL || 'gemini-2.5-flash',
+                    contents: [
+                      {
+                        role: 'user',
+                        parts: [{
+                          text: `Generate a concise, professional 2 to 4 word academic subject title for this user query.\nQuery: "${userFirstPrompt}"\n\nRules:\n- Strictly output ONLY the 2 to 4 word title (e.g., "Epiglottitis Clinical Review", "Nigerian Constitutional Law", "Calculus & Limits", "Cell Structure Biology").\n- Do NOT use quotation marks, punctuation, or generic filler.`
+                        }]
+                      }
+                    ]
+                  });
+                  const cleanAiTitle = res.text?.trim().replace(/^["']|["']$/g, '').replace(/[#*]/g, '');
+                  if (cleanAiTitle && cleanAiTitle.length > 2 && cleanAiTitle.length < 50) {
+                    handleRenameOmniSession(selectedChat.id, cleanAiTitle);
+                    setSelectedChat(prev => prev ? { ...prev, name: cleanAiTitle } : prev);
+                  }
+                }
+              } catch (err) {
+                console.warn("ChatRoom AI titling notice:", err);
+              }
+            })();
           }
         } catch (err) {
           console.error("Omni AI dispatch error:", err);
@@ -3463,9 +3695,9 @@ export const SharedNotesList: React.FC<SharedNotesListProps> = ({ user, db, sele
 
   return (
     <div className="space-y-1">
-      {localNotes.map((note) => (
+      {localNotes.map((note, noteIdx) => (
         <button
-          key={note.id}
+          key={`${note.id || 'note'}-${noteIdx}`}
           onClick={() => handleShare(note)}
           className="w-full p-3 bg-white/5 hover:bg-white/10 border border-white/5 rounded-xl text-left flex justify-between items-center transition-all group lg:min-w-[300px]"
         >

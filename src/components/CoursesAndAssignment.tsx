@@ -721,9 +721,9 @@ export const AssignmentSolver = ({ theme, user, isPremium, getAiInstance, setUse
           <div className="mb-6 -mx-2">
             <p className="text-[9px] font-black uppercase tracking-[0.2em] text-[#DC2626] mb-3 px-2">Recently Solved</p>
             <div className="flex gap-3 overflow-x-auto pb-2 px-2 no-scrollbar">
-              {finishedHistory.filter((i: any) => i.type === 'assignment').slice(0, 10).map((item: any) => (
+              {finishedHistory.filter((i: any) => i.type === 'assignment').slice(0, 10).map((item: any, aIdx: number) => (
                 <button
-                  key={item.id}
+                  key={`${item.id || 'assign'}-${aIdx}`}
                   onClick={() => setSolution(item.data)}
                   className="flex-shrink-0 w-32 p-3 rounded-2xl bg-white/5 border border-white/10 hover:border-[#DC2626]/40 transition-all text-left group"
                 >

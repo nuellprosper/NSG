@@ -244,15 +244,15 @@ export const HomePage: React.FC<HomePageProps> = ({
     return items;
   }, [user]);
 
-  // Combined searchable items
+  // Combined searchable items (with unique IDs)
   const allSearchableItems = useMemo(() => {
     const list: any[] = [];
 
     // 1. Quizzes from finishedHistory
-    finishedHistory.forEach((h: any) => {
+    finishedHistory.forEach((h: any, idx: number) => {
       const isCbt = h.type === 'cbt' || h.type === 'exam' || h.isCbt;
       list.push({
-        id: `history-${h.id || Math.random()}`,
+        id: `history-${h.id || idx}`,
         type: isCbt ? 'exams' : 'quizzes',
         title: h.topic || (isCbt ? 'CBT Mock Examination' : 'Academic Quiz Practice'),
         subtitle: `${isCbt ? 'CBT Exam' : 'Quiz'} • Score: ${h.score ?? 0}/${h.totalQuestions || h.questions?.length || 0} (${Math.round(((h.score || 0) / (h.totalQuestions || h.questions?.length || 1)) * 100)}%)`,
@@ -262,7 +262,7 @@ export const HomePage: React.FC<HomePageProps> = ({
     });
 
     // 2. Notes from userNotes
-    userNotes.forEach((n: any) => {
+    userNotes.forEach((n: any, idx: number) => {
       let contentStr = '';
       if (typeof n.content === 'string') {
         contentStr = n.content;
@@ -270,7 +270,7 @@ export const HomePage: React.FC<HomePageProps> = ({
         contentStr = n.content.text || n.content.body || (Array.isArray(n.content) ? n.content.join(' ') : '');
       }
       list.push({
-        id: `note-${n.id}`,
+        id: `note-${n.id || idx}`,
         type: 'notes',
         title: n.title || 'Untitled Note',
         subtitle: `Note • Category: ${n.category || 'General'} • ${contentStr ? contentStr.substring(0, 60) + '...' : 'No text content'}`,
@@ -280,9 +280,9 @@ export const HomePage: React.FC<HomePageProps> = ({
     });
 
     // 3. Courses from Firestore
-    courses.forEach((c: any) => {
+    courses.forEach((c: any, idx: number) => {
       list.push({
-        id: `course-${c.id}`,
+        id: `course-${c.id || idx}`,
         type: 'courses',
         title: `${c.code}: ${c.title}`,
         subtitle: `Course • ${c.faculty} • ${c.department} • ⭐ ${c.rating || 5.0}`,
@@ -292,9 +292,9 @@ export const HomePage: React.FC<HomePageProps> = ({
     });
 
     // 4. Timetable
-    timetableItems.forEach((t: any) => {
+    timetableItems.forEach((t: any, idx: number) => {
       list.push({
-        id: t.id,
+        id: t.id || `tt-${idx}`,
         type: 'timetable',
         title: t.title,
         subtitle: t.subtitle,
@@ -303,7 +303,19 @@ export const HomePage: React.FC<HomePageProps> = ({
       });
     });
 
-    return list;
+    // Strict deduplication of list IDs to avoid React duplicate key collisions
+    const seenIds = new Set<string>();
+    const uniqueList: any[] = [];
+    list.forEach((item, idx) => {
+      let finalKey = item.id;
+      if (seenIds.has(finalKey)) {
+        finalKey = `${finalKey}-idx-${idx}`;
+      }
+      seenIds.add(finalKey);
+      uniqueList.push({ ...item, id: finalKey });
+    });
+
+    return uniqueList;
   }, [finishedHistory, userNotes, courses, timetableItems]);
 
   // Filtered Search Results (Real-time live updates)
@@ -327,14 +339,14 @@ export const HomePage: React.FC<HomePageProps> = ({
     }).slice(0, 15); // Show top 15 results
   }, [allSearchableItems, searchQuery, selectedFilter]);
 
-  // Combined Chronological History for "See All History"
+  // Combined Chronological History for "See All History" (with safe deduplicated IDs)
   const chronologicalHistory = useMemo(() => {
     const items: any[] = [];
 
-    finishedHistory.forEach((h: any) => {
+    finishedHistory.forEach((h: any, idx: number) => {
       const isCbt = h.type === 'cbt' || h.type === 'exam' || h.isCbt;
       items.push({
-        id: h.id || `hist-${Math.random()}`,
+        id: `hist-${h.id || idx}`,
         type: isCbt ? 'exam' : 'quiz',
         title: h.topic || (isCbt ? 'CBT Mock Exam' : 'Practice Quiz'),
         score: `${h.score ?? 0}/${h.totalQuestions || h.questions?.length || 0}`,
@@ -343,9 +355,9 @@ export const HomePage: React.FC<HomePageProps> = ({
       });
     });
 
-    userNotes.forEach((n: any) => {
+    userNotes.forEach((n: any, idx: number) => {
       items.push({
-        id: n.id,
+        id: `note-${n.id || idx}`,
         type: 'note',
         title: n.title || 'Saved Note',
         score: n.category || 'Note',
@@ -355,7 +367,18 @@ export const HomePage: React.FC<HomePageProps> = ({
     });
 
     // Sort newest first
-    return items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const sorted = items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    
+    // Deduplicate IDs
+    const seenHist = new Set<string>();
+    return sorted.map((item, idx) => {
+      let finalKey = item.id;
+      if (seenHist.has(finalKey)) {
+        finalKey = `${finalKey}-idx-${idx}`;
+      }
+      seenHist.add(finalKey);
+      return { ...item, id: finalKey };
+    });
   }, [finishedHistory, userNotes]);
 
   // User Department & Faculty
@@ -479,14 +502,14 @@ export const HomePage: React.FC<HomePageProps> = ({
   return (
     <div 
       id="home-page-container" 
-      className={`min-h-screen pb-48 sm:pb-52 transition-colors duration-300 ${
+      className={`min-h-screen transition-colors duration-300 ${
         theme === 'dark' ? 'bg-[#0B0813] text-white' : 'bg-slate-50 text-slate-900'
       }`}
     >
-      {/* 1. SIGNATURE LIGHT PURPLE TOP PATCH (Smooth natural scrolling header with generous viewport for content) */}
+      {/* 1. SIGNATURE LIGHT PURPLE TOP PATCH (Static sticky header with content scrolling underneath) */}
       <div 
         style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)' }}
-        className="relative z-20 bg-gradient-to-b from-purple-600 via-purple-600 to-purple-500 text-white pb-6 px-4 sm:px-6 rounded-b-[2.5rem] shadow-xl overflow-visible"
+        className="sticky top-0 z-30 bg-gradient-to-b from-purple-600 via-purple-600 to-purple-500 text-white pb-5 sm:pb-6 px-4 sm:px-6 rounded-b-[2.25rem] shadow-xl overflow-visible"
       >
         {/* Subtle decorative background topography contour lines */}
         <div className="absolute inset-0 opacity-10 pointer-events-none overflow-hidden rounded-b-[2.5rem]">
@@ -543,17 +566,17 @@ export const HomePage: React.FC<HomePageProps> = ({
               </div>
             </button>
 
-            {/* Notification Button on Right (Matching position and color in screenshot) */}
+            {/* Notification Button on Right */}
             <button
               id="home-notifications-btn"
               type="button"
               onClick={() => setActiveTab('notifications')}
-              className="relative w-10 h-10 rounded-2xl bg-white/20 hover:bg-white/30 backdrop-blur-md flex items-center justify-center text-white border border-white/30 shadow-md cursor-pointer transition-all active:scale-95 shrink-0"
+              className="relative p-2 text-white hover:text-white/80 cursor-pointer transition-all active:scale-95 shrink-0 focus:outline-none flex items-center justify-center"
               title="Notifications"
             >
-              <Bell size={19} className="text-white" />
+              <Bell size={22} className="text-white" />
               {totalUnread > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 text-[9px] font-black text-purple-700 bg-white rounded-full flex items-center justify-center shadow-md border-2 border-purple-600 animate-pulse">
+                <span className="absolute top-0.5 right-0.5 min-w-[17px] h-[17px] px-1 text-[9px] font-black text-purple-700 bg-white rounded-full flex items-center justify-center shadow-md border-2 border-purple-600 animate-pulse">
                   {totalUnread > 99 ? '99+' : totalUnread}
                 </span>
               )}
@@ -684,9 +707,9 @@ export const HomePage: React.FC<HomePageProps> = ({
                     </div>
                   ) : (
                     <div className="space-y-1">
-                      {searchResults.map((res: any) => (
+                      {searchResults.map((res: any, rIdx: number) => (
                         <button
-                          key={res.id}
+                          key={`${res.id || 'res'}-${rIdx}`}
                           type="button"
                           onClick={() => handleItemClick(res)}
                           className={`w-full text-left p-2.5 rounded-xl transition-all flex items-start gap-2.5 cursor-pointer group ${
@@ -720,8 +743,8 @@ export const HomePage: React.FC<HomePageProps> = ({
         </div>
       </div>
 
-      {/* MAIN BODY CONTENT */}
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 space-y-6 pt-5">
+      {/* MAIN BODY CONTENT (Smoothly scrolls under sticky purple patch with full bottom clearance) */}
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 space-y-6 pt-5 pb-36 sm:pb-44">
         
         {/* 2. #COURSESFORYOU SECTION (Replaces #SpecialForYou) */}
         <div id="courses-for-you-section" className="space-y-3">
@@ -752,12 +775,11 @@ export const HomePage: React.FC<HomePageProps> = ({
                 <p className="text-[10px] text-slate-400">Tap See All to explore the complete catalog</p>
               </div>
             ) : (
-              coursesForYou.map((course) => (
+              coursesForYou.map((course, cIdx) => (
                 <motion.div
-                  key={course.id}
-                  onClick={() => openCoursePreview ? openCoursePreview(course) : setActiveTab('courses')}
+                  key={`${course.id || 'cfy'}-${cIdx}`}
                   whileHover={{ y: -3 }}
-                  className="w-[280px] sm:w-[320px] shrink-0 h-[175px] sm:h-[190px] rounded-3xl relative overflow-hidden shadow-lg border border-purple-500/20 snap-start cursor-pointer group flex flex-col justify-between p-4"
+                  className="w-[280px] sm:w-[320px] shrink-0 h-[175px] sm:h-[190px] rounded-3xl relative overflow-hidden shadow-lg border border-purple-500/20 snap-start select-none group flex flex-col justify-between p-4"
                   style={{
                     backgroundImage: `linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.85) 100%), url(${getCourseThumbnail(course)})`,
                     backgroundSize: 'cover',
@@ -771,8 +793,11 @@ export const HomePage: React.FC<HomePageProps> = ({
                     </span>
                     <button
                       type="button"
-                      onClick={(e) => toggleLike(e, course.id)}
-                      className={`w-7 h-7 rounded-full backdrop-blur-md flex items-center justify-center transition-transform active:scale-90 ${
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleLike(e, course.id);
+                      }}
+                      className={`w-7 h-7 rounded-full backdrop-blur-md flex items-center justify-center transition-transform active:scale-90 cursor-pointer ${
                         likedCourseIds.has(course.id) ? 'bg-red-500 text-white' : 'bg-black/40 text-white hover:bg-black/60'
                       }`}
                     >
@@ -796,7 +821,12 @@ export const HomePage: React.FC<HomePageProps> = ({
 
                     <button
                       type="button"
-                      className="px-3.5 py-1.5 rounded-full bg-purple-600 hover:bg-purple-500 text-white text-xs font-black shadow-md transition-all active:scale-95 shrink-0"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (openCoursePreview) openCoursePreview(course);
+                        else setActiveTab('courses');
+                      }}
+                      className="px-3.5 py-1.5 rounded-full bg-purple-600 hover:bg-purple-500 text-white text-xs font-black shadow-md transition-all active:scale-95 shrink-0 cursor-pointer"
                     >
                       View
                     </button>
@@ -915,12 +945,11 @@ export const HomePage: React.FC<HomePageProps> = ({
                 <p className="text-xs font-bold">Explore all available courses in the catalog</p>
               </div>
             ) : (
-              popularCourses.map((course) => (
+              popularCourses.map((course, pIdx) => (
                 <motion.div
-                  key={course.id}
-                  onClick={() => openCoursePreview ? openCoursePreview(course) : setActiveTab('courses')}
+                  key={`${course.id || 'pop'}-${pIdx}`}
                   whileHover={{ y: -3 }}
-                  className="w-[280px] sm:w-[320px] shrink-0 h-[175px] sm:h-[190px] rounded-3xl relative overflow-hidden shadow-lg border border-purple-500/20 snap-start cursor-pointer group flex flex-col justify-between p-4"
+                  className="w-[280px] sm:w-[320px] shrink-0 h-[175px] sm:h-[190px] rounded-3xl relative overflow-hidden shadow-lg border border-purple-500/20 snap-start select-none group flex flex-col justify-between p-4"
                   style={{
                     backgroundImage: `linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.85) 100%), url(${getCourseThumbnail(course)})`,
                     backgroundSize: 'cover',
@@ -940,8 +969,11 @@ export const HomePage: React.FC<HomePageProps> = ({
                     </div>
                     <button
                       type="button"
-                      onClick={(e) => toggleLike(e, course.id)}
-                      className={`w-7 h-7 rounded-full backdrop-blur-md flex items-center justify-center transition-transform active:scale-90 ${
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleLike(e, course.id);
+                      }}
+                      className={`w-7 h-7 rounded-full backdrop-blur-md flex items-center justify-center transition-transform active:scale-90 cursor-pointer ${
                         likedCourseIds.has(course.id) ? 'bg-red-500 text-white' : 'bg-black/40 text-white hover:bg-black/60'
                       }`}
                     >
@@ -965,7 +997,12 @@ export const HomePage: React.FC<HomePageProps> = ({
 
                     <button
                       type="button"
-                      className="px-3.5 py-1.5 rounded-full bg-purple-600 hover:bg-purple-500 text-white text-xs font-black shadow-md transition-all active:scale-95 shrink-0"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (openCoursePreview) openCoursePreview(course);
+                        else setActiveTab('courses');
+                      }}
+                      className="px-3.5 py-1.5 rounded-full bg-purple-600 hover:bg-purple-500 text-white text-xs font-black shadow-md transition-all active:scale-95 shrink-0 cursor-pointer"
                     >
                       View
                     </button>
@@ -1012,9 +1049,9 @@ export const HomePage: React.FC<HomePageProps> = ({
                     No history records found yet.
                   </div>
                 ) : (
-                  chronologicalHistory.map((item) => (
+                  chronologicalHistory.map((item, hIdx) => (
                     <button
-                      key={item.id}
+                      key={`${item.id || 'hist'}-${hIdx}`}
                       type="button"
                       onClick={() => {
                         setShowAllHistoryModal(false);

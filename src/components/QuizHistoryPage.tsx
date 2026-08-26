@@ -98,33 +98,38 @@ export const QuizHistoryPage: React.FC<QuizHistoryPageProps> = ({
       ) : (
         <div className="space-y-3">
           {filteredQuizzes.map((item, idx) => {
-            const topic = item.topic || item.title || item.subject || 'Quiz Practice';
+            const rawTopic = item.topic || item.title || item.subject || 'Quiz Practice';
+            // Limit characters so long horizontal topics never expand the card or distort action buttons
+            const topic = rawTopic.length > 45 ? rawTopic.slice(0, 45).trim() + '...' : rawTopic;
             const score = item.score !== undefined ? `${item.score}%` : (item.correctCount !== undefined ? `${item.correctCount}/${item.totalQuestions || 10}` : 'Completed');
             const dateStr = formatSafeDate(item.date || item.timestamp, 'Recent');
 
             return (
               <div
                 key={`${item.id || 'quiz-hist'}-${idx}`}
-                className="p-4 sm:p-5 rounded-2xl bg-[#131022] border border-white/10 hover:border-red-500/40 transition-all shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 group"
+                className="p-4 sm:p-5 rounded-2xl bg-[#131022] border border-white/10 hover:border-red-500/40 transition-all shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 group overflow-hidden max-w-full"
               >
-                <div className="space-y-1.5 min-w-0 flex-1">
+                <div className="space-y-1.5 min-w-0 flex-1 w-full sm:w-auto overflow-hidden">
                   <div className="flex items-center gap-2">
-                    <span className="px-2.5 py-0.5 rounded-md bg-red-500/15 text-red-400 text-[9px] font-black uppercase tracking-wider border border-red-500/20">
+                    <span className="px-2.5 py-0.5 rounded-md bg-red-500/15 text-red-400 text-[9px] font-black uppercase tracking-wider border border-red-500/20 shrink-0">
                       Quiz
                     </span>
-                    <span className="text-[10px] text-white/40 flex items-center gap-1 font-medium">
-                      <Clock size={11} /> {dateStr}
+                    <span className="text-[10px] text-white/40 flex items-center gap-1 font-medium truncate">
+                      <Clock size={11} className="shrink-0" /> {dateStr}
                     </span>
                   </div>
-                  <h3 className="text-sm font-bold text-white truncate group-hover:text-red-400 transition-colors">
+                  <h3 
+                    title={rawTopic}
+                    className="text-sm font-bold text-white truncate group-hover:text-red-400 transition-colors max-w-full break-words [overflow-wrap:anywhere]"
+                  >
                     {topic}
                   </h3>
-                  <div className="flex items-center gap-3 text-[11px] text-white/60 font-medium">
-                    <span className="flex items-center gap-1 text-emerald-400 font-bold">
+                  <div className="flex items-center gap-3 text-[11px] text-white/60 font-medium flex-wrap sm:flex-nowrap">
+                    <span className="flex items-center gap-1 text-emerald-400 font-bold shrink-0">
                       <Award size={13} /> Score: {score}
                     </span>
                     <span>•</span>
-                    <span>{item.questions?.length || item.totalQuestions || 10} Questions</span>
+                    <span className="shrink-0">{item.questions?.length || item.totalQuestions || 10} Questions</span>
                   </div>
                 </div>
 
@@ -137,9 +142,9 @@ export const QuizHistoryPage: React.FC<QuizHistoryPageProps> = ({
                       setToolsSubTab('quiz');
                     }
                   }}
-                  className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-red-600 to-rose-600 hover:bg-red-500 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer shrink-0 active:scale-95"
+                  className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-red-600 to-rose-600 hover:bg-red-500 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer shrink-0 active:scale-95 whitespace-nowrap"
                 >
-                  <PlayCircle size={15} />
+                  <PlayCircle size={15} className="shrink-0" />
                   <span>Take / Review Quiz</span>
                 </button>
               </div>
