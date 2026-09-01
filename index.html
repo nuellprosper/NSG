@@ -21,56 +21,20 @@
     <meta property="og:site_name" content="NUELL STUDY GUIDE" />
 
     <!-- Twitter / Telegram -->
+    <meta name="twitter:card" content="summary_large_image" />
     <meta property="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content="https://nuellstudyguide.name.ng/" />
     <meta property="twitter:url" content="https://nuellstudyguide.name.ng/" />
+    <meta name="twitter:title" content="NUELL STUDY GUIDE - Elevate Your Studies" />
     <meta property="twitter:title" content="NUELL STUDY GUIDE - Elevate Your Studies" />
+    <meta name="twitter:description" content="Generate quizzes, read lecture notes offline, and chat with the Omni AI study assistant. Join NSG today!" />
     <meta property="twitter:description" content="Generate quizzes, read lecture notes offline, and chat with the Omni AI study assistant. Join NSG today!" />
+    <meta name="twitter:image" content="https://nuellstudyguide.name.ng/preview-image.png" />
     <meta property="twitter:image" content="https://nuellstudyguide.name.ng/preview-image.png" />
 
-    <!-- Global Error Shield for third-party scripts & iframe environments -->
-    <script>
-      window.onerror = function(message, source, lineno, colno, error) {
-        if (message === 'Script error.' || !source || source.indexOf(window.location.origin) === -1) {
-          // Suppress cross-origin / third-party ad / external script errors in sandboxed iframes
-          return true;
-        }
-        return false;
-      };
-      window.addEventListener('error', function(e) {
-        if (!e || e.message === 'Script error.' || !e.filename || e.filename.indexOf(window.location.origin) === -1) {
-          if (e && e.preventDefault) e.preventDefault();
-          if (e && e.stopImmediatePropagation) e.stopImmediatePropagation();
-          return true;
-        }
-      }, true);
-      window.addEventListener('unhandledrejection', function(e) {
-        if (e && e.reason && (e.reason.message === 'Script error.' || String(e.reason).includes('Failed to fetch') || String(e.reason).includes('Load failed') || String(e.reason).includes('Script error'))) {
-          if (e.preventDefault) e.preventDefault();
-          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-        }
-      });
-    </script>
-    
     <!-- Google AdSense -->
     <meta name="google-adsense-account" content="ca-pub-3216169026195971">
-    <script>
-      (function() {
-        try {
-          var host = window.location.hostname || '';
-          if (host.includes('run.app') || host === 'localhost' || host === '127.0.0.1') {
-            return;
-          }
-          var s = document.createElement('script');
-          s.async = true;
-          s.src = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3216169026195971";
-          s.crossOrigin = "anonymous";
-          s.onerror = function() {
-            // Silently swallow in ad-blocked environments
-          };
-          document.head.appendChild(s);
-        } catch (e) {}
-      })();
-    </script>
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3216169026195971" crossorigin="anonymous" onerror="console.warn('AdSense script blocked or unavailable in this environment.');"></script>
     
     <!-- PWA Manifest -->
     <link rel="manifest" href="/manifest.json" />
@@ -100,7 +64,7 @@
       <!-- Fallback dark loading state with auto-recovery failsafe -->
       <div id="initial-loader" style="min-height: 100vh; background-color: #0B0813; color: #F0F4FF; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: 'DM Sans', system-ui, -apple-system, sans-serif; text-align: center; padding: 24px;">
         <div style="width: 44px; height: 44px; border: 3px solid rgba(220, 38, 38, 0.2); border-top-color: #DC2626; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
-        <p id="loader-msg" style="margin-top: 16px; font-size: 14px; font-weight: 600; color: rgba(240, 244, 255, 0.9);">Loading pls wait</p>
+        <p id="loader-msg" style="margin-top: 16px; font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.12em; color: rgba(240, 244, 255, 0.7);">Loading Omni, please wait...</p>
         <div id="loader-fallback-actions" style="display: none; margin-top: 20px; flex-direction: column; align-items: center; gap: 10px;">
           <p style="font-size: 12px; color: rgba(240, 244, 255, 0.5); max-width: 320px;">Taking longer than expected? You can refresh or clear corrupted browser cache:</p>
           <button onclick="localStorage.removeItem('nsg_current_quiz_progress'); localStorage.removeItem('nsg_tools_subtab'); localStorage.removeItem('nsg_active_tab'); window.location.reload();" style="background: #DC2626; color: white; border: none; padding: 10px 20px; border-radius: 10px; font-size: 12px; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: 0.05em;">Clear Cache & Reload</button>
@@ -114,11 +78,17 @@
             }
           }, 6000);
           window.addEventListener('error', function(e) {
-            // Ignore generic cross-origin Script error (e.g., ad blockers, external analytics)
-            if (!e || e.message === 'Script error.' || !e.filename) {
-              return;
+            // Ignore generic cross-origin Script error (e.g., ad blockers, external analytics, AdSense)
+            if (!e || e.message === 'Script error.' || !e.filename || (e.filename && !e.filename.includes(window.location.host) && !e.filename.startsWith('/'))) {
+              if (e && typeof e.preventDefault === 'function') e.preventDefault();
+              return true;
             }
             console.warn('Recoverable script issue during startup:', e.message);
+          });
+          window.addEventListener('unhandledrejection', function(e) {
+            if (e && e.reason && (String(e.reason).includes('Script error') || String(e.reason).includes('AdSense') || String(e.reason).includes('adsbygoogle'))) {
+              if (typeof e.preventDefault === 'function') e.preventDefault();
+            }
           });
         </script>
       </div>

@@ -250,31 +250,6 @@ const userLocks = new Map<string, number>();
 
 const app = express();
 
-// Serve Android App Links assetlinks.json
-app.get(["/.well-known/assetlinks.json", "/api/.well-known/assetlinks.json"], (req, res) => {
-  const assetLinksPath = path.join(process.cwd(), "public", ".well-known", "assetlinks.json");
-  try {
-    if (fs.existsSync(assetLinksPath)) {
-      res.setHeader("Content-Type", "application/json");
-      res.setHeader("Cache-Control", "public, max-age=86400");
-      return res.sendFile(assetLinksPath);
-    }
-  } catch (e) {}
-  res.json([
-    {
-      relation: ["delegate_permission/common.handle_all_urls"],
-      target: {
-        namespace: "android_app",
-        package_name: "ng.name.nuellstudyguide",
-        sha256_cert_fingerprints: [
-          "14:6D:E9:7C:15:35:7C:5D:86:11:98:B5:1D:62:3C:81:45:EA:AE:61:94:3E:0F:42:43:16:E6:B3:50:55:04:A4",
-          "FA:C6:17:45:DC:09:03:78:6F:B9:ED:E6:2A:96:2B:39:9F:73:48:F0:BB:6F:89:9B:83:32:66:75:91:03:3B:9C"
-        ]
-      }
-    }
-  ]);
-});
-
 // Enable CORS for web and native Capacitor origins
 app.use((req, res, next) => {
   const origin = req.headers.origin || '*';
@@ -2155,26 +2130,29 @@ app.post("/api/ai/chat", async (req, res) => {
   }
 
   const promptText = systemInstruction 
-    ? `${systemInstruction}\n\nUser: ${prompt}\nOmni:` 
+    ? `${systemInstruction}\n\nStudent: ${prompt}\nOmni:` 
     : prompt;
 
-  // 1. Try Gemini
+  // 1. Try Gemini with modern resilient models
   if (genAI) {
-    try {
-      const response = await genAI.models.generateContent({
-        model: 'gemini-3.1-flash-lite',
-        contents: promptText,
-        config: {
-          maxOutputTokens: maxTokens || 1024,
-          responseMimeType: responseMimeType || 'text/plain'
+    const candidateModels = ['gemini-3.1-flash-lite', 'gemini-2.5-flash', 'gemini-flash-latest'];
+    for (const model of candidateModels) {
+      try {
+        const response = await genAI.models.generateContent({
+          model: model,
+          contents: promptText,
+          config: {
+            maxOutputTokens: maxTokens || 1024,
+            responseMimeType: responseMimeType || 'text/plain'
+          }
+        });
+        const text = response.text || '';
+        if (text && text.trim()) {
+          return res.json({ text: text.trim(), provider: `gemini (${model})` });
         }
-      });
-      const text = response.text || '';
-      if (text) {
-        return res.json({ text, provider: 'gemini' });
+      } catch (geminiErr: any) {
+        console.warn(`[/api/ai/chat] Gemini (${model}) attempt failed:`, geminiErr?.message || geminiErr);
       }
-    } catch (geminiErr: any) {
-      console.warn("[/api/ai/chat] Gemini attempt failed, falling back to Groq/HF:", geminiErr?.message || geminiErr);
     }
   }
 
@@ -2192,8 +2170,8 @@ app.post("/api/ai/chat", async (req, res) => {
         max_tokens: maxTokens || 1024,
       });
       const text = completion.choices[0]?.message?.content || '';
-      if (text) {
-        return res.json({ text, provider: 'groq' });
+      if (text && text.trim()) {
+        return res.json({ text: text.trim(), provider: 'groq' });
       }
     } catch (groqErr: any) {
       console.warn("[/api/ai/chat] Groq fallback failed:", groqErr?.message || groqErr);
@@ -2212,8 +2190,8 @@ app.post("/api/ai/chat", async (req, res) => {
         max_tokens: maxTokens || 1024,
       });
       const text = hfRes.choices[0]?.message?.content || '';
-      if (text) {
-        return res.json({ text, provider: 'huggingface' });
+      if (text && text.trim()) {
+        return res.json({ text: text.trim(), provider: 'huggingface' });
       }
     } catch (hfErr: any) {
       console.warn("[/api/ai/chat] HuggingFace fallback failed:", hfErr?.message || hfErr);
