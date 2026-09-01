@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signOut, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, setPersistence, browserLocalPersistence } from 'firebase/auth';
-import { initializeFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, onSnapshot, getDocs, addDoc, getDocFromServer, serverTimestamp, orderBy, limit, arrayUnion, enableIndexedDbPersistence } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, onSnapshot, getDocs, addDoc, getDocFromServer, serverTimestamp, orderBy, limit, arrayUnion } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 // Initialize Firebase SDK with fixed valid authDomain
@@ -11,23 +11,13 @@ const activeFirebaseConfig = {
 
 const app = initializeApp(activeFirebaseConfig);
 
-// Initialize Firestore with auto-detect long polling and fallback handling
+// Initialize Firestore with modern persistent cache and immediate long-polling to prevent 10s connection timeout stalls
 export const db = initializeFirestore(app, {
-  experimentalAutoDetectLongPolling: true,
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  }),
+  experimentalForceLongPolling: true,
 }, firebaseConfig.firestoreDatabaseId || '(default)');
-
-// Enable offline persistence gracefully
-if (typeof window !== 'undefined') {
-  enableIndexedDbPersistence(db).catch((err) => {
-    if (err.code === 'failed-precondition') {
-      // Multiple tabs open, persistence can only be enabled in one tab at a time
-      console.warn('Firestore offline persistence: multiple tabs open');
-    } else if (err.code === 'unimplemented') {
-      // The current browser does not support IndexedDB persistence
-      console.warn('Firestore offline persistence: browser not supported');
-    }
-  });
-}
 
 export const auth = getAuth(app);
 

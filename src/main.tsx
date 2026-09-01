@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { MotionConfig } from 'motion/react';
 import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';
-import { DevicePlatformProvider, isNativePlatform } from './lib/capacitor/platform';
+import { DevicePlatformProvider, isNativePlatform } from './lib/capacitor';
 import './index.css';
 
 const configureEdgeToEdge = async () => {

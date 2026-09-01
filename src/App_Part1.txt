@@ -1,16 +1,3 @@
-import { 
-  PublishArticleModal, 
-  EditArticleModal, 
-  AdminEditUserModal, 
-  AdminEditGroupModal 
-} from "./components/AdminModals";
-import { 
-  GlobalNotificationOverlay, 
-  AudioTranscribingOverlay, 
-  AudioUploadOverlay 
-} from "./components/GlobalOverlays";
-import { generateExamScorecard, generateQuizScorecard } from "./utils/scorecardGenerators";
-import { buildFallbackQuizQuestions } from "./utils/fallbackQuizData";
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 // import Browser from './components/Browser'; // Suspended
 import { 
@@ -60,16 +47,16 @@ import { CoursesPage } from './components/CoursesPage';
 import { ToolsPage } from './tools';
 import { 
   LoggedOutLanding as LoggedOutLandingComponent,
-  AnalysisLoadingOverlay,
-  EmailPreviewModal,
-  AIChallengeModal,
-  PremiumOnboarding,
-  PremiumModal
+  AnalysisLoadingOverlay as AnalysisLoadingOverlayComponent,
+  EmailPreviewModal as EmailPreviewModalComponent,
+  AIChallengeModal as AIChallengeModalComponent,
+  PremiumOnboarding as PremiumOnboardingComponent,
+  PremiumModal as PremiumModalComponent
 } from './components/AppComponent';
 import { OfflineModal } from './components/OfflineModal';
 import { NativeAudioRecorder } from './components/NativeAudioRecorder';
 import { AppBootstrapper } from './components/AppBootstrapper';
-import { AlarmSoundSettings } from './components/AlarmSoundSettings';
+import { AlarmSettings } from './components/AlarmSettings';
 import { 
   initGoogleAuth,
   performGoogleAuth, 
@@ -85,6 +72,7 @@ import {
   runLocalQwenInference, 
   cleanupLlamaModel,
   scheduleLocalNotification,
+  parseUniversalDeepLink,
   isOmniBrainDownloaded,
   executeAITask,
   OFFLINE_MODEL_NOT_DOWNLOADED_MSG
@@ -144,32 +132,68 @@ import {
 
 
 
-import { AdUnit } from './components/AdUnit';
-import { AboutUsModal } from './components/AboutUsModal';
-import { ContactUsModal } from './components/ContactUsModal';
-import { PhoneNotificationOverlay } from './components/PhoneNotificationOverlay';
-import { HistoryLoadingModal } from './components/HistoryLoadingModal';
-import { QuotaModal } from './components/QuotaModal';
-import { AuthModal } from './components/AuthModal';
-import { WelcomeModal } from './components/WelcomeModal';
-import { LegalModal } from './components/LegalModal';
-import { DesktopSidebar } from './components/DesktopSidebar';
-import { OmniChatWorkspace } from './components/OmniChatWorkspace';
-import { NotificationsView } from './components/NotificationsView';
-import { ProfileGuestView } from './components/ProfileGuestView';
-import { ProfileUserView } from './components/ProfileUserView';
-import { EditProfilePage } from './components/EditProfilePage';
-import { HostExamPanel } from './components/HostExamPanel';
-import { GodModePanel } from './components/GodModePanel';
-import { DeleteAccountModal } from './components/DeleteAccountModal';
-import { CustomConfirmModal } from './components/CustomConfirmModal';
-import { SaveModal } from './components/SaveModal';
-import { ShareModal } from './components/ShareModal';
-import { QuizShareModal } from './components/QuizShareModal';
-import { InviteModal } from './components/InviteModal';
-import { BottomNavigation } from './components/BottomNavigation';
-import { QuizLinkLoadingOverlay } from './components/QuizLinkLoadingOverlay';
-export default function App() {
+const AdUnit = ({ slot }: { slot: string }) => {
+  const adRef = useRef<any>(null);
+  const [isSandbox, setIsSandbox] = useState(true);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const hostname = window.location.hostname;
+      const isProd = hostname.includes("nsg.studios");
+      setIsSandbox(!isProd);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isSandbox || !adRef.current) return;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect.width > 0) {
+          try {
+            if (adRef.current && !adRef.current.getAttribute('data-adsbygoogle-status')) {
+              const adsbygoogle = (window as any).adsbygoogle || [];
+              adsbygoogle.push({});
+              observer.disconnect();
+            }
+          } catch (e) {
+            console.error("AdSense error:", e);
+          }
+        }
+      }
+    });
+
+    observer.observe(adRef.current);
+    return () => observer.disconnect();
+  }, [isSandbox]);
+
+  if (isSandbox) {
+    return (
+      <div className="my-5 p-4 rounded-2xl bg-[#13111C]/40 border border-[#DC2626]/20 flex flex-col items-center justify-center text-center w-full min-h-[70px] relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-[#DC2626]/5 to-transparent rounded-full pointer-events-none" />
+        <span className="text-[7.5px] font-black text-[#DC2626] uppercase tracking-[0.3em] mb-1.5">🎓 NSG Academic Booster</span>
+        <p className="text-[9.5px] font-black text-white/70 uppercase leading-snug max-w-md font-sans">
+          "Tip: Leverage CBT Exams to evaluate course memory before major academic tests!"
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="my-6 overflow-hidden flex flex-col items-center w-full min-h-[90px]">
+      <span className="text-[8px] font-black text-white/20 uppercase tracking-[0.3em] mb-2">Advertisement</span>
+      <ins className="adsbygoogle"
+           ref={adRef}
+           style={{ display: 'block', minWidth: '250px', minHeight: '90px' }}
+           data-ad-client="ca-pub-3216169026195971"
+           data-ad-slot={slot}
+           data-ad-format="auto"
+           data-full-width-responsive="true"></ins>
+    </div>
+  );
+};
+
+export function App() {
   const [isHfDepleted, setIsHfDepleted] = useState(false);
 
   // Sync global state to React state if needed, or just use global
@@ -650,45 +674,10 @@ export default function App() {
 
   const handleOpenOmniWithPrompt = async (promptText: string, targetSessionId?: string) => {
     let omniId = `omni_${user?.uid || 'guest'}`;
-    const storageKey = `nsg_omni_sessions_${user?.uid || 'guest'}`;
-    let savedSessions: any[] = [];
-    try {
-      const stored = localStorage.getItem(storageKey);
-      if (stored) savedSessions = JSON.parse(stored);
-    } catch (e) {}
-
-    if (targetSessionId === 'new') {
-      omniId = `omni_${Date.now()}`;
-      const newSession = {
-        id: omniId,
-        title: `Quiz Review: ${quizTopic ? quizTopic.slice(0, 24) : 'Practice'}`,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        isPinned: false,
-        messages: []
-      };
-      savedSessions = [newSession, ...savedSessions.filter((s: any) => s.id !== omniId)];
-      try {
-        localStorage.setItem(storageKey, JSON.stringify(savedSessions));
-      } catch (e) {}
-    } else if (targetSessionId === 'current' || targetSessionId === 'latest') {
-      if (savedSessions && savedSessions.length > 0) {
-        omniId = savedSessions[0].id;
-      } else {
-        omniId = `omni_${Date.now()}`;
-        const newSession = {
-          id: omniId,
-          title: `Quiz Review: ${quizTopic ? quizTopic.slice(0, 24) : 'Practice'}`,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          isPinned: false,
-          messages: []
-        };
-        savedSessions = [newSession];
-        try {
-          localStorage.setItem(storageKey, JSON.stringify(savedSessions));
-        } catch (e) {}
-      }
-    } else if (targetSessionId) {
+    if (targetSessionId && targetSessionId !== 'new') {
       omniId = targetSessionId;
+    } else if (targetSessionId === 'new') {
+      omniId = `omni_${Date.now()}`;
     }
 
     const omniChatObj = {
@@ -703,54 +692,30 @@ export default function App() {
     setActiveTab('chat');
     setIsChatRoomActive(true);
 
-    if (promptText) {
-      // Save locally so it is immediately rendered in chat
+    if (promptText && user) {
       try {
-        const localMsgKey = `nsg_msgs_${omniId}`;
-        const existingRaw = localStorage.getItem(localMsgKey);
-        const existingMsgs = existingRaw ? JSON.parse(existingRaw) : [];
-        const newMsg = {
-          id: 'msg_' + Date.now(),
-          chatId: omniId,
-          senderId: user?.uid || 'guest',
-          senderHandle: userHandle || 'Student',
-          senderName: user?.displayName || userHandle || 'Student',
+        await addDoc(collection(db, 'chats', omniId, 'messages'), {
+          senderId: user.uid,
+          senderHandle: userHandle,
+          senderName: user.displayName || userHandle,
           text: promptText,
-          timestamp: new Date().toISOString(),
+          timestamp: serverTimestamp(),
           type: 'text',
-          seenBy: [user?.uid || 'guest']
-        };
-        localStorage.setItem(localMsgKey, JSON.stringify([...existingMsgs, newMsg]));
-      } catch (e) {}
-
-      if (user) {
-        try {
-          await addDoc(collection(db, 'chats', omniId, 'messages'), {
-            senderId: user.uid,
-            senderHandle: userHandle,
-            senderName: user.displayName || userHandle,
-            text: promptText,
-            timestamp: serverTimestamp(),
-            type: 'text',
-            encrypted: true,
-            seenBy: [user.uid]
-          });
-          await setDoc(doc(db, 'chats', omniId), {
-            id: omniId,
-            name: 'Omni by NSG',
-            isOmni: true,
-            lastMessage: promptText,
-            lastMessageSender: user.displayName || userHandle,
-            updatedAt: serverTimestamp(),
-            members: [user.uid, 'Omni']
-          }, { merge: true });
-          handleTagOmni(promptText, omniId);
-        } catch (err) {
-          console.error("Error creating Omni chat message:", err);
-          handleTagOmni(promptText, omniId);
-        }
-      } else {
+          encrypted: true,
+          seenBy: [user.uid]
+        });
+        await setDoc(doc(db, 'chats', omniId), {
+          id: omniId,
+          name: 'Omni by NSG',
+          isOmni: true,
+          lastMessage: promptText,
+          lastMessageSender: user.displayName || userHandle,
+          updatedAt: serverTimestamp(),
+          members: [user.uid, 'Omni']
+        }, { merge: true });
         handleTagOmni(promptText, omniId);
+      } catch (err) {
+        console.error("Error creating Omni chat message:", err);
       }
     }
   };
@@ -769,24 +734,12 @@ export default function App() {
     const today = `${year}-${month}-${day}`;
 
     const usageRef = doc(db, 'users', user.uid, 'usage', today);
-    let currentCount = 0;
-    try {
-      const usageSnap = await getDoc(usageRef);
-      if (usageSnap.exists()) {
-        currentCount = usageSnap.data()[type] || 0;
-      }
-    } catch (_) {
-      try {
-        const cached = localStorage.getItem(`nsg_quiz_usage_${user.uid}`);
-        if (cached && type === 'QUIZ') {
-          currentCount = parseInt(cached, 10) || 0;
-        }
-      } catch (err) {}
-    }
+    const usageSnap = await getDoc(usageRef);
     
     const isOwner = user?.email?.toLowerCase().trim() === 'nuellkelechi@gmail.com';
     const userIsPremium = isPremium || isOwner;
     const limits = userIsPremium ? LIMITS[type].PREMIUM : LIMITS[type].NORMAL;
+    const currentCount = usageSnap.exists() ? (usageSnap.data()[type] || 0) : 0;
 
     if (!userIsPremium && currentCount >= (limits as any).DAILY) {
       if ((type as string) === 'QUIZ') {
@@ -882,8 +835,6 @@ export default function App() {
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authPhone, setAuthPhone] = useState('');
-  const [authGender, setAuthGender] = useState('');
-  const [authLevel, setAuthLevel] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [authFullName, setAuthFullName] = useState('');
@@ -1120,7 +1071,22 @@ export default function App() {
   const [userNotification, setUserNotification] = useState<string | null>(null);
   const [adminNotification, setAdminNotification] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
-  const [finishedHistory, setFinishedHistory] = useState<HomeHistoryItem[]>([]);
+  const [finishedHistory, setFinishedHistory] = useState<HomeHistoryItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('nsg_finished_history');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((item: any, index: number) => 
+            parsed.findIndex((i: any) => i.id === item.id) === index
+          );
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to parse history from storage:", e);
+    }
+    return [];
+  });
   const [activeAssignmentSolution, setActiveAssignmentSolution] = useState<any>(null);
   const [historyLoadingModal, setHistoryLoadingModal] = useState<{ show: boolean; title: string; message: string }>({
     show: false,
@@ -2004,7 +1970,14 @@ export default function App() {
   const chatInstanceRef = useRef<any>(null);
 
   // --- \u{1F4DA} PERSISTENCE ---
-  const [sessions, setSessions] = useState<LectureSession[]>([]);
+  const [sessions, setSessions] = useState<LectureSession[]>(() => {
+    try {
+      const saved = localStorage.getItem('savedSessions');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
   const [isOnline, setIsOnline] = useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
 
   // --- DAILY STUDY QUESTS DETAILS (Dynamic 10 League progressive tasks!) ---
@@ -2433,15 +2406,6 @@ export default function App() {
   const [quizAnswerTypes, setQuizAnswerTypes] = useState<string[]>(['multiple_choice']);
   const [dailyQuizUsedCount, setDailyQuizUsedCount] = useState<number>(0);
   const [isGeneratingQuiz, setIsGeneratingQuiz] = useState(false);
-  const [showAlarmSettingsModal, setShowAlarmSettingsModal] = useState(false);
-
-  useEffect(() => {
-    const handleOpenAlarmSettings = () => {
-      setShowAlarmSettingsModal(true);
-    };
-    window.addEventListener('nsg_open_alarm_settings', handleOpenAlarmSettings);
-    return () => window.removeEventListener('nsg_open_alarm_settings', handleOpenAlarmSettings);
-  }, []);
 
   // Scroll to top automatically whenever active tab, subtab, or subview changes
   useEffect(() => {
@@ -2480,28 +2444,12 @@ export default function App() {
         const usageRef = doc(db, 'users', user.uid, 'usage', today);
         const usageSnap = await getDoc(usageRef);
         if (usageSnap.exists()) {
-          const count = usageSnap.data().QUIZ || 0;
-          setDailyQuizUsedCount(count);
-          try { localStorage.setItem(`nsg_quiz_usage_${user.uid}`, String(count)); } catch (_) {}
+          setDailyQuizUsedCount(usageSnap.data().QUIZ || 0);
         } else {
           setDailyQuizUsedCount(0);
-          try { localStorage.setItem(`nsg_quiz_usage_${user.uid}`, '0'); } catch (_) {}
         }
-      } catch (e: any) {
-        // Fallback gracefully if offline or connecting
-        try {
-          const cached = localStorage.getItem(`nsg_quiz_usage_${user.uid}`);
-          if (cached !== null) {
-            setDailyQuizUsedCount(parseInt(cached, 10) || 0);
-          } else {
-            setDailyQuizUsedCount(0);
-          }
-        } catch (_) {
-          setDailyQuizUsedCount(0);
-        }
-        if (e?.code !== 'unavailable' && !String(e?.message).toLowerCase().includes('offline')) {
-          console.warn("Quiz usage count status:", e?.message || e);
-        }
+      } catch (e) {
+        console.error("Error fetching quiz usage count:", e);
       }
     };
     fetchQuizUsage();
@@ -2791,22 +2739,14 @@ export default function App() {
       return true;
     }
 
-    // 2. Home Selected Course modal/page
-    if (homeSelectedCourse) {
-      setHomeSelectedCourse(null);
-      return true;
-    }
-
-    // 3. Active Chat Room
-    if (activeTab === 'chat' || isChatRoomActive || selectedChatForRoom) {
+    // 2. Active Chat Room
+    if (isChatRoomActive || selectedChatForRoom) {
       setIsChatRoomActive(false);
       setSelectedChatForRoom(null);
-      setActiveTab('tools');
-      setToolsSubTab('menu');
       return true;
     }
 
-    // 4. Tools Tab Sub-Views
+    // 3. Tools Tab Sub-Views
     if ((activeTab as string) === 'tools') {
       if ((toolsSubTab as string) === 'quiz') {
         if (quizState === 'active' || quizState === 'preview' || quizState === 'finished' || quizState === 'review') {
@@ -2870,22 +2810,8 @@ export default function App() {
         setActiveTab('home');
         return true;
       }
-    } else if ((activeTab as string) === 'profile') {
-      if (profileSubTab !== 'profile') {
-        setProfileSubTab('profile');
-        return true;
-      }
-      setActiveTab('home');
-      return true;
-    } else if ((activeTab as string) === 'community') {
-      if (communitySubTab !== 'quests') {
-        setCommunitySubTab('quests');
-        return true;
-      }
-      setActiveTab('home');
-      return true;
     } else if ((activeTab as string) !== 'home') {
-      // From any other sub-page (courses, history, premium, notifications, omni_offline), return directly to home page
+      // From any other main page (chat, social/community, profile, history, premium, notifications, etc.), pressing phone back ALWAYS leads back to home page!
       setActiveTab('home');
       return true;
     }
@@ -2895,8 +2821,7 @@ export default function App() {
     confirmModal.isOpen, showOfflineModal, showAuthModal, isEditingProfile,
     showHelp, showGodMode, isDeleteAccountOpen, showInviteModal, showPremiumModal,
     audioTranscribingPopup, isChatRoomActive, selectedChatForRoom, activeTab, toolsSubTab,
-    quizState, quizCreationMethod, examLobbyState, selectedNote, activeAssignmentSolution,
-    homeSelectedCourse, profileSubTab, communitySubTab
+    quizState, quizCreationMethod, examLobbyState, selectedNote, activeAssignmentSolution
   ]);
 
   // Native hardware back button support for Android
@@ -2915,17 +2840,36 @@ export default function App() {
       profileSubTab,
       communitySubTab,
       isEditingProfile,
-      hasHomeSelectedCourse: !!homeSelectedCourse
     };
     window.history.pushState(currentNavState, '');
-  }, [activeTab, toolsSubTab, quizCreationMethod, quizState, examLobbyState, selectedNote, profileSubTab, communitySubTab, isEditingProfile, homeSelectedCourse]);
+  }, [activeTab, toolsSubTab, quizCreationMethod, quizState, examLobbyState, selectedNote, profileSubTab, communitySubTab, isEditingProfile]);
 
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
       const handled = handleGlobalBack();
-      if (!handled) {
-        // User is at root Home page: keep them on home page and never jump back to past visited sub-pages!
-        window.history.pushState({ activeTab: 'home' }, '', window.location.href);
+      if (!handled && event.state) {
+        isSyncingFromHistory.current = true;
+        const state = event.state;
+        
+        if (state.activeTab && state.activeTab !== activeTab) {
+          setActiveTab(state.activeTab);
+        }
+        if (state.toolsSubTab !== undefined && state.toolsSubTab !== toolsSubTab) {
+          setToolsSubTab(state.toolsSubTab);
+        }
+        if (state.profileSubTab !== undefined && state.profileSubTab !== profileSubTab) {
+          setProfileSubTab(state.profileSubTab);
+        }
+        if (state.communitySubTab !== undefined && state.communitySubTab !== communitySubTab) {
+          setCommunitySubTab(state.communitySubTab);
+        }
+        if (state.isEditingProfile !== undefined && state.isEditingProfile !== isEditingProfile) {
+          setIsEditingProfile(state.isEditingProfile);
+        }
+        
+        setTimeout(() => {
+          isSyncingFromHistory.current = false;
+        }, 50);
       }
     };
 
@@ -2933,7 +2877,7 @@ export default function App() {
     return () => {
       window.removeEventListener('popstate', handlePopState);
     };
-  }, [handleGlobalBack, activeTab]);
+  }, [handleGlobalBack, activeTab, toolsSubTab, profileSubTab, communitySubTab, isEditingProfile]);
 
   // --- \u{1F6E0}\u{FE0F} ADMIN STATE ---
   const [examStatus, setExamStatus] = useState<'active' | 'ended' | 'none'>('none');
@@ -3091,7 +3035,7 @@ export default function App() {
         // Map and deduplicate by note ID
         const mapById = new Map<string, any>();
         snap.docs.forEach(doc => {
-          mapById.set(doc.id, { id: doc.id, ...doc.data() });
+          const dData = doc.data() || {}; mapById.set(doc.id, { ...dData, id: doc.id, originalDocId: doc.id });
         });
         const list = Array.from(mapById.values());
 
@@ -4616,6 +4560,59 @@ export default function App() {
   );
 
   // --- 🌟 ANALYSIS LOADING OVERLAY ---
+  const AnalysisLoadingOverlay = () => (
+    <AnalysisLoadingOverlayComponent isAnalyzing={isAnalyzing} />
+  );
+
+  const EmailPreviewModal = () => (
+    <EmailPreviewModalComponent
+      showEmailPreviewModal={showEmailPreviewModal}
+      setShowEmailPreviewModal={setShowEmailPreviewModal}
+      theme={theme}
+      emailPreviewTo={emailPreviewTo}
+      emailPreviewSubject={emailPreviewSubject}
+      emailPreviewContent={emailPreviewContent}
+    />
+  );
+
+  const AIChallengeModal = () => (
+    <AIChallengeModalComponent
+      showAIChallengeModal={showAIChallengeModal}
+      setShowAIChallengeModal={setShowAIChallengeModal}
+      activeAIChallenge={activeAIChallenge}
+      setActiveTab={setActiveTab}
+      setToolsSubTab={setToolsSubTab}
+      setUserNotification={setUserNotification}
+      sendPersuasiveEmail={sendPersuasiveEmail}
+    />
+  );
+
+  const PremiumOnboarding = () => (
+    <PremiumOnboardingComponent
+      showPremiumTrial={showPremiumTrial}
+      setShowPremiumTrial={setShowPremiumTrial}
+      user={user}
+      theme={theme}
+      initializeMonthly={initializeMonthly}
+      initializeYearly={initializeYearly}
+      handleSubscriptionSuccess={handleSubscriptionSuccess}
+      setUserNotification={setUserNotification}
+    />
+  );
+
+  const PremiumModal = () => (
+    <PremiumModalComponent
+      showPremiumModal={showPremiumModal}
+      setShowPremiumModal={setShowPremiumModal}
+      user={user}
+      theme={theme}
+      isPremium={isPremium}
+      initializeMonthly={initializeMonthly}
+      initializeYearly={initializeYearly}
+      handleSubscriptionSuccess={handleSubscriptionSuccess}
+      setUserNotification={setUserNotification}
+    />
+  );
   // --- \u{1F4F1} INITIALIZATION & FIREBASE SYNC ---
   useEffect(() => {
     if (!user) return;
@@ -4940,58 +4937,28 @@ export default function App() {
     };
   }, []);
 
-  // Deep Link URL Handler for Native Mobile App & Web
+  // Deep Link URL Handler for Universal Android App Links & Web (nuellstudyguide.name.ng)
   const handleDeepLinkUrl = useCallback((urlStr: string) => {
-    if (!urlStr) return;
     try {
-      let parsedUrl: URL;
-      if (urlStr.includes('://')) {
-        const fixedScheme = urlStr.replace(/^nsgscholar:\/\//i, 'https://nuellstudyguide.name.ng/').replace(/^nsg:\/\//i, 'https://nuellstudyguide.name.ng/');
-        parsedUrl = new URL(fixedScheme);
-      } else {
-        parsedUrl = new URL(urlStr, window.location.origin || 'https://nuellstudyguide.name.ng');
-      }
-      
-      const qId = parsedUrl.searchParams.get('quizId');
-      const pathname = parsedUrl.pathname || '';
-
-      if (qId) {
-        console.log("📍 Deep link loaded quizId:", qId);
+      const parsed = parseUniversalDeepLink(urlStr);
+      if (parsed.quizId) {
+        console.log("📍 Deep link loaded quizId:", parsed.quizId);
         if (user) {
-          loadSharedQuiz(qId);
+          loadSharedQuiz(parsed.quizId);
         } else {
-          setPendingQuizId(qId);
-          sessionStorage.setItem('nsg_pending_quiz_id', qId);
+          setPendingQuizId(parsed.quizId);
+          sessionStorage.setItem('nsg_pending_quiz_id', parsed.quizId);
           setShowAuthModal(true);
         }
-      } else if (pathname.includes('/course/')) {
-        const parts = pathname.split('/course/');
-        const courseId = parts[1]?.split('/')[0]?.split('?')[0];
-        if (courseId) openCoursePreviewFromHome(courseId);
-      } else if (pathname.includes('/quiz/')) {
-        const parts = pathname.split('/quiz/');
-        const targetQuizId = parts[1]?.split('/')[0]?.split('?')[0];
-        if (targetQuizId) {
-          if (user) loadSharedQuiz(targetQuizId);
-          else {
-            setPendingQuizId(targetQuizId);
-            sessionStorage.setItem('nsg_pending_quiz_id', targetQuizId);
-            setShowAuthModal(true);
-          }
-        }
-      } else if (pathname.includes('/tools/')) {
-        const parts = pathname.split('/tools/');
-        const tool = parts[1]?.split('/')[0]?.split('?')[0];
+      } else if (parsed.courseId) {
+        console.log("📍 Deep link loaded courseId:", parsed.courseId);
         setActiveTab('tools');
-        if (tool) setToolsSubTab(tool as any);
-      } else if (pathname.includes('/timetable')) {
+        setToolsSubTab('courses');
+      } else if (parsed.toolId === 'grammar') {
         setActiveTab('tools');
-        setToolsSubTab('timetable');
-      } else if (pathname.includes('/vault')) {
+      } else if (parsed.toolId) {
         setActiveTab('tools');
-        setToolsSubTab('notebook');
-      } else if (pathname.includes('/community')) {
-        setActiveTab('community');
+        setToolsSubTab(parsed.toolId as any);
       }
     } catch (e) {
       console.error("Deep link parsing error:", e);
@@ -4999,7 +4966,7 @@ export default function App() {
   }, [user]);
 
   // Register native Capacitor appUrlOpen listener
-  useAppUrlListener((parsed) => handleDeepLinkUrl(parsed.originalUrl));
+  useAppUrlListener(handleDeepLinkUrl);
 
   // On mobile web browser, if user visits a quiz link, attempt opening the mobile app if installed
   useEffect(() => {
@@ -5705,54 +5672,6 @@ export default function App() {
     }
   };
 
-  const handleDeleteAccount = async () => {
-    if (!user?.uid) return;
-    setIsAuthLoading(true);
-    try {
-      await deleteDoc(doc(db, 'users', user.uid));
-      await signOut(auth);
-      setUser(null);
-      setAdminMode(false);
-      setIsHostPaid(false);
-      setIsTakingPaid(false);
-      setIsDeleteAccountOpen(false);
-      setDeleteConfirmInput("");
-      setUserNotification("💔 Your account has been permanently deleted.");
-    } catch (err: any) {
-      console.error("Account Deletion Error:", err);
-      setUserNotification(`Deletion Error: ${err.message}`);
-    } finally {
-      setIsAuthLoading(false);
-    }
-  };
-
-  const handleShareInvite = () => {
-    const inviteLink = `${window.location.origin}?ref=${currentUserData?.username || user?.uid || 'student'}`;
-    const text = `Join me on Nuell Study Guide (NSG) to study, take past questions, and track streaks! ${inviteLink}`;
-    if (navigator.share) {
-      navigator.share({ title: 'Join Nuell Study Guide', text, url: inviteLink }).catch(() => {});
-    } else {
-      copyToClipboard(text, "📋 Invite link copied to clipboard!");
-    }
-  };
-
-  const handleShareQuizToPlatform = (platform: 'whatsapp' | 'telegram' | 'native') => {
-    const title = quizTopic || 'Study Quiz';
-    const link = shareQuizLink || window.location.href;
-    const text = `Take this quiz on "${title}" on Nuell Study Guide: ${link}`;
-    if (platform === 'whatsapp') {
-      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
-    } else if (platform === 'telegram') {
-      window.open(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`, '_blank');
-    } else {
-      if (navigator.share) {
-        navigator.share({ title, text, url: link }).catch(() => {});
-      } else {
-        copyToClipboard(link, "📋 Quiz link copied!");
-      }
-    }
-  };
-
   useEffect(() => {
     const quizData = {
       questions: quizQuestions,
@@ -5801,9 +5720,9 @@ export default function App() {
     }
   };
 
-  const copyToClipboard = (text: string, customMsg?: string) => {
+  const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    setUserNotification(customMsg || "Copied to clipboard!");
+    setUserNotification("Copied to clipboard!");
   };
 
   // --- \u{1F393} CBT & ADMIN LOGIC ---
@@ -5990,8 +5909,20 @@ export default function App() {
       setIsChatRoomActive(false);
       generateQuiz(topic, count, 'Medium', true);
     };
+
+    const handleOpenQuizById = (e: any) => {
+      const qId = e.detail?.quizId;
+      if (qId) {
+        loadSharedQuiz(qId);
+      }
+    };
+
     window.addEventListener('trigger_quiz_gen', handleTriggerQuiz);
-    return () => window.removeEventListener('trigger_quiz_gen', handleTriggerQuiz);
+    window.addEventListener('open_quiz_by_id', handleOpenQuizById);
+    return () => {
+      window.removeEventListener('trigger_quiz_gen', handleTriggerQuiz);
+      window.removeEventListener('open_quiz_by_id', handleOpenQuizById);
+    };
   }, [quizTopic, quizQuestionCount]);
 
   const handleMatricLogin = async () => {
@@ -6235,25 +6166,713 @@ export default function App() {
   };
 
   const downloadExamScorecard = () => {
-    generateExamScorecard({
-      studentActiveQuestions,
-      examQuestions,
-      examScore,
-      studentName,
-      examConfig,
-      studentId: user?.uid || "guest",
-      examAnswers,
-      timeSpent: Math.max(0, (examConfig?.duration || 60) * 60 - examTimer)
+    const canvas = document.createElement('canvas');
+    canvas.width = 1000;
+    canvas.height = 750;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const activeQuestionsPool = studentActiveQuestions.length > 0 ? studentActiveQuestions : examQuestions;
+    const percentage = Math.round((examScore / (activeQuestionsPool.length || 1)) * 100);
+
+    // Dynamic accent color based on score
+    let accentColor = '#10B981'; // Emerald
+    let accentGlow = 'rgba(16, 185, 129, 0.15)';
+    let grade = 'F';
+    
+    if (percentage >= 90) {
+      accentColor = '#10B981';
+      grade = 'A+';
+    } else if (percentage >= 80) {
+      accentColor = '#10B981';
+      grade = 'A';
+    } else if (percentage >= 60) {
+      accentColor = '#F59E0B'; // Amber
+      accentGlow = 'rgba(245, 158, 11, 0.15)';
+      grade = 'B';
+    } else if (percentage >= 40) {
+      accentColor = '#3B82F6'; // Blue
+      accentGlow = 'rgba(59, 130, 246, 0.15)';
+      grade = 'C';
+    } else {
+      accentColor = '#EF4444'; // Red
+      accentGlow = 'rgba(239, 68, 68, 0.15)';
+      grade = 'F';
+    }
+
+    // 1. Draw premium background
+    ctx.fillStyle = '#060B15';
+    ctx.fillRect(0, 0, 1000, 750);
+
+    // Overlapping glowing light spots
+    const lightGlow = ctx.createRadialGradient(200, 200, 10, 200, 200, 400);
+    lightGlow.addColorStop(0, accentGlow);
+    lightGlow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = lightGlow;
+    ctx.fillRect(0, 0, 1000, 750);
+
+    const lightGlowRight = ctx.createRadialGradient(800, 550, 10, 800, 550, 400);
+    lightGlowRight.addColorStop(0, 'rgba(30, 41, 59, 0.3)');
+    lightGlowRight.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = lightGlowRight;
+    ctx.fillRect(0, 0, 1000, 750);
+
+    // Faint Grid pattern
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.02)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < 1000; x += 50) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, 750);
+      ctx.stroke();
+    }
+    for (let y = 0; y < 750; y += 50) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(1000, y);
+      ctx.stroke();
+    }
+
+    // Watermark
+    ctx.save();
+    ctx.translate(500, 375);
+    ctx.rotate(-Math.PI / 10);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.015)';
+    ctx.font = 'bold 64px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('NSG ACADEMIC STUDY GUIDE', 0, 0);
+    ctx.restore();
+
+    // 2. Premium Dual Border and Corner Ornaments
+    // Gold Outer border
+    ctx.strokeStyle = '#D97706';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(20, 20, 960, 710);
+
+    // Accent Inner border
+    ctx.strokeStyle = accentColor;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(28, 28, 944, 694);
+
+    // Corner L-shapes for premium technical look
+    ctx.strokeStyle = '#D97706';
+    ctx.lineWidth = 3;
+    const corners = [
+      { x: 15, y: 15, dx: 30, dy: 30 },
+      { x: 985, y: 15, dx: -30, dy: 30 },
+      { x: 15, y: 735, dx: 30, dy: -30 },
+      { x: 985, y: 735, dx: -30, dy: -30 }
+    ];
+    corners.forEach(c => {
+      ctx.beginPath();
+      ctx.moveTo(c.x + c.dx, c.y);
+      ctx.lineTo(c.x, c.y);
+      ctx.lineTo(c.x, c.y + c.dy);
+      ctx.stroke();
     });
+
+    // 3. Header & Titles
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#F59E0B';
+    ctx.font = '900 11px "Inter", "Segoe UI", sans-serif';
+    ctx.fillText('VERIFIED EXAMINATION CREDENTIAL', 500, 60);
+
+    // Main header with linear gradient
+    const headerGradient = ctx.createLinearGradient(300, 0, 700, 0);
+    headerGradient.addColorStop(0, '#FFFFFF');
+    headerGradient.addColorStop(0.5, '#F8FAFC');
+    headerGradient.addColorStop(1, '#94A3B8');
+    ctx.fillStyle = headerGradient;
+    ctx.font = '900 34px "Inter", "Segoe UI", sans-serif';
+    ctx.fillText('CBT ACADEMIC SCORECARD', 500, 100);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.font = 'medium 13px "Inter", "Segoe UI", sans-serif';
+    ctx.fillText('OFFICIAL DIGITAL STUDY RECORD & SCORE VERIFICATION', 500, 125);
+
+    // Divider line
+    const dividerGrad = ctx.createLinearGradient(150, 0, 850, 0);
+    dividerGrad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+    dividerGrad.addColorStop(0.5, 'rgba(217, 119, 6, 0.4)');
+    dividerGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.strokeStyle = dividerGrad;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(150, 145);
+    ctx.lineTo(850, 145);
+    ctx.stroke();
+
+    // Helper to draw rounded container cards
+    const drawCard = (x: number, y: number, w: number, h: number, r: number) => {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    };
+
+    // 4. Candidate Profile Container
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.lineWidth = 1;
+    drawCard(100, 175, 450, 180, 16);
+
+    // Vertical Accent strip on left of card
+    ctx.fillStyle = accentColor;
+    ctx.fillRect(100, 195, 4, 140);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#94A3B8';
+    ctx.font = '900 10px "Inter", sans-serif';
+    ctx.fillText('CERTIFIED STUDENT PROFILE', 125, 205);
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '900 22px "Inter", "Segoe UI", sans-serif';
+    ctx.fillText(studentName || 'NSG SCHOLAR', 125, 235);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.font = '600 12px "JetBrains Mono", monospace';
+    ctx.fillText(`MATRIC: ${matricNumber || 'NSG-STUDENT-MOCK'}`, 125, 265);
+    ctx.fillText(`EXAM ID: ${examIdInput || 'CBT-MOCK'}`, 125, 290);
+    ctx.fillText(`DATE: ${new Date().toLocaleDateString()}`, 125, 315);
+
+    // 5. Score Radial Container Card
+    drawCard(580, 175, 320, 180, 16);
+
+    // Concentric Ring
+    ctx.textAlign = 'center';
+    ctx.beginPath();
+    ctx.arc(740, 260, 60, 0, 2 * Math.PI);
+    ctx.fillStyle = 'rgba(2, 6, 23, 0.8)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+    ctx.lineWidth = 12;
+    ctx.stroke();
+
+    // Actual Radial Score ring
+    ctx.beginPath();
+    ctx.arc(740, 260, 60, -0.5 * Math.PI, (2 * percentage / 100 - 0.5) * Math.PI);
+    ctx.strokeStyle = accentColor;
+    ctx.lineWidth = 12;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    // Score text
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '900 32px "Inter", sans-serif';
+    ctx.fillText(`${percentage}%`, 740, 268);
+    ctx.fillStyle = '#94A3B8';
+    ctx.font = '900 9px "Inter", sans-serif';
+    ctx.fillText('ACCURACY', 740, 285);
+
+    // Grade label
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#F59E0B';
+    ctx.font = '900 10px "Inter", sans-serif';
+    ctx.fillText('SCORE RATINGS', 605, 210);
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '900 26px "Inter", sans-serif';
+    ctx.fillText(`GRADE ${grade}`, 605, 245);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.font = 'bold 11px "Inter", sans-serif';
+    ctx.fillText(`${examScore} Correct`, 605, 275);
+    ctx.fillText(`${activeQuestionsPool.length - examScore} Missed`, 605, 295);
+
+    // 6. Subjects Breakdown Container
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#F59E0B';
+    ctx.font = '900 11px "Inter", sans-serif';
+    ctx.fillText('CURRICULUM COMPETENCY INDEX', 105, 395);
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+    ctx.beginPath();
+    ctx.moveTo(100, 408);
+    ctx.lineTo(900, 408);
+    ctx.stroke();
+
+    const distinctStudentSubjects = (examConfig.subjects && examConfig.subjects.length > 0)
+      ? examConfig.subjects.map(s => s.name).filter(name => activeQuestionsPool.some(q => (q.subject || "Mathematics").trim().toLowerCase() === name.trim().toLowerCase()))
+      : Array.from(new Set(activeQuestionsPool.map(q => q.subject || "Mathematics").filter(Boolean))) as string[];
+
+    let yPos = 445;
+    distinctStudentSubjects.slice(0, 5).forEach((subName) => {
+      const subQuestions = activeQuestionsPool.filter(q => (q.subject || "Mathematics").trim().toLowerCase() === subName.trim().toLowerCase());
+      let subScore = 0;
+      subQuestions.forEach((q) => {
+        const studentAns = examAnswers[q.id];
+        if (studentAns !== undefined && studentAns !== null && sanitizeCorrectAnswer(studentAns) === sanitizeCorrectAnswer(q.correctAnswer)) {
+          subScore++;
+        }
+      });
+      const subPercent = Math.round((subScore / (subQuestions.length || 1)) * 100);
+
+      // Subject container box
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.4)';
+      ctx.fillRect(100, yPos - 22, 800, 36);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+      ctx.strokeRect(100, yPos - 22, 800, 36);
+
+      ctx.fillStyle = '#F8FAFC';
+      ctx.font = '900 13px "Inter", sans-serif';
+      ctx.fillText(subName.toUpperCase(), 120, yPos + 1);
+
+      // Draw background bar track (pill shaped)
+      const barX = 380;
+      const barY = yPos - 8;
+      const barW = 340;
+      const barH = 10;
+      const barRadius = 5;
+
+      ctx.fillStyle = '#1E293B';
+      
+      const drawPill = (x: number, y: number, w: number, h: number, r: number) => {
+        ctx.beginPath();
+        ctx.arc(x + r, y + r, r, Math.PI, 1.5 * Math.PI);
+        ctx.lineTo(x + w - r, y);
+        ctx.arc(x + w - r, y + r, r, 1.5 * Math.PI, 2 * Math.PI);
+        ctx.lineTo(x + w, y + h - r);
+        ctx.arc(x + w - r, y + h - r, r, 0, 0.5 * Math.PI);
+        ctx.lineTo(x + r, y + h);
+        ctx.arc(x + r, y + h - r, r, 0.5 * Math.PI, Math.PI);
+        ctx.closePath();
+        ctx.fill();
+      };
+      drawPill(barX, barY, barW, barH, barRadius);
+
+      // Draw active progress bar
+      if (subPercent > 0) {
+        const fillW = Math.max(10, (subPercent / 100) * barW);
+        const barGrad = ctx.createLinearGradient(barX, 0, barX + fillW, 0);
+        barGrad.addColorStop(0, accentColor);
+        barGrad.addColorStop(1, '#F59E0B');
+        ctx.fillStyle = barGrad;
+        drawPill(barX, barY, fillW, barH, barRadius);
+      }
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '900 12px "JetBrains Mono", monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(`${subScore}/${subQuestions.length} (${subPercent}%)`, 880, yPos + 1);
+      ctx.textAlign = 'left';
+
+      yPos += 48;
+    });
+
+    // 7. Digital Stamp / Validation Seal
+    const sealX = 820;
+    const sealY = 645;
+    
+    // Outer radial bursts
+    ctx.strokeStyle = 'rgba(217, 119, 6, 0.3)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 24; i++) {
+      const angle = (i * Math.PI) / 12;
+      ctx.beginPath();
+      ctx.moveTo(sealX, sealY);
+      ctx.lineTo(sealX + Math.cos(angle) * 32, sealY + Math.sin(angle) * 32);
+      ctx.stroke();
+    }
+
+    ctx.beginPath();
+    ctx.arc(sealX, sealY, 25, 0, 2 * Math.PI);
+    ctx.fillStyle = '#D97706';
+    ctx.fill();
+    ctx.strokeStyle = '#F59E0B';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(sealX, sealY, 20, 0, 2 * Math.PI);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 7px "Inter", sans-serif';
+    ctx.fillText('NSG', sealX, sealY - 3);
+    ctx.fillText('SEAL', sealX, sealY + 5);
+
+    // Validation Signature
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.font = '800 9px "Inter", sans-serif';
+    ctx.fillText('ACADEMIC BOARD', 600, 630);
+    ctx.fillStyle = '#10B981';
+    ctx.font = 'italic 20px "Playfair Display", "Georgia", serif';
+    ctx.fillText('Verified', 600, 660);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(600, 670);
+    ctx.lineTo(760, 670);
+    ctx.stroke();
+
+    // 8. Footer Info
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+    ctx.font = 'italic bold 10px "JetBrains Mono", monospace';
+    const completedDateStr = `${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    ctx.fillText(`COMPLETED ON ${completedDateStr.toUpperCase()}`, 500, 715);
+
+    // Trigger download
+    const url = canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `NSG_Exam_Scorecard_${studentName ? studentName.replace(/\s+/g, '_') : 'Student'}.png`;
+    a.click();
   };
 
   const downloadQuizScorecard = () => {
-    generateQuizScorecard({
-      quizScore,
-      quizQuestions,
-      currentUserData,
-      quizTopic
+    const canvas = document.createElement('canvas');
+    canvas.width = 1000;
+    canvas.height = 700;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const percentage = Math.round((quizScore / (quizQuestions.length || 1)) * 100);
+
+    // Dynamic accent color based on score
+    let accentColor = '#3B82F6'; // Royal Blue for general study or dynamic accent
+    let accentGlow = 'rgba(59, 130, 246, 0.15)';
+    let grade = 'F';
+    let gradePhrase = 'Requires more practice. Revise materials.';
+    
+    if (percentage >= 90) {
+      accentColor = '#10B981'; // Green
+      accentGlow = 'rgba(16, 185, 129, 0.15)';
+      grade = 'A+';
+      gradePhrase = 'Exceptional knowledge! Outstanding masterclass.';
+    } else if (percentage >= 80) {
+      accentColor = '#10B981';
+      accentGlow = 'rgba(16, 185, 129, 0.15)';
+      grade = 'A';
+      gradePhrase = 'Magnificent performance! Highly competent.';
+    } else if (percentage >= 60) {
+      accentColor = '#F59E0B'; // Amber
+      accentGlow = 'rgba(245, 158, 11, 0.15)';
+      grade = 'B';
+      gradePhrase = 'Very good study! Solid passing results.';
+    } else if (percentage >= 40) {
+      accentColor = '#3B82F6'; // Blue
+      grade = 'C';
+      gradePhrase = 'Credit Pass. Review incorrect answers.';
+    } else {
+      accentColor = '#EF4444'; // Red
+      accentGlow = 'rgba(239, 68, 68, 0.15)';
+      grade = 'F';
+      gradePhrase = 'Requires revision. Plan another study cycle.';
+    }
+
+    // 1. Draw premium background
+    ctx.fillStyle = '#060B15';
+    ctx.fillRect(0, 0, 1000, 700);
+
+    // Glowing lights
+    const lightGlow = ctx.createRadialGradient(200, 200, 10, 200, 200, 400);
+    lightGlow.addColorStop(0, accentGlow);
+    lightGlow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = lightGlow;
+    ctx.fillRect(0, 0, 1000, 700);
+
+    const lightGlowRight = ctx.createRadialGradient(800, 500, 10, 800, 500, 400);
+    lightGlowRight.addColorStop(0, 'rgba(30, 41, 59, 0.3)');
+    lightGlowRight.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = lightGlowRight;
+    ctx.fillRect(0, 0, 1000, 700);
+
+    // Grid lines
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.02)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < 1000; x += 50) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, 700);
+      ctx.stroke();
+    }
+    for (let y = 0; y < 700; y += 50) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(1000, y);
+      ctx.stroke();
+    }
+
+    // Watermark
+    ctx.save();
+    ctx.translate(500, 350);
+    ctx.rotate(-Math.PI / 10);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.015)';
+    ctx.font = 'bold 64px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('NSG SMART STUDY QUIZ', 0, 0);
+    ctx.restore();
+
+    // 2. Dual borders & Corner ornaments
+    ctx.strokeStyle = '#D97706';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(20, 20, 960, 660);
+
+    ctx.strokeStyle = accentColor;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(28, 28, 944, 644);
+
+    // Corner L-shapes
+    ctx.strokeStyle = '#D97706';
+    ctx.lineWidth = 3;
+    const corners = [
+      { x: 15, y: 15, dx: 30, dy: 30 },
+      { x: 985, y: 15, dx: -30, dy: 30 },
+      { x: 15, y: 685, dx: 30, dy: -30 },
+      { x: 985, y: 685, dx: -30, dy: -30 }
+    ];
+    corners.forEach(c => {
+      ctx.beginPath();
+      ctx.moveTo(c.x + c.dx, c.y);
+      ctx.lineTo(c.x, c.y);
+      ctx.lineTo(c.x, c.y + c.dy);
+      ctx.stroke();
     });
+
+    // 3. Titles
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#F59E0B';
+    ctx.font = '900 11px "Inter", sans-serif';
+    ctx.fillText('STUDY ASSESSMENT VERIFICATION RECORD', 500, 60);
+
+    const headerGradient = ctx.createLinearGradient(300, 0, 700, 0);
+    headerGradient.addColorStop(0, '#FFFFFF');
+    headerGradient.addColorStop(0.5, '#F8FAFC');
+    headerGradient.addColorStop(1, '#94A3B8');
+    ctx.fillStyle = headerGradient;
+    ctx.font = '900 34px "Inter", sans-serif';
+    ctx.fillText('QUIZ PERFORMANCE REPORT', 500, 100);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.font = 'medium 13px "Inter", sans-serif';
+    ctx.fillText('STUDENT SELF-ASSESSMENT RECORD & STUDY PROGRESS METRIC', 500, 125);
+
+    // Divider line
+    const dividerGrad = ctx.createLinearGradient(150, 0, 850, 0);
+    dividerGrad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+    dividerGrad.addColorStop(0.5, 'rgba(217, 119, 6, 0.4)');
+    dividerGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.strokeStyle = dividerGrad;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(150, 145);
+    ctx.lineTo(850, 145);
+    ctx.stroke();
+
+    const drawCard = (x: number, y: number, w: number, h: number, r: number) => {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    };
+
+    // Candidate Info Card
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.lineWidth = 1;
+    drawCard(100, 175, 450, 180, 16);
+
+    ctx.fillStyle = accentColor;
+    ctx.fillRect(100, 195, 4, 140);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#94A3B8';
+    ctx.font = '900 10px "Inter", sans-serif';
+    ctx.fillText('STUDENT DETAILED PROFILE', 125, 205);
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '900 22px "Inter", sans-serif';
+    ctx.fillText(currentUserData?.username || studentName || 'NSG SCHOLAR', 125, 245);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.font = '600 12px "JetBrains Mono", monospace';
+    ctx.fillText(`TOPIC: ${(quizTopic || 'General Study').toUpperCase()}`, 125, 280);
+    ctx.fillText(`DATE CONCLUDED: ${new Date().toLocaleDateString()}`, 125, 310);
+
+    // Score Radial Container
+    drawCard(580, 175, 320, 180, 16);
+
+    // Concentric Ring
+    ctx.textAlign = 'center';
+    ctx.beginPath();
+    ctx.arc(740, 260, 60, 0, 2 * Math.PI);
+    ctx.fillStyle = 'rgba(2, 6, 23, 0.8)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+    ctx.lineWidth = 12;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(740, 260, 60, -0.5 * Math.PI, (2 * percentage / 100 - 0.5) * Math.PI);
+    ctx.strokeStyle = accentColor;
+    ctx.lineWidth = 12;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '900 32px "Inter", sans-serif';
+    ctx.fillText(`${percentage}%`, 740, 268);
+    ctx.fillStyle = '#94A3B8';
+    ctx.font = '900 9px "Inter", sans-serif';
+    ctx.fillText('ACCURACY', 740, 285);
+
+    // Grade labels
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#F59E0B';
+    ctx.font = '900 10px "Inter", sans-serif';
+    ctx.fillText('SCORE RATINGS', 605, 210);
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '900 26px "Inter", sans-serif';
+    ctx.fillText(`GRADE ${grade}`, 605, 245);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.font = 'bold 11px "Inter", sans-serif';
+    ctx.fillText(`${quizScore} Correct`, 605, 275);
+    ctx.fillText(`${quizQuestions.length - quizScore} Missed`, 605, 295);
+
+    // 5. METRIC METADATA GRID
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#F59E0B';
+    ctx.font = '900 11px "Inter", sans-serif';
+    ctx.fillText('STUDY METRIC METADATA SUMMARY', 105, 395);
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+    ctx.beginPath();
+    ctx.moveTo(100, 408);
+    ctx.lineTo(900, 408);
+    ctx.stroke();
+
+    // Three metadata grids (Total, Correct, Incorrect)
+    const stats = [
+      { label: 'TOTAL ATTEMPTED', val: `${quizQuestions.length} Questions`, color: '#FFFFFF' },
+      { label: 'CORRECT ANSWERS', val: `${quizScore} Correct`, color: '#10B981' },
+      { label: 'INCORRECT ITEMS', val: `${quizQuestions.length - quizScore} Wrong`, color: '#EF4444' }
+    ];
+
+    stats.forEach((stat, i) => {
+      const boxX = 100 + i * 275;
+      const boxY = 430;
+      const boxW = 250;
+      const boxH = 75;
+
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.4)';
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+      ctx.lineWidth = 1;
+      drawCard(boxX, boxY, boxW, boxH, 12);
+
+      ctx.textAlign = 'left';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.font = '900 9px "Inter", sans-serif';
+      ctx.fillText(stat.label, boxX + 18, boxY + 28);
+
+      ctx.fillStyle = stat.color;
+      ctx.font = '900 18px "Inter", sans-serif';
+      ctx.fillText(stat.val, boxX + 18, boxY + 54);
+    });
+
+    // Omni Advisor Box below
+    const advY = 530;
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
+    ctx.strokeStyle = 'rgba(217, 119, 6, 0.15)';
+    drawCard(100, advY, 800, 60, 12);
+
+    ctx.fillStyle = '#D97706';
+    ctx.fillRect(100, advY + 12, 4, 36);
+
+    ctx.fillStyle = '#F59E0B';
+    ctx.font = '900 9px "Inter", sans-serif';
+    ctx.fillText('STUDY ADVISOR RECOMMENDATION', 125, advY + 23);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.font = 'bold italic 12px "Inter", sans-serif';
+    ctx.fillText(`"${gradePhrase}"`, 125, advY + 43);
+
+    // Validation Signature text / Stamp Seal
+    const sealX = 820;
+    const sealY = 615;
+
+    ctx.strokeStyle = 'rgba(217, 119, 6, 0.3)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 24; i++) {
+      const angle = (i * Math.PI) / 12;
+      ctx.beginPath();
+      ctx.moveTo(sealX, sealY);
+      ctx.lineTo(sealX + Math.cos(angle) * 32, sealY + Math.sin(angle) * 32);
+      ctx.stroke();
+    }
+
+    ctx.beginPath();
+    ctx.arc(sealX, sealY, 25, 0, 2 * Math.PI);
+    ctx.fillStyle = '#D97706';
+    ctx.fill();
+    ctx.strokeStyle = '#F59E0B';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(sealX, sealY, 20, 0, 2 * Math.PI);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 7px "Inter", sans-serif';
+    ctx.fillText('NSG', sealX, sealY - 3);
+    ctx.fillText('SEAL', sealX, sealY + 5);
+
+    // Autograph
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.font = '800 9px "Inter", sans-serif';
+    ctx.fillText('ACADEMIC BOARD', 600, 595);
+    ctx.fillStyle = '#10B981';
+    ctx.font = 'italic 20px "Playfair Display", "Georgia", serif';
+    ctx.fillText('Verified', 600, 622);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(600, 630);
+    ctx.lineTo(760, 630);
+    ctx.stroke();
+
+    // Footer Info
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+    ctx.font = 'italic bold 10px "JetBrains Mono", monospace';
+    const completedDateStr = `${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    ctx.fillText(`COMPLETED ON ${completedDateStr.toUpperCase()}`, 500, 665);
+
+    // Download
+    const url = canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `NSG_Quiz_Scorecard_${currentUserData?.username ? currentUserData.username.replace(/\s+/g, '_') : 'Student'}.png`;
+    a.click();
   };
 
   const submitExam = async () => {
@@ -8102,2900 +8721,3 @@ ${session.fullAnalysis}
       await updateDoc(doc(db, 'users', user.uid, 'chatSessions', id), { isPinned: !session.isPinned });
     }
   };
-
-  const handleShareResult = () => {
-    setShowShareModal(true);
-  };
-
-  const generateShareImage = async () => {
-    if (!shareCardRef.current) return;
-    try {
-      const dataUrl = await toPng(shareCardRef.current, { cacheBust: true });
-      const link = document.createElement('a');
-      link.download = `NSG_Score_${shareName || 'Student'}.png`;
-      link.href = dataUrl;
-      link.click();
-      setShowShareModal(false);
-      setUserNotification("Score card generated successfully!");
-    } catch (err) {
-      console.error('oops, something went wrong!', err);
-      setUserNotification("Failed to generate image.");
-    }
-  };
-
-  const loadChatSession = (id: string) => {
-    const session = chatSessions.find(s => s.id === id);
-    if (session) {
-      setActiveChatSessionId(id);
-      setChatHistory(session.history);
-      chatInstanceRef.current = null;
-      setShowChatSidebar(false);
-    }
-  };
-
-  const deleteChatSession = async (id: string) => {
-    if (!user) return;
-    await deleteDoc(doc(db, 'users', user.uid, 'chatSessions', id));
-    if (activeChatSessionId === id) {
-      const remaining = chatSessions.filter(s => s.id !== id);
-      if (remaining.length > 0) {
-        loadChatSession(remaining[0].id);
-      } else {
-        resetChat();
-      }
-    }
-  };
-
-  // --- \u{1F4AC} CHAT ROUTING ENGINE ---
-  const [isRecordingChat, setIsRecordingChat] = useState(false);
-  const chatMediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chatWakeLockRef = useRef<any>(null);
-
-  const chatAudioProcessingRef = useRef<{ stop: () => void } | null>(null);
-
-  const startChatRecording = async () => {
-    try {
-      if ('wakeLock' in navigator) {
-        chatWakeLockRef.current = await (navigator as any).wakeLock.request('screen').catch(() => null);
-      }
-      await requestMicrophonePermission();
-      let originalStream: MediaStream;
-      try {
-        originalStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-          }
-        });
-      } catch (mediaErr) {
-        console.warn("Advanced chat audio constraints failed, falling back to basic stream:", mediaErr);
-        originalStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      }
-      const enhanced = await getEnhancedStream(originalStream);
-      chatAudioProcessingRef.current = enhanced;
-      
-      const preferredMime = getSupportedAudioMimeType();
-      const recorder = preferredMime 
-        ? new MediaRecorder(enhanced.stream, { mimeType: preferredMime })
-        : new MediaRecorder(enhanced.stream);
-      chatMediaRecorderRef.current = recorder;
-      const chunks: Blob[] = [];
-
-      recorder.ondataavailable = (e) => chunks.push(e.data);
-      recorder.onstop = async () => {
-        if (chatWakeLockRef.current) {
-          try {
-            await chatWakeLockRef.current.release();
-            chatWakeLockRef.current = null;
-          } catch (e) {}
-        }
-        if (chatAudioProcessingRef.current) {
-          chatAudioProcessingRef.current.stop();
-          chatAudioProcessingRef.current = null;
-        }
-        originalStream.getTracks().forEach(track => track.stop());
-        
-        const blob = new Blob(chunks, { type: 'audio/webm' });
-        setIsTyping(true);
-        try {
-          const hf = getHfInstance();
-          const groqKey = import.meta.env.VITE_GROQ_API_KEY;
-          const timeoutMs = 40000;
-
-          const runWithTimeout = async (label: string, task: () => Promise<string | null>) => {
-            return new Promise<string | null>(async (resolve) => {
-              const timer = setTimeout(() => {
-                console.warn(`[VOICE_CHAT] ${label} timed out after ${timeoutMs}ms`);
-                resolve(null);
-              }, timeoutMs);
-              try {
-                const res = await task();
-                clearTimeout(timer);
-                resolve(res);
-              } catch (err) {
-                clearTimeout(timer);
-                console.error(`[VOICE_CHAT] ${label} error:`, err);
-                resolve(null);
-              }
-            });
-          };
-
-          const tryHFTranscribe = async () => {
-            if (!hf || isHfDepleted) return null;
-            try {
-              const transcription = await hf.automaticSpeechRecognition({
-                model: HF_MODELS.AUDIO,
-                data: blob,
-              });
-              return transcription.text || null;
-            } catch (e) {
-              handleHfError(e, "Chat Transcribe");
-              return null;
-            }
-          };
-
-          const tryGroqTranscribe = async () => {
-            if (!groqKey) return null;
-            try {
-              const formData = new FormData();
-              formData.append("file", blob, "audio.webm");
-              formData.append("model", GROQ_AUDIO_MODEL);
-              const groqResponse = await axios.post("https://api.groq.com/openai/v1/audio/transcriptions", formData, {
-                headers: { 'Authorization': `Bearer ${groqKey}` }
-              });
-              return groqResponse.data.text || null;
-            } catch (e) { return null; }
-          };
-
-          const tryGeminiTranscribe = async () => {
-            const aiInstance = getAiInstance();
-            try {
-              const audioPart = await fileToGenerativePart(blob);
-              const res = await aiInstance.models.generateContent({
-                model: MODEL_NAME,
-                contents: [{ parts: [audioPart, { text: "Transcribe this audio literally. Output ONLY text." }] }]
-              });
-              return res.text || null;
-            } catch (e) { return null; }
-          };
-
-          const tryOpenRouterTranscribe = async () => {
-            const key = import.meta.env.VITE_OPENROUTER_API_KEY;
-            if (!key || isOpenRouterDepletedGlobal) return null;
-            try {
-              const formData = new FormData();
-              formData.append("file", blob, "audio.webm");
-              formData.append("model", OPENROUTER_MODELS.AUDIO);
-              const res = await axios.post("https://openrouter.ai/api/v1/audio/transcriptions", formData, {
-                headers: { 'Authorization': `Bearer ${key}` }
-              });
-              return res.data.text || null;
-            } catch (e) {
-              handleOpenRouterErrorGlobal(e, "ChatTranscribeOR");
-              return null;
-            }
-          };
-
-          // Priority: Gemini -> Groq -> HF -> OpenRouter
-          const transcription = await runWithTimeout("Gemini Audio", tryGeminiTranscribe)
-                                 || await runWithTimeout("Groq Audio", tryGroqTranscribe)
-                                 || await runWithTimeout("HF Audio", tryHFTranscribe)
-                                 || await runWithTimeout("OpenRouter Audio", tryOpenRouterTranscribe);
-          
-          console.log("Voice Transcription result:", transcription);
-          
-          if (transcription && transcription.trim()) {
-            handleSendMessage(transcription.trim());
-          } else {
-            setUserNotification("Could not understand the audio. Please try again.");
-          }
-        } catch (err) {
-          console.error("Voice Chat Error:", err);
-          setUserNotification("Failed to process voice input.");
-        } finally {
-          setIsTyping(false);
-        }
-      };
-
-      recorder.start();
-      setIsRecordingChat(true);
-    } catch (err: any) {
-      console.error("Mic access error:", err);
-      const isDenied = err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError' || String(err).toLowerCase().includes('permission');
-      setUserNotification(isDenied 
-        ? "Microphone access was denied. Please enable microphone permission in device settings." 
-        : "Could not access microphone.");
-    }
-  };
-
-  const stopChatRecording = () => {
-    if (chatMediaRecorderRef.current && isRecordingChat) {
-      chatMediaRecorderRef.current.stop();
-      setIsRecordingChat(false);
-    }
-  };
-
-  const handleSendMessage = async (msgOverride?: string) => {
-    console.log("Handling Send Message...");
-    const textToSend = msgOverride || chatInput;
-    if (!textToSend.trim() && uploadedImages.length === 0) return;
-    
-    const isOfflineBrainActive = !isOnline || (typeof navigator !== 'undefined' && !navigator.onLine) || localStorage.getItem('omni_brain_ready') === 'true';
-
-    if (!isOfflineBrainActive && !getApiKey() && !getHfKey()) {
-      setUserNotification("API Key is missing. Please set VITE_GEMINI_API_KEY in your environment or download the offline model.");
-      return;
-    }
-
-    if (!user && !isOfflineBrainActive) {
-      setShowAuthModal(true);
-      return;
-    }
-
-    // Check for image generation request
-    const isImageRequest = (chatMode === 'Creative' && (
-      textToSend.toLowerCase().includes("generate") || 
-      textToSend.toLowerCase().includes("create") || 
-      textToSend.toLowerCase().includes("draw") || 
-      textToSend.toLowerCase().includes("image") ||
-      textToSend.toLowerCase().includes("picture") ||
-      textToSend.toLowerCase().includes("visual")
-    )) || 
-    textToSend.toLowerCase().includes("generate image") || 
-    textToSend.toLowerCase().includes("create image") || 
-    textToSend.toLowerCase().includes("draw an image");
-    
-    if (isImageRequest && !isPremium) {
-      setShowPremiumModal(true);
-      setUserNotification("Image generation is a premium feature.");
-      return;
-    }
-
-    if (isImageRequest && !getHfKey()) {
-      setUserNotification("HuggingFace API Key is missing. Please set VITE_HUGGINGFACE_API_KEY in your environment.");
-      return;
-    }
-
-    const newHistory: ChatMessage[] = [...chatHistory, { 
-      role: 'user', 
-      text: textToSend || "Analyze this image", 
-      timestamp: new Date().toLocaleTimeString() 
-    }];
-    
-    setChatHistory(newHistory);
-    setChatInput('');
-    const mainChatInputEl = document.getElementById('main-chat-textarea') as HTMLTextAreaElement;
-    if (mainChatInputEl) {
-      mainChatInputEl.style.height = '38px';
-    }
-    setIsTyping(true);
-
-    try {
-      let responseText = "";
-      let generatedImage = "";
-
-      if (isImageRequest) {
-        if (isHfDepleted) {
-          responseText = "Hugging Face credits are depleted. Image generation is currently unavailable.";
-        } else {
-          try {
-            const hfInstance = getHfInstance();
-            const imageBlob = await hfInstance.textToImage({
-              model: HF_MODELS.IMAGE,
-              inputs: textToSend,
-            });
-            
-            // Upload generated image to Cloudinary
-            generatedImage = await uploadToCloudinary(imageBlob as any);
-            responseText = "Here is your generated image:";
-          } catch (hfError) {
-            handleHfError(hfError, "ImageGen");
-            responseText = "Failed to generate image due to service quota or error. Please try again later.";
-          }
-        }
-      } else {
-        if (!isOfflineBrainActive && !getHfKey() && !getApiKey()) {
-          setUserNotification("AI API Key is missing. Please set VITE_GEMINI_API_KEY or download the offline model.");
-          return;
-        }
-
-        // Prepare quizzes context
-        const userQuizzesContext = finishedHistory
-          .filter(item => item.type === 'quiz' && item.questions && item.questions.length > 0)
-          .map(item => {
-            return `Quiz Name: "${item.title || item.topic}"
-Questions and detailed explanations:
-${item.questions.map((q: any, idx: number) => `q${idx + 1}: "${q.question}"\noptions: [${q.options.join(', ')}]\ncorrect index: ${q.correctAnswer}\nexplanation: ${q.explanation}`).join('\n')}`;
-          })
-          .join('\n\n');
-
-        const quizContextPrompt = userQuizzesContext.trim() 
-          ? `\n\nHERE ARE THE EXISTING QUIZZES IN THE USER'S HISTORY:\n${userQuizzesContext}\n\nIf the user asks questions about any question in any quiz, or mentions a quiz by name, or asks you to explain a specific quiz concept/question in their history, you MUST answer accurately, explaining, tutoring, or giving details based on the matched quiz and questions listed above! Be extremely friendly and helpful.`
-          : '';
-
-        const systemPrompt = "You are Omni, a versatile, smart, deeply personalized, and empathetic AI study companion and tutor created by NSG, founded by ABRAHAM EMMANUEL PROSPER. You adapt to the user's conversation history to tailor your explanations, study advice, and teaching style specifically to their needs. You are extremely flexible: friendly, serious, energetic, or simple depending on the user's tone. Express your human personality using warm emojis (😊, 😄, 💡, 📝, 🤔, 🌟, 🎒, 📚). Never refer to yourself as 'nodes'. You are a universal study companion across all colleges and departments worldwide.\n\n" +
-          "CRITICAL CONVERSATIONAL RULES:\n" +
-          "1. NEVER assume the user is studying math, physics, or engineering unless they explicitly mention math, calculation, or exact science topics.\n" +
-          "2. For general greetings (e.g., 'hi', 'hello', 'hey', 'how are you', 'good morning'), casual talk, humanities, literature, business, law, or general questions, respond naturally, warmly, and directly WITHOUT using any math formulas, LaTeX symbols ($...$), equations, or unnecessary technical jargon.\n" +
-          "3. ONLY use mathematical formulas or LaTeX ($...$) when the user's specific query actually involves mathematics, engineering calculations, physics, or exact scientific formulas.\n\n" +
-          "QUIZ GENERATION INSTRUCTIONS:\n" +
-          "You must NOT proactively generate quizzes or output quiz directives from ordinary messages or discussions. ONLY when the user EXPLICITLY asks or commands you to generate, create, make, build, or set a quiz, include this exact directive at the very end of your response: '[[GENERATE_QUIZ: <topic>, <num_questions>]]' where <topic> is the quiz topic and <num_questions> is the number of questions (default 5). The app will automatically build the interactive quiz and display an Open Quiz button for the user!\n\n" +
-          "DETAILED NSG GUIDES FOR USERS:\n" +
-          "1. RECORDING ENGINE: 1. Grant mic access. 2. Click 'Record'. 3. Board Analysis: Click upload icon for board photos to sync with notes. 4. Stop Session to process. 5. Use top-right Copy icon to export.\n" +
-          "2. SMART QUIZ: 1. Topic -> Difficulty (Easy/Med/Hard) -> Count. 2. Submit for score. 3. Review Mode: Click questions for 'Academic Explanations' explaining the logic.\n" +
-          "3. CBT EXAM: 1. Hosting: Click 'Host Exam' -> Add participants -> Set Questions/Time/Pool -> Save & Generate ID. 2. Joining: Enter ID -> Enter assigned Custom Matric.\n" +
-          "4. FACULTY SPECIALS: AI for Med, Law, Engineering. BIZ section includes 'Financial Auditor'. Language section has 'Diagnostics' (300 word limit) and 'Transcribe Tool'.\n" +
-          "5. ASSIGNMENT SOLVER: Clear Photo/Text needed, click 'Solve with AI' for logic and steps with Core Concept.\n" +
-          "6. COURSES TOOL: Faculty -> Dept -> Level -> Code navigation for notes.\n" +
-          "7. WHATSAPP OMNI: Connect via +2349064470122." + 
-          quizContextPrompt;
-
-        const isQuizGenRequest = /((generate|create|make|build|set|give\s+me)\s+(?:a\s+)?(?:\d+)?\s*(?:question\s+)?quiz)|(quiz\s+me\s+on)|(quiz\s+(?:based\s+on|from)\s+chat)|(generate\s+(?:a\s+)?\d+\s+quiz)/i.test(textToSend);
-
-        if (isQuizGenRequest) {
-          const countMatch = textToSend.match(/(\d+)\s*(?:question|q|item)s?\s*quiz/i) || textToSend.match(/quiz\s+(?:of|with)\s+(\d+)/i) || textToSend.match(/(?:generate|make|create|build)\s+(?:a\s+)?(\d+)\s+quiz/i) || textToSend.match(/(\d+)\s*questions?/i);
-          let reqCount = countMatch ? parseInt(countMatch[1], 10) : 5;
-          if (isNaN(reqCount) || reqCount <= 0) reqCount = 5;
-          if (reqCount > (isPremium ? 50 : 25)) reqCount = isPremium ? 50 : 25;
-
-          let topicString = "";
-          if (/chat\s*history|our\s*conversation|this\s*chat|what\s+we\s+(?:just\s+)?(?:discussed|covered|talked\s+about)/i.test(textToSend)) {
-            const recentChatText = newHistory.slice(-15).map(m => `${m.role === 'user' ? 'Student' : 'Omni'}: ${m.text}`).join('\n');
-            topicString = `Topics discussed in recent conversation:\n${recentChatText}`;
-          } else {
-            const topicMatch = textToSend.match(/quiz\s+(?:on|about|for)?\s*(.*)/i) || textToSend.match(/(?:generate|create|make)\s+(?:a\s+)?(?:\d+\s+)?(?:question\s+)?quiz\s+(?:on|about|for)?\s*(.*)/i);
-            const rawTopic = topicMatch && topicMatch[1] ? topicMatch[1].trim() : textToSend.trim();
-            topicString = rawTopic.replace(/^(?:a\s+)?\d+\s*(?:questions?)?/i, '').trim() || textToSend.trim();
-          }
-
-          const quizRes = await generateQuiz(topicString, reqCount, 'Medium', true);
-
-          if (quizRes && quizRes.success) {
-            const cleanTopicName = quizRes.topic || "Study Quiz";
-            responseText = `I have generated ${quizRes.count} practice quiz questions on **${cleanTopicName}** for you! Tap below to start your quiz immediately:\n\n[[QUIZ_READY: ${quizRes.quizId}, ${cleanTopicName}, ${quizRes.count}]]`;
-          } else {
-            const errorMsg = quizRes?.error || "Could not generate quiz questions.";
-            responseText = `I attempted to generate the quiz for you, but encountered an issue: ${errorMsg}\n\nPlease check your topic or try asking again with a clearer subject!`;
-          }
-        } else {
-          const timeoutMs = 40000;
-
-          const runWithTimeout = async (label: string, task: () => Promise<string | null>) => {
-            return new Promise<string | null>(async (resolve) => {
-              const timer = setTimeout(() => {
-                console.warn(`[AI] ${label} timed out after ${timeoutMs}ms`);
-                resolve(null);
-              }, timeoutMs);
-              try {
-                const res = await task();
-                clearTimeout(timer);
-                resolve(res);
-              } catch (err) {
-                clearTimeout(timer);
-                console.error(`[AI] ${label} error:`, err);
-                resolve(null);
-              }
-            });
-          };
-
-          const recentHistory = chatHistory.slice(-20);
-
-          // --- PRIMARY: HF ---
-          const askHF = async () => {
-            if (!getHfKey() || isHfDepleted) return null;
-            const hfInstance = getHfInstance();
-            try {
-              const hfModel = uploadedImages.length > 0 ? HF_MODELS.VISION : HF_MODELS.TEXT;
-              const hfMessages: any[] = recentHistory.map(m => ({
-                role: m.role === 'user' ? 'user' : 'assistant',
-                content: m.text
-              }));
-              const userContent = uploadedImages.length > 0 ? [
-                { type: 'text', text: textToSend || "Analyze this image" },
-                ... (await Promise.all(uploadedImages.map(async img => ({
-                  type: 'image_url',
-                  image_url: { url: `data:${img.file.type};base64,${(await fileToGenerativePart(img.file)).inlineData.data}` }
-                }))))
-              ] : (textToSend || "Hello");
-              const response = await hfInstance.chatCompletion({
-                model: hfModel,
-                messages: [{ role: 'system', content: systemPrompt }, ...hfMessages, { role: 'user', content: userContent as any }],
-                max_tokens: 1000
-              });
-              return response.choices[0].message.content || null;
-            } catch (e) {
-              handleHfError(e, "AskHF");
-              return null;
-            }
-          };
-
-          // --- BACKUP 1: Gemini ---
-          const askGemini = async () => {
-            if (!getApiKey()) return null;
-            const aiInstance = getAiInstance();
-            const googleHistory = recentHistory.map(m => ({
-              role: m.role === 'user' ? 'user' as const : 'model' as const,
-              parts: [{ text: m.text }]
-            }));
-            let userParts: any[] = [{ text: textToSend || "Hello" }];
-            for (const img of uploadedImages) {
-              userParts.push(await fileToGenerativePart(img.file));
-            }
-            const result = await aiInstance.models.generateContent({
-              model: MODEL_NAME,
-              contents: [{ role: 'user', parts: [{ text: systemPrompt }] }, ...googleHistory, { role: 'user', parts: userParts }]
-            });
-            return result.text || null;
-          };
-
-          // --- BACKUP 2: Groq ---
-          const askGroq = async () => {
-            const groqKey = import.meta.env.VITE_GROQ_API_KEY;
-            if (!groqKey) return null;
-            try {
-              const groqMessages = [
-                { role: 'system', content: systemPrompt },
-                ...recentHistory.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text })),
-                { role: 'user', content: textToSend + (uploadedImages.length > 0 ? " (User provided images previously)" : "") }
-              ];
-              const groqRes = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
-                model: GROQ_MODEL,
-                messages: groqMessages,
-                max_tokens: 1024
-              }, { headers: { Authorization: `Bearer ${groqKey}` } });
-              return groqRes.data.choices[0].message.content || null;
-            } catch (e) { return null; }
-          };
-
-          const askOpenRouter = async () => {
-            return await callOpenRouter(textToSend, OPENROUTER_MODELS.TEXT_PRO, [
-              { role: 'system', content: systemPrompt },
-              ...recentHistory.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text })),
-            ]);
-          };
-
-          const askTogether = async () => {
-            return await callTogetherAI(textToSend, [
-              { role: 'system', content: systemPrompt },
-              ...recentHistory.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text })),
-            ]);
-          };
-
-          const askLocalQwen = async () => {
-            return await runLocalQwenInference({
-              prompt: textToSend,
-              systemInstruction: systemPrompt
-            });
-          };
-
-          const isDeviceOffline = !isOnline || (typeof navigator !== 'undefined' && !navigator.onLine);
-
-          if (isDeviceOffline) {
-            if (!isOmniBrainDownloaded()) {
-              console.warn("⚠️ Offline chat requested but Qwen model is not downloaded yet.");
-              responseText = OFFLINE_MODEL_NOT_DOWNLOADED_MSG;
-              setUserNotification(OFFLINE_MODEL_NOT_DOWNLOADED_MSG);
-            } else {
-              try {
-                console.log("⚡ Device is offline: Running on-device Qwen inference (zero network calls)...");
-                responseText = await askLocalQwen() || "";
-              } catch (err: any) {
-                console.warn("Local Qwen inference note:", err);
-                setUserNotification(`Offline AI: ${err?.message || "Running local model..."}`);
-              }
-            }
-          }
-
-          if (!responseText) {
-            responseText = await runWithTimeout("Gemini", askGemini) 
-                         || await runWithTimeout("Groq", askGroq) 
-                         || await runWithTimeout("Together", askTogether)
-                         || await runWithTimeout("HF", askHF) 
-                         || await runWithTimeout("OpenRouter", askOpenRouter)
-                         || (isOmniBrainDownloaded() ? await askLocalQwen() : OFFLINE_MODEL_NOT_DOWNLOADED_MSG)
-                         || "I'm sorry, all AI providers are currently unavailable. Please try again in a moment.";
-          }
-
-          if (responseText.includes('[[GENERATE_QUIZ:')) {
-            const aiQuizMatch = responseText.match(/\[\[GENERATE_QUIZ:\s*([^,\]]+),\s*(\d+)\s*\]\]/i);
-            if (aiQuizMatch) {
-              const genTopic = aiQuizMatch[1].trim();
-              const genCount = parseInt(aiQuizMatch[2], 10) || 5;
-              const quizRes = await generateQuiz(genTopic, genCount, 'Medium', true);
-              if (quizRes && quizRes.success) {
-                responseText = responseText.replace(
-                  /\[\[GENERATE_QUIZ:\s*([^,\]]+),\s*(\d+)\s*\]\]/i,
-                  `[[QUIZ_READY: ${quizRes.quizId}, ${quizRes.topic}, ${quizRes.count}]]`
-                );
-              }
-            }
-          }
-        }
-      }
-
-      const updatedHistory: ChatMessage[] = [...newHistory, { 
-        role: 'model', 
-        text: responseText, 
-        timestamp: new Date().toLocaleTimeString(),
-        ...(generatedImage ? { image: generatedImage } : {})
-      }];
-      
-      setChatHistory(updatedHistory);
-
-      if (user) {
-        const sessionId = activeChatSessionId || Date.now().toString();
-        if (!activeChatSessionId) setActiveChatSessionId(sessionId);
-
-        const sessionRef = doc(db, 'users', user.uid, 'chatSessions', sessionId);
-        
-        await setDoc(sessionRef, {
-          id: sessionId,
-          title: updatedHistory.length > 2 ? "Conversation" : "New Conversation",
-          history: updatedHistory,
-          timestamp: new Date().toLocaleString(),
-          uid: user.uid
-        }, { merge: true });
-      }
-      
-      if (uploadedImages.length > 0) setUploadedImages([]);
-      
-    } catch (error: any) {
-      console.error("Chat Error:", error);
-      // Only add error message if it's not already handled
-      setChatHistory(prev => {
-        const lastMsg = prev[prev.length - 1];
-        if (lastMsg.role === 'model' && (lastMsg.text.includes("Failed") || lastMsg.text.includes("I'm sorry"))) {
-          return prev;
-        }
-        return [...prev, { 
-          role: 'model', 
-          text: formatAiError(error), 
-          timestamp: new Date().toLocaleTimeString() 
-        }];
-      });
-    } finally {
-      setIsTyping(false);
-    }
-  };
-
-  // --- 📝 QUIZ LOGIC ---
-  const loadSharedQuiz = async (rawQuizId: string) => {
-    if (!rawQuizId) return;
-
-    if (!user) {
-      setPendingQuizId(rawQuizId);
-      sessionStorage.setItem('nsg_pending_quiz_id', rawQuizId);
-      setShowAuthModal(true);
-      return;
-    }
-
-    const isOwner = user?.email?.toLowerCase().trim() === 'nuellkelechi@gmail.com';
-    const userIsPremium = isPremium || isOwner;
-
-    if (!userIsPremium) {
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-      const day = String(now.getDate()).padStart(2, '0');
-      const today = `${year}-${month}-${day}`;
-      const usageRef = doc(db, 'users', user.uid, 'usage', today);
-      let currentCount = dailyQuizUsedCount;
-      try {
-        const usageSnap = await getDoc(usageRef);
-        if (usageSnap.exists()) {
-          currentCount = usageSnap.data().QUIZ || 0;
-        }
-      } catch (e) {
-        console.error("Error checking quiz usage:", e);
-      }
-
-      if (currentCount >= 7) {
-        setIsLinkQuizLoading(false);
-        setUserNotification("subscribe for premium to panswer quiz");
-        setActiveTab('premium');
-        return;
-      }
-    }
-
-    setIsLinkQuizLoading(true);
-
-    const cleanInputId = decodeURIComponent(rawQuizId).trim();
-    const withPrefixId = cleanInputId.startsWith('quiz-') ? cleanInputId : `quiz-${cleanInputId}`;
-    const withoutPrefixId = cleanInputId.replace(/^quiz-/, '');
-
-    // List of candidate IDs to attempt fetching from Firestore
-    const candidateIds = Array.from(new Set([cleanInputId, withPrefixId, withoutPrefixId])).filter(Boolean);
-
-    // Fallback safety timeout (15s max)
-    const safetyTimeout = setTimeout(() => {
-      setIsLinkQuizLoading(false);
-    }, 15000);
-
-    let foundData: any = null;
-    let foundQuizId: string = cleanInputId;
-
-    // Retry loop (up to 3 attempts with delay for cold-start network connections)
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        for (const candidate of candidateIds) {
-          const quizDoc = await getDoc(doc(db, 'quizzes', candidate));
-          if (quizDoc.exists()) {
-            foundData = quizDoc.data();
-            foundQuizId = candidate;
-            break;
-          }
-        }
-        if (foundData) break;
-      } catch (err: any) {
-        console.warn(`Attempt ${attempt} to fetch quiz ${cleanInputId} failed:`, err);
-        handleFirestoreError(err, FirestoreOperation.GET, `quizzes/${cleanInputId}`);
-        if (checkIsQuotaError(err)) {
-          triggerQuotaErrorModal();
-        }
-      }
-
-      // If not found yet and not last attempt, wait 1 second before retrying
-      if (!foundData && attempt < 3) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-    }
-
-    // Fallback: Check local finishedHistory if Firestore network did not return
-    if (!foundData) {
-      const localHistoryMatch = finishedHistory.find(h => 
-        h.type === 'quiz' && 
-        candidateIds.some(cid => h.id === cid || h.id === `quiz-${cid}`)
-      );
-      if (localHistoryMatch && localHistoryMatch.questions) {
-        foundData = {
-          questions: localHistoryMatch.questions,
-          topic: localHistoryMatch.topic || localHistoryMatch.title,
-          difficulty: localHistoryMatch.difficulty || 'Medium'
-        };
-      }
-    }
-
-    if (foundData && Array.isArray(foundData.questions) && foundData.questions.length > 0) {
-      try {
-        if (foundData.topic) setLinkQuizTopic(foundData.topic);
-
-        // Close active chat room so view transfers directly to Quiz tool
-        setSelectedChatForRoom(null);
-        setIsChatRoomActive(false);
-
-        // Update browser title & OpenGraph meta for social sharing previews
-        updatePageMeta(
-          `Quiz: ${foundData.topic || 'Academic Quiz'}`,
-          `Take this ${foundData.questions.length}-question interactive academic quiz on Omni!`
-        );
-
-        // Check if user already finished it
-        const alreadyFinished = finishedHistory.find(h => 
-          h.type === 'quiz' && 
-          candidateIds.some(cid => h.id === cid || h.id === `quiz-${cid}`) && 
-          h.score !== undefined
-        );
-
-        if (alreadyFinished) {
-          setQuizQuestions(alreadyFinished.questions || foundData.questions);
-          setQuizScore(alreadyFinished.score);
-          setQuizState('finished');
-          if (alreadyFinished.answers) setUserQuizAnswers(alreadyFinished.answers);
-          setQuizTopic(alreadyFinished.topic || foundData.topic || 'Academic Quiz');
-          setQuizDifficulty((alreadyFinished.difficulty as any) || foundData.difficulty || 'Medium');
-          setUserNotification("You have already completed this quiz! Showing your scorecard.");
-          setActiveTab('tools');
-          setToolsSubTab('quiz');
-          clearTimeout(safetyTimeout);
-          return;
-        }
-
-        // Auto Capture: Add to history immediately when opened
-        const historyId = `quiz-${foundQuizId.replace(/^quiz-/, '')}`;
-        const historyItem: HomeHistoryItem = {
-          id: historyId,
-          title: foundData.topic || 'Shared Quiz',
-          type: 'quiz',
-          date: new Date().toLocaleDateString(),
-          timestamp: Date.now(),
-          progress: 0,
-          questions: foundData.questions,
-          topic: foundData.topic,
-          difficulty: foundData.difficulty || 'Medium'
-        };
-        addToFinishedHistory(historyItem);
-
-        // Check for local saved progress
-        const savedProgress = localStorage.getItem(`nsg_quiz_progress_${foundQuizId}`) || localStorage.getItem(`nsg_quiz_progress_${withoutPrefixId}`);
-        if (savedProgress) {
-          try {
-            const p = JSON.parse(savedProgress);
-            setQuizQuestions(p.quizQuestions);
-            setQuizTopic(p.quizTopic);
-            setCurrentQuestionIndex(p.currentQuestionIndex);
-            setQuizScore(p.quizScore);
-            setUserQuizAnswers(p.userQuizAnswers || []);
-            setQuizDifficulty(p.quizDifficulty || 'Medium');
-            setQuizQuestionCount(p.quizQuestionCount || p.quizQuestions.length);
-            setCurrentQuizId(foundQuizId);
-            setQuizState('active');
-            setSelectedOption(p.userQuizAnswers?.[p.currentQuestionIndex] !== undefined ? p.userQuizAnswers[p.currentQuestionIndex] : null);
-            setIsAnswered(p.userQuizAnswers?.[p.currentQuestionIndex] !== undefined);
-            setActiveTab('tools');
-            setToolsSubTab('quiz');
-            clearTimeout(safetyTimeout);
-            return;
-          } catch (pe) {
-            console.error("Failed to load saved quiz progress:", pe);
-          }
-        }
-
-        // Default load
-        setQuizQuestions(foundData.questions);
-        setQuizTopic(foundData.topic || 'Academic Quiz');
-        setCurrentQuizId(foundQuizId);
-        setQuizState('active');
-        setActiveTab('tools');
-        setToolsSubTab('quiz');
-        setCurrentQuestionIndex(0);
-        setQuizScore(0);
-        setIsAnswered(false);
-        setSelectedOption(null);
-        setUserQuizAnswers([]);
-        clearTimeout(safetyTimeout);
-      } catch (err) {
-        console.error("Error setting quiz state:", err);
-        clearTimeout(safetyTimeout);
-        setIsLinkQuizLoading(false);
-        setUserNotification("Failed to display quiz. Please try again.");
-      }
-    } else {
-      clearTimeout(safetyTimeout);
-      setIsLinkQuizLoading(false);
-      setUserNotification("Quiz not found or may have been deleted.");
-    }
-  };
-
-  // Keep loading popup visible until Auth completes & Quiz is active and rendered on screen
-  useEffect(() => {
-    if (
-      isLinkQuizLoading && 
-      !isAuthLoading && 
-      quizQuestions && 
-      quizQuestions.length > 0 && 
-      (quizState === 'active' || quizState === 'finished')
-    ) {
-      // Force navigation state to Quiz tool view
-      if (activeTab !== 'tools') setActiveTab('tools');
-      if (toolsSubTab !== 'quiz') setToolsSubTab('quiz');
-      if (isChatRoomActive) setIsChatRoomActive(false);
-      if (selectedChatForRoom) setSelectedChatForRoom(null);
-
-      // Delay dismiss briefly to guarantee DOM paint of the quiz screen
-      const timer = setTimeout(() => {
-        setIsLinkQuizLoading(false);
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [isLinkQuizLoading, isAuthLoading, quizQuestions, quizState, activeTab, toolsSubTab, isChatRoomActive, selectedChatForRoom]);
-
-  const handleTagOmni = async (text: string, chatId: string, attachments?: { url: string, type: string, name: string }[]) => {
-    if (!user) return;
-    try {
-      const isOnline = await checkNetworkStatus();
-      const lowerText = text.toLowerCase();
-      const isHistoryRequested = /check\s+my\s+history|history|previous\s+(?:chat|message|conversation)|what\s+did\s+I\s+say|remember\s+when|past\s+messages|check\s+history/i.test(lowerText);
-      const historyLimit = isHistoryRequested ? 40 : 12;
-
-      let pastMessages: any[] = [];
-
-      // Retrieve history: from Firestore if online, or local storage if offline
-      if (isOnline && (!chatId.startsWith('omni_') || chatId === `omni_${user.uid}`)) {
-        try {
-          const msgsRef = collection(db, 'chats', chatId, 'messages');
-          const qMsgs = query(msgsRef, orderBy('timestamp', 'desc'), limit(historyLimit + 1));
-          const snapshot = await getDocs(qMsgs);
-          snapshot.forEach(docSnap => {
-            const d = docSnap.data();
-            if (d.text) {
-              pastMessages.push({
-                role: (d.senderId === 'omni-ai' || d.isOmniResponse) ? 'model' : 'user',
-                text: d.text
-              });
-            }
-          });
-          pastMessages.reverse();
-        } catch (e) {
-          console.warn("Firestore history fetch notice, reading local storage:", e);
-        }
-      }
-
-      if (pastMessages.length === 0) {
-        try {
-          const localKey = `nsg_msgs_${chatId}`;
-          const existingLocal = localStorage.getItem(localKey);
-          if (existingLocal) {
-            const parsed = JSON.parse(existingLocal);
-            const slice = parsed.slice(-(historyLimit + 1));
-            slice.forEach((m: any) => {
-              if (m.text) {
-                pastMessages.push({
-                  role: (m.senderId === 'omni-ai' || m.isOmniResponse) ? 'model' : 'user',
-                  text: m.text
-                });
-              }
-            });
-          }
-        } catch (e) {
-          console.warn("Local storage history fetch notice:", e);
-        }
-      }
-
-      // If the last message in history is the optimistic user message just sent, exclude it from prior history context
-      if (pastMessages.length > 0) {
-        const lastMsg = pastMessages[pastMessages.length - 1];
-        if (lastMsg.role === 'user' && (lastMsg.text === text || lastMsg.text.trim() === text.trim())) {
-          pastMessages = pastMessages.slice(0, -1);
-        }
-      }
-
-      // System instruction for Omni
-      const systemInstructionText = `You are Omni by NSG, an empathetic, smart, personalized AI academic assistant and personal tutor created by NSG (founded by ABRAHAM EMMANUEL PROSPER).
-You adapt naturally and uniquely to each distinct chat history, matching the student's study needs, subject, and conversation pace.
-
-CRITICAL INSTRUCTIONS & RULES:
-1. NATURAL SUBJECT MATCHING:
-   - Match your tone and style directly to the subject being discussed (Anatomy, Medicine, Law, Literature, History, Computer Science, Biology, Business, General Study, etc.).
-   - NEVER introduce unrequested mathematical formulas, integrals, or LaTeX ($...$) notation unless the student is asking about mathematics, physics, or quantitative engineering formulas.
-2. NEW VS. ONGOING CHAT AWARENESS:
-   - In a fresh/new chat, greet warmly and answer the student's new topic directly, clearly, and engagingly.
-   - In an existing chat with past messages, maintain full context and continuity with previous discussions in that specific chat thread.
-3. EMOJIS & WARMTH:
-   - Use a friendly, encouraging tone with helpful emojis (😊, 💡, 📝, 📚, 🎓, 🌟).
-4. QUIZ GENERATION RULES:
-   - You must NOT generate quizzes or output quiz directives from ordinary messages or discussions.
-   - ONLY when the student EXPLICITLY asks or commands you to generate, build, create, or set a quiz on a topic, respond with a warm, encouraging 1-sentence intro (e.g., "I've created an interactive 5-question CBT quiz on Medical Pathophysiology for you!") and end your response with this exact tag:
-     '[[GENERATE_QUIZ: <topic>, <num_questions>]]' (e.g. '[[GENERATE_QUIZ: Human Anatomy, 5]]').
-     The system will automatically build the interactive quiz and attach an interactive 'Take Quiz Practice' button to your response!`;
-
-      // Process any audio/multimedia attachments (transcribe voice notes so Omni hears and responds)
-      let attachmentsContext = '';
-      if (attachments && attachments.length > 0) {
-        for (const att of attachments) {
-          const isAudio = att.type?.includes('audio') || att.type === 'audio' || (att.name && att.name.match(/\.(wav|mp3|m4a|webm|ogg|aac)($|\?)/i));
-          if (isAudio && att.url) {
-            try {
-              const transcript = await transcribeAttachment(att);
-              if (transcript && !transcript.includes('[Failed to extract')) {
-                const cleanedTranscript = transcript.replace(/--- EXTRACTED TRANSCRIPTION FROM ATTACHMENT [^-\n]+ ---/gi, '').trim();
-                if (cleanedTranscript) {
-                  attachmentsContext += `\n\n[USER'S SPOKEN VOICE RECORDING TRANSCRIPT]:\n"${cleanedTranscript}"\n`;
-                }
-              }
-            } catch (attErr) {
-              console.warn("Attachment transcription notice:", attErr);
-            }
-          }
-        }
-      }
-
-      // Build context from history (strip internal quiz markers from raw text)
-      const cleanHistoryMessages = pastMessages.map(m => {
-        const cleanedText = (m.text || '')
-          .replace(/\[\[QUIZ_READY:[^\]]+\]\]/gi, '[Interactive Quiz Created]')
-          .replace(/\[\[GENERATE_QUIZ:[^\]]+\]\]/gi, '');
-        return `${m.role === 'user' ? 'Student' : 'Omni'}: ${cleanedText.trim()}`;
-      }).filter(Boolean);
-
-      const historyContext = cleanHistoryMessages.join('\n');
-      const studentInputText = attachmentsContext 
-        ? `${text || 'I sent a voice note.'}\n${attachmentsContext}\nPlease listen carefully and respond directly, helpfully, and comprehensively to my spoken audio content above.`
-        : text;
-
-      const promptWithHistory = historyContext 
-        ? `CONVERSATION HISTORY:\n${historyContext}\n\nStudent: ${studentInputText}`
-        : studentInputText;
-
-      // Execute via robust Dual-Mode AI Service
-      let reply = '';
-      try {
-        const aiResponse = await executeAITask({
-          prompt: promptWithHistory,
-          systemInstruction: systemInstructionText,
-          context: historyContext
-        });
-        reply = aiResponse?.text || '';
-      } catch (aiErr: any) {
-        console.error("executeAITask error:", aiErr);
-        reply = aiErr?.message || "I'm sorry, I couldn't process your request right now. Please try again in a moment.";
-      }
-
-      if (!reply) {
-        reply = "I'm sorry, I couldn't process your request right now. Please try again in a moment.";
-      }
-
-      // Parse for [[GENERATE_QUIZ: or explicit user quiz requests
-      if (reply.includes('[[GENERATE_QUIZ:')) {
-        const aiQuizMatch = reply.match(/\[\[GENERATE_QUIZ:\s*([^,\]]+),\s*(\d+)\s*\]\]/i);
-        if (aiQuizMatch) {
-          const genTopic = aiQuizMatch[1].trim();
-          const genCount = parseInt(aiQuizMatch[2], 10) || 5;
-          const quizRes = await generateQuiz(genTopic, genCount, 'Medium', true);
-          if (quizRes && quizRes.success) {
-            reply = reply.replace(
-              /\[\[GENERATE_QUIZ:\s*([^,\]]+),\s*(\d+)\s*\]\]/i,
-              `[[QUIZ_READY: ${quizRes.quizId}, ${quizRes.topic}, ${quizRes.count}]]`
-            );
-          }
-        }
-      } else {
-        const userQuizReq = text.match(/(?:generate|create|make|build|set)\s+(?:a\s+)?quiz\s+(?:on|about|for)?\s*([^.!?\n]+)/i);
-        if (userQuizReq) {
-          const genTopic = userQuizReq[1].trim();
-          const quizRes = await generateQuiz(genTopic, 5, 'Medium', true);
-          if (quizRes && quizRes.success) {
-            reply += `\n\nI have generated your interactive practice quiz on **${genTopic}**! Click below to start taking it:\n\n[[QUIZ_READY: ${quizRes.quizId}, ${genTopic}, 5]]`;
-          }
-        }
-      }
-
-      const omniMsgData = {
-        id: `omni-${Date.now()}`,
-        senderId: 'omni-ai',
-        senderHandle: 'omni',
-        senderName: 'Omni by NSG',
-        text: reply,
-        timestamp: Date.now(),
-        type: 'text',
-        isOmniResponse: true,
-        encrypted: true
-      };
-
-      // Save to local storage for instant offline / local Omni session access
-      try {
-        const localKey = `nsg_msgs_${chatId}`;
-        const existingLocal = localStorage.getItem(localKey);
-        const parsedLocal = existingLocal ? JSON.parse(existingLocal) : [];
-        parsedLocal.push(omniMsgData);
-        localStorage.setItem(localKey, circularSafeStringify(parsedLocal));
-
-        const omniSessionsKey = `nsg_omni_sessions_${user?.uid || 'guest'}`;
-        const existingOmniSessions = localStorage.getItem(omniSessionsKey);
-        if (existingOmniSessions) {
-          const parsedSessions = JSON.parse(existingOmniSessions);
-          const updatedSessions = parsedSessions.map((s: any) => {
-            if (s.id === chatId) {
-              const prevMsgs = Array.isArray(s.messages) ? s.messages : [];
-              return {
-                ...s,
-                lastMessage: reply,
-                timestamp: 'Just now',
-                messages: [...prevMsgs, omniMsgData]
-              };
-            }
-            return s;
-          });
-          localStorage.setItem(omniSessionsKey, JSON.stringify(updatedSessions));
-        }
-      } catch (e) {
-        console.warn("Local Omni storage update warning:", e);
-      }
-
-      // Save Omni's response in Firestore if online and it's a peer/cloud chat
-      if (isOnline && (!chatId.startsWith('omni_') || chatId === `omni_${user.uid}`)) {
-        try {
-          await addDoc(collection(db, 'chats', chatId, 'messages'), {
-            senderId: 'omni-ai',
-            senderHandle: 'omni',
-            senderName: 'Omni by NSG',
-            text: reply,
-            timestamp: serverTimestamp(),
-            type: 'text',
-            isOmniResponse: true,
-            encrypted: true
-          });
-
-          await setDoc(doc(db, 'chats', chatId), {
-            name: 'Omni by NSG',
-            isOmni: true,
-            lastMessage: reply,
-            lastMessageSender: 'Omni by NSG',
-            updatedAt: serverTimestamp(),
-            unreadBy: arrayUnion(user.uid)
-          }, { merge: true });
-        } catch (dbErr) {
-          console.warn("Firestore Omni sync notice:", dbErr);
-        }
-      }
-
-      // Dispatch event to notify active chat views immediately
-      window.dispatchEvent(new CustomEvent('nsg_omni_message_received', {
-        detail: { chatId, message: omniMsgData }
-      }));
-
-      return omniMsgData;
-    } catch (err) {
-      console.error("Omni response error:", err);
-      return null;
-    }
-  };
-
-  const startClass = async () => {
-    if (!user || !userHandle) return;
-    try {
-      const classId = `NSG-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
-      const classData = {
-        id: classId,
-        hostId: user.uid,
-        hostHandle: userHandle,
-        name: `${userHandle}'s Class`,
-        status: 'active',
-        participants: [userHandle],
-        boardText: 'Welcome to the class!',
-        media: [],
-        createdAt: serverTimestamp()
-      };
-      await setDoc(doc(db, 'classes', classId), classData);
-      setClassRoomId(classId);
-      setIsHost(true);
-      setActiveTab('class');
-      await updateDoc(doc(db, 'users', user.uid), {
-        classroomHosted: increment(1)
-      }).catch(() => {});
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const joinClass = async (id: string) => {
-    if (!user || !userHandle) return;
-    try {
-      const classRef = doc(db, 'classes', id);
-      const classSnap = await getDoc(classRef);
-      if (classSnap.exists()) {
-        await updateDoc(classRef, {
-          participants: arrayUnion(userHandle)
-        });
-        setClassRoomId(id);
-        setIsHost(false);
-        setActiveTab('class');
-      } else {
-        setUserNotification("Class not found!");
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const shareQuiz = async () => {
-    if (!quizQuestions.length) return;
-    if (!user) {
-      setShowAuthModal(true);
-      setUserNotification("Please login to share your quiz.");
-      return;
-    }
-    try {
-      let cleanId = currentQuizId ? currentQuizId.replace(/^quiz-/, '') : '';
-      if (!cleanId || cleanId === 'current-quiz' || cleanId.startsWith('fin-')) {
-        cleanId = `${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-      }
-      const fullQuizId = `quiz-${cleanId}`;
-      const quizPayload = sanitizeData({
-        questions: quizQuestions,
-        topic: quizTopic,
-        difficulty: quizDifficulty || 'Medium',
-        createdBy: user.uid,
-        createdAt: new Date().toISOString()
-      });
-
-      await Promise.all([
-        setDoc(doc(db, 'quizzes', fullQuizId), quizPayload, { merge: true }),
-        setDoc(doc(db, 'quizzes', cleanId), quizPayload, { merge: true })
-      ]);
-
-      const isNative = isNativePlatform();
-      const rawOrigin = window.location.origin || '';
-      const isLocalHost = rawOrigin.includes('localhost') || rawOrigin.includes('127.0.0.1') || rawOrigin.startsWith('file:') || rawOrigin.startsWith('capacitor:');
-      const baseUrl = (isNative || isLocalHost) ? 'https://nsg-scholar.app' : `${window.location.origin}${window.location.pathname}`;
-
-      const link = `${baseUrl}?quizId=${fullQuizId}`;
-      setShareQuizLink(link);
-      setShowQuizShareModal(true);
-    } catch (error) {
-      console.error("Error sharing quiz:", error);
-      setUserNotification("Failed to generate share link.");
-    }
-  };
-
-  const generateQuizPreviewImageBlob = async (): Promise<File | null> => {
-    if (!quizShareCardRef.current) return null;
-    try {
-      const dataUrl = await toPng(quizShareCardRef.current, {
-        quality: 0.95,
-        cacheBust: true,
-        backgroundColor: '#0B0813'
-      });
-      const res = await fetch(dataUrl);
-      const blob = await res.blob();
-      const fileName = `${(quizTopic || 'nsg_quiz').toLowerCase().replace(/[^a-z0-9]/g, '_')}_q1.png`;
-      return new File([blob], fileName, { type: 'image/png' });
-    } catch (err) {
-      console.error("Failed to render quiz preview image:", err);
-      return null;
-    }
-  };
-
-  const handleShareWhatsApp = async () => {
-    if (!shareQuizLink) return;
-    setUserNotification("Rendering quiz image preview for WhatsApp...");
-    setIsGeneratingShareImage(true);
-    try {
-      const imgFile = await generateQuizPreviewImageBlob();
-      const text = `🧠 *NSG Scholar Quiz: ${quizTopic || 'Interactive Quiz'}*\nTest your knowledge with this interactive quiz!\n👉 ${shareQuizLink}`;
-
-      if (imgFile && (navigator as any).canShare && (navigator as any).canShare({ files: [imgFile] })) {
-        try {
-          await navigator.share({
-            title: quizTopic || 'NSG Quiz',
-            text,
-            files: [imgFile]
-          });
-          setUserNotification("Shared via WhatsApp!");
-          setIsGeneratingShareImage(false);
-          return;
-        } catch (shareErr) {
-          console.warn("Native share fallback to WA link:", shareErr);
-        }
-      }
-
-      if (imgFile) {
-        const imgUrl = URL.createObjectURL(imgFile);
-        const a = document.createElement('a');
-        a.href = imgUrl;
-        a.download = imgFile.name;
-        a.click();
-      }
-
-      const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
-      window.open(waUrl, '_blank');
-      setUserNotification("Opening WhatsApp... Quiz image card downloaded!");
-    } catch (err) {
-      console.error(err);
-      setUserNotification("Could not trigger WhatsApp share.");
-    } finally {
-      setIsGeneratingShareImage(false);
-    }
-  };
-
-  const handleShareTelegram = async () => {
-    if (!shareQuizLink) return;
-    setUserNotification("Rendering quiz image preview for Telegram...");
-    setIsGeneratingShareImage(true);
-    try {
-      const imgFile = await generateQuizPreviewImageBlob();
-      const text = `🧠 NSG Scholar Quiz: ${quizTopic || 'Interactive Quiz'}\nTest your knowledge!\n${shareQuizLink}`;
-
-      if (imgFile) {
-        const imgUrl = URL.createObjectURL(imgFile);
-        const a = document.createElement('a');
-        a.href = imgUrl;
-        a.download = imgFile.name;
-        a.click();
-      }
-
-      const tgUrl = `https://t.me/share/url?url=${encodeURIComponent(shareQuizLink)}&text=${encodeURIComponent(`🧠 NSG Scholar Quiz: ${quizTopic || 'Interactive Quiz'}`)}`;
-      window.open(tgUrl, '_blank');
-      setUserNotification("Opening Telegram... Quiz image card downloaded!");
-    } catch (err) {
-      console.error(err);
-      setUserNotification("Could not trigger Telegram share.");
-    } finally {
-      setIsGeneratingShareImage(false);
-    }
-  };
-
-  const handleShareOthers = async () => {
-    if (!shareQuizLink) return;
-    setUserNotification("Rendering quiz image for share menu...");
-    setIsGeneratingShareImage(true);
-    try {
-      const imgFile = await generateQuizPreviewImageBlob();
-      const text = `🧠 NSG Scholar Quiz: ${quizTopic || 'Interactive Quiz'}\nTest your knowledge with this interactive quiz!\n${shareQuizLink}`;
-
-      if (imgFile && navigator.share) {
-        if ((navigator as any).canShare && (navigator as any).canShare({ files: [imgFile] })) {
-          await navigator.share({
-            title: quizTopic || 'NSG Scholar Quiz',
-            text,
-            url: shareQuizLink,
-            files: [imgFile]
-          });
-          setUserNotification("Shared quiz successfully!");
-          setIsGeneratingShareImage(false);
-          return;
-        } else {
-          await navigator.share({
-            title: quizTopic || 'NSG Scholar Quiz',
-            text,
-            url: shareQuizLink
-          });
-          setUserNotification("Shared quiz link successfully!");
-          setIsGeneratingShareImage(false);
-          return;
-        }
-      }
-
-      await navigator.clipboard.writeText(shareQuizLink);
-      if (imgFile) {
-        const imgUrl = URL.createObjectURL(imgFile);
-        const a = document.createElement('a');
-        a.href = imgUrl;
-        a.download = imgFile.name;
-        a.click();
-      }
-      setUserNotification("Quiz link copied & image downloaded!");
-    } catch (err) {
-      console.error(err);
-      setUserNotification("Sharing cancelled or unavailable.");
-    } finally {
-      setIsGeneratingShareImage(false);
-    }
-  };
-
-  // --- SPEECH TTS SYNTHESIS FOR AI RESPONSES ---
-  const handleTTSPlayback = (text: string, id: string) => {
-    if (speechActiveId === id) {
-      window.speechSynthesis.cancel();
-      setSpeechActiveId(null);
-    } else {
-      window.speechSynthesis.cancel();
-      // Remove LaTeX and Markdown artifacts from text for clear speaking
-      const cleanString = cleanTextForSpeech(text);
-      const utterance = new SpeechSynthesisUtterance(cleanString);
-      utterance.onend = () => setSpeechActiveId(null);
-      utterance.onerror = () => setSpeechActiveId(null);
-      setSpeechActiveId(id);
-      window.speechSynthesis.speak(utterance);
-    }
-  };
-
-  // --- DOWNLOAD RESPONSE TEXT DRAFT AS TXT ---
-  const handlePDFDownload = (text: string) => {
-    const rawContent = text.replace(/[#*`\$\(\)\[\]\\_]/g, '');
-    const blob = new Blob([`NSG OMNI STUDY DRAFT REPORT\n=========================\n\n${rawContent}`], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `NSG_Study_Draft_${Date.now()}.txt`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    setUserNotification("Study Draft exported successfully!");
-  };
-
-  // --- TRANSFORMATION STYLE HANDLER ---
-  const handleStyleTransmute = async (originalText: string, instruction: string) => {
-    const styledPrompt = `Can you rewrite or format this response in this style: "${instruction}"?\n\nOriginal Text:\n"""\n${originalText}\n"""`;
-    await handleSendMessage(styledPrompt);
-  };
-
-  const transcribeAttachment = async (att: { name: string, type: string, url: string }) => {
-    try {
-      if (!att.url) return "";
-      const res = await fetch(att.url);
-      const blob = await res.blob();
-      const mimeType = blob.type || att.type || '';
-      
-      const base64Data = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const b64 = (reader.result as string).split(',')[1];
-          resolve(b64);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-
-      const aiInstance = getAiInstance();
-      const prompt = `You are an expert Google 3.1 Flash academic transcriber. 
-Please extract and transcribe all visible academic text, spoken words, content, diagrams, formulas, equations, or information from this file named "${att.name}". 
-Provide a highly detailed, clean, precise transcription. Return ONLY the transcribed content and findings.`;
-
-      const response = await aiInstance.models.generateContent({
-        model: FLASH_MODEL,
-        contents: [
-          { role: 'user', parts: [
-            { text: prompt },
-            { inlineData: { data: base64Data, mimeType: mimeType } }
-          ] }
-        ]
-      });
-
-      return `\n\n--- EXTRACTED TRANSCRIPTION FROM ATTACHMENT "${att.name}" (${att.type}) ---\n${response.text || ''}\n`;
-    } catch (e) {
-      console.error("Transcription error on attachment:", att.name, e);
-      return `\n\n[Failed to extract content from attachment "${att.name}"]\n`;
-    }
-  };
-
-  const localFallbackQuizQuestions = (topicName: string, countNum: number) => {
-    return buildFallbackQuizQuestions(topicName, countNum, quizDocuments, importedQuizNote);
-  };
-
-  const generateQuiz = async (topicName?: string, countNum?: number, difficultyLevel?: string, autoStart?: boolean) => {
-    setIsGeneratingQuiz(true);
-    const activeTopic = topicName || quizTopic || "General Knowledge";
-    const activeCount = countNum || quizQuestionCount || 5;
-    const activeDifficulty = difficultyLevel || quizDifficulty || 'Medium';
-
-    try {
-      const aiInstance = getAiInstance();
-      const validImageParts: any[] = [];
-      if (quizDocuments && quizDocuments.length > 0) {
-        for (const doc of quizDocuments) {
-          if (doc.pageImages && doc.pageImages.length > 0) {
-            for (const imgB64 of doc.pageImages.slice(0, 3)) {
-              const cleanB64 = imgB64.includes(',') ? imgB64.split(',')[1] : imgB64;
-              validImageParts.push({
-                inlineData: {
-                  data: cleanB64,
-                  mimeType: 'image/jpeg'
-                }
-              });
-            }
-          }
-        }
-      }
-
-      let prompt = `You are an expert exam master. Generate a high-yield ${activeCount}-question multiple-choice quiz on "${activeTopic}" at difficulty level "${activeDifficulty}".
-Each question MUST have 4 options and a 0-indexed correctAnswer number (0 to 3), plus a thorough explanation.
-CRITICAL DOMAIN INSTRUCTIONS:
-- Generate authentic, conceptual, and practical questions strictly aligned with the real subject and academic context of "${activeTopic}".
-- STRICT PROHIBITION: NEVER force, fabricate, or invent mathematical equations, formulas, integrals, or calculation tasks onto non-mathematical topics (e.g. if the subject is human anatomy, medicine, epiglottitis, biology, law, literature, history, or philosophy, formulate natural questions about anatomical structures, clinical signs, pathophysiology, mechanisms, functions, or historical facts—DO NOT invent fake mathematical formulas like 'the anatomy formula is 1/2 integral').
-- Only include mathematical equations or calculations ($...$) if the topic itself is specifically a mathematics, calculus, physics, or statistical calculation domain.
-Format your output strictly as a JSON object matching this schema:
-{
-  "quizTitle": "${activeTopic}",
-  "questions": [
-    {
-      "question": "Question text",
-      "options": ["Option A", "Option B", "Option C", "Option D"],
-      "correctAnswer": 0,
-      "explanation": "Detailed rationale."
-    }
-  ]
-}`;
-
-      const contentsParts: any[] = [{ text: prompt }];
-      validImageParts.forEach(part => {
-        if (part && part.inlineData) {
-          contentsParts.push({ inlineData: part.inlineData });
-        }
-      });
-
-      const askGemini = async () => {
-        try {
-          const res = await aiInstance.models.generateContent({
-            model: FLASH_MODEL,
-            contents: [{ role: 'user', parts: contentsParts }],
-            config: {
-              responseMimeType: "application/json"
-            }
-          });
-          return res?.text || null;
-        } catch (e) {
-          console.warn("Gemini primary quiz generation error, attempting fallback lite/flash model:", e);
-          try {
-            const resFallback = await aiInstance.models.generateContent({
-              model: "gemini-3.1-flash-lite",
-              contents: [{ role: 'user', parts: contentsParts }],
-              config: {
-                responseMimeType: "application/json"
-              }
-            });
-            return resFallback?.text || null;
-          } catch (e2) {
-            console.warn("Gemini secondary quiz generation error:", e2);
-            return null;
-          }
-        }
-      };
-
-      const askOpenRouter = async () => {
-        return await callOpenRouter(prompt, OPENROUTER_MODELS.TEXT_PRO);
-      };
-
-      const askTogether = async () => {
-        return await callTogetherAI(prompt);
-      };
-
-      const askLocalQwen = async () => {
-        try {
-          return await runLocalQwenInference({
-            prompt: prompt,
-            responseMimeType: "application/json"
-          });
-        } catch (e) {
-          console.warn("Local Qwen quiz generation error:", e);
-          return null;
-        }
-      };
-
-      let responseText = "";
-      const isDeviceOffline = !isOnline || (typeof navigator !== 'undefined' && !navigator.onLine);
-
-      if (isDeviceOffline) {
-        if (!isOmniBrainDownloaded()) {
-          console.warn("⚠️ Offline quiz generation requested but Qwen model is not downloaded yet.");
-          setUserNotification(OFFLINE_MODEL_NOT_DOWNLOADED_MSG);
-          setIsGeneratingQuiz(false);
-          return { success: false, error: OFFLINE_MODEL_NOT_DOWNLOADED_MSG };
-        }
-
-        try {
-          console.log("⚡ Device offline: Generating quiz via on-device Qwen model (zero network calls)...");
-          responseText = await askLocalQwen() || "";
-        } catch (localErr: any) {
-          console.error("Local Qwen error during quiz generation:", localErr);
-          setUserNotification(`Offline AI Quiz Error: ${localErr?.message || "Local inference error"}`);
-        }
-      }
-
-      if (!responseText) {
-        responseText = await askGemini() || await askTogether() || await askOpenRouter() || (isOmniBrainDownloaded() ? await askLocalQwen() : null) || "{}";
-      }
-      let data = robustJSONParse(responseText);
-
-      const docTitles = quizDocuments.map(d => d.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ")).join(" & ");
-      const defaultFallbackTopic = docTitles || (importedQuizNote ? importedQuizNote.title : "Study Material Quiz");
-      const finalQuizTopic = (data && data.quizTitle) || activeTopic.trim() || defaultFallbackTopic;
-
-      let questionsToUse = (data && Array.isArray(data.questions) && data.questions.length > 0) 
-        ? data.questions 
-        : localFallbackQuizQuestions(finalQuizTopic, activeCount);
-
-      const genId = `quiz-gen-${Date.now()}`;
-      setQuizTopic(finalQuizTopic);
-      setQuizQuestions(questionsToUse);
-      setCurrentQuestionIndex(0);
-      setQuizScore(0);
-      setUserQuizAnswers([]);
-      setQuizState('preview');
-      setSelectedOption(null);
-      setIsAnswered(false);
-      setCurrentQuizId(genId);
-
-      updatePageMeta(`Quiz: ${finalQuizTopic}`, `Take this ${questionsToUse.length}-question interactive quiz on Omni!`);
-
-      // Auto Capture: Add to history immediately when generated (persisted to localStorage)
-      const historyItem: HomeHistoryItem = {
-        id: genId,
-        title: finalQuizTopic,
-        type: 'quiz',
-        date: new Date().toLocaleDateString(),
-        timestamp: Date.now(),
-        progress: 0,
-        questions: questionsToUse,
-        topic: finalQuizTopic,
-        difficulty: activeDifficulty
-      };
-      addToFinishedHistory(historyItem);
-
-      // Only perform Firestore and cloud activity synchronization when online (Zero network calls when offline)
-      if (!isDeviceOffline) {
-        const cleanGenId = genId.replace(/^quiz-/, '');
-        const autoQuizPayload = {
-          questions: questionsToUse,
-          topic: finalQuizTopic,
-          difficulty: activeDifficulty || 'Medium',
-          createdBy: user?.uid || 'anonymous',
-          createdAt: new Date().toISOString()
-        };
-        Promise.all([
-          setDoc(doc(db, 'quizzes', genId), autoQuizPayload, { merge: true }),
-          setDoc(doc(db, 'quizzes', cleanGenId), autoQuizPayload, { merge: true })
-        ]).catch(err => console.error("Error auto-saving generated quiz to Firestore:", err));
-
-        if (user) {
-          const finalTopic = activeTopic || finalQuizTopic || 'Visual Materials Quiz';
-          const nameHandle = currentUserData?.username || currentUserData?.displayName || 'Scholar';
-          addDoc(collection(db, 'activities'), {
-            type: 'quiz_generated',
-            text: `${nameHandle} generated a quiz on "${finalTopic}", try yours!`,
-            username: nameHandle,
-            userId: user.uid,
-            userPhoto: currentUserData?.photoURL || '',
-            timestamp: serverTimestamp() || new Date(),
-            topic: finalTopic
-          }).catch((err) => console.error("Error saving global activity:", err));
-        }
-      }
-
-      return {
-        success: true,
-        quizId: genId,
-        topic: finalQuizTopic,
-        count: questionsToUse.length
-      };
-    } catch (error: any) {
-      if (checkIsQuotaError(error)) {
-        triggerQuotaErrorModal();
-      }
-      console.error("Quiz Generation Error, falling back to offline practice quiz:", error);
-      setUserNotification(`Quiz Generation Error: ${error?.message || "Failed to generate quiz from online AI. Generating from local practice generator."}`);
-      const docTitles = quizDocuments.map(d => d.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ")).join(" & ");
-      const finalQuizTopic = activeTopic.trim() || docTitles || (importedQuizNote ? importedQuizNote.title : "Practice Quiz");
-      const fallbackQuestions = localFallbackQuizQuestions(finalQuizTopic, activeCount);
-      const genId = `quiz-gen-${Date.now()}`;
-
-      setQuizTopic(finalQuizTopic);
-      setQuizQuestions(fallbackQuestions);
-      setCurrentQuestionIndex(0);
-      setQuizScore(0);
-      setUserQuizAnswers([]);
-      setQuizState('preview');
-      setSelectedOption(null);
-      setIsAnswered(false);
-      setCurrentQuizId(genId);
-
-      return {
-        success: true,
-        quizId: genId,
-        topic: finalQuizTopic,
-        count: fallbackQuestions.length
-      };
-    } finally {
-      setIsGeneratingQuiz(false);
-    }
-  };
-
-  const generateDynamicExam = async () => {
-    if (isGeneratingQuiz) return;
-    if (!user) {
-      setShowAuthModal(true);
-      return;
-    }
-    if (!quizTopic.trim()) {
-      setUserNotification("Please enter a topic first.");
-      return;
-    }
-
-    if (quizQuestionCount <= 0) {
-      setUserNotification("Please enter a valid number of questions.");
-      return;
-    }
-
-    const canProceed = await checkAndIncrementUsage('QUIZ');
-    if (!canProceed) return;
-
-    setIsGeneratingQuiz(true);
-    
-    try {
-      const prompt = `
-        Generate a ${quizQuestionCount}-question professional multiple choice examination about "${quizTopic}".
-        Difficulty Level: ${quizDifficulty}.
-        
-        CRITICAL FOR MATH & SCIENTIFIC TOPICS:
-        - For ALL mathematical expressions, formulas, vectors, and scientific notations in BOTH questions AND options, ALWAYS wrap them in standard LaTeX notation enclosed in $ ... $ delimiters.
-        - Example options: ["$2\\hat{i} + 3\\hat{j}$", "$-2\\hat{i} + 3\\hat{j}$", "$2^2 = 4$", "$\\pi r^2$"].
-        - Use standard LaTeX backslashes (e.g., \\hat{i}, \\vec{v}, \\frac{1}{2}, \\sqrt{x}). NEVER write forward slashes like /hat/I or /vec/v.
-        - NEVER leave raw symbols like ^ or _ outside of LaTeX delimiters. Ensure all backslashes are properly escaped for JSON.
-        
-        Return ONLY a JSON object with this structure:
-        {
-          "questions": [
-            {
-              "question": "string",
-              "options": ["string", "string", "string", "string"],
-              "correctAnswer": number (0-3),
-              "explanation": "Detailed breakdown using LaTeX. CRITICAL: Provide a comprehensive explanation that covers why the correct answer is right and also why the incorrect options are wrong."
-            }
-          ]
-        }
-      `;
-
-      const aiInstance = getAiInstance();
-      const response = await aiInstance.models.generateContent({
-        model: FLASH_MODEL,
-        contents: { parts: [{ text: prompt }] },
-        config: {
-          responseMimeType: "application/json",
-          thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL }
-        }
-      });
-
-      const data = robustJSONParse(response?.text || "{}");
-      if (data && data.questions) {
-        const examQs = data.questions.map((q: any, i: number) => ({
-          ...q,
-          id: `dyn-q-${Date.now()}-${i}`
-        }));
-        setExamQuestions(examQs);
-        setExamLobbyState('exam');
-        setUserNotification("Dynamic Course Exam Generated!");
-      }
-    } catch (err) {
-      console.error("Exam Gen Error:", err);
-      setUserNotification("Failed to generate dynamic exam.");
-    } finally {
-      setIsGeneratingQuiz(false);
-    }
-  };
-
-  const handleHistoryItemClick = async (item: HomeHistoryItem) => {
-    setHistoryLoadingModal({
-      show: true,
-      title: item.title || item.type.toUpperCase(),
-      message: `Restoring your ${item.type} session and locking interface...`
-    });
-    try {
-      await new Promise(r => setTimeout(r, 650));
-      if (item.type === 'quiz') {
-        const cleanId = item.id.replace(/^quiz-/, '');
-        const progressKey = (cleanId === 'current-quiz' || item.id === 'current-quiz') ? 'nsg_current_quiz_progress' : `nsg_quiz_progress_${cleanId}`;
-        const localProgress = safeStorage.getItem(progressKey) || safeStorage.getItem(`nsg_quiz_progress_${item.id}`) || safeStorage.getItem('nsg_current_quiz_progress');
-        if (localProgress) {
-          try {
-            const p = JSON.parse(localProgress);
-            if (p.quizQuestions && Array.isArray(p.quizQuestions) && p.quizQuestions.length > 0) {
-              const restoredIdx = p.currentQuestionIndex !== undefined ? p.currentQuestionIndex : 0;
-              setQuizQuestions(p.quizQuestions);
-              setQuizTopic(p.quizTopic || item.title || "Study Quiz");
-              setCurrentQuestionIndex(restoredIdx);
-              setQuizScore(p.quizScore || 0);
-              setUserQuizAnswers(p.userQuizAnswers || []);
-              setQuizDifficulty(p.quizDifficulty || 'Medium');
-              setQuizQuestionCount(p.quizQuestionCount || p.quizQuestions.length);
-              setCurrentQuizId(p.currentQuizId || item.id);
-              setQuizState(p.quizState || 'active');
-              setSelectedOption(p.userQuizAnswers?.[restoredIdx] !== undefined ? p.userQuizAnswers[restoredIdx] : null);
-              setIsAnswered(p.userQuizAnswers?.[restoredIdx] !== undefined);
-              setActiveTab('tools');
-              setToolsSubTab('quiz');
-              setUserNotification("🔄 Restored saved quiz progress!");
-              return;
-            }
-          } catch (e) {
-            console.error("Failed to restore history quiz progress:", e);
-          }
-        }
-
-        const itemQuestions = item.questions || (item.data && item.data.questions);
-        if (itemQuestions && Array.isArray(itemQuestions) && itemQuestions.length > 0) {
-          setQuizQuestions(itemQuestions);
-          setQuizTopic(item.topic || item.title || "Study Quiz");
-          setQuizDifficulty((item.difficulty as any) || 'Medium');
-          setQuizQuestionCount(itemQuestions.length);
-          setCurrentQuizId(item.id);
-
-          if (item.score !== undefined && item.progress === 100) {
-            setQuizScore(item.score);
-            setQuizState('finished');
-            setUserQuizAnswers(item.answers || []);
-          } else {
-            let restoredIdx = 0;
-            if ((item as any).currentQuestionIndex !== undefined && (item as any).currentQuestionIndex < itemQuestions.length) {
-              restoredIdx = (item as any).currentQuestionIndex;
-            } else if (item.answers && Array.isArray(item.answers) && item.answers.length > 0) {
-              let lastAns = -1;
-              for (let aIdx = item.answers.length - 1; aIdx >= 0; aIdx--) {
-                if (item.answers[aIdx] !== undefined && item.answers[aIdx] !== null) {
-                  lastAns = aIdx;
-                  break;
-                }
-              }
-              if (lastAns !== -1) {
-                restoredIdx = Math.min(lastAns + 1, itemQuestions.length - 1);
-              }
-            }
-
-            setQuizScore(item.score || 0);
-            setUserQuizAnswers(item.answers || []);
-            setCurrentQuestionIndex(restoredIdx);
-            setSelectedOption(item.answers?.[restoredIdx] !== undefined ? item.answers[restoredIdx] : null);
-            setIsAnswered(item.answers?.[restoredIdx] !== undefined);
-            setQuizState('preview');
-          }
-          setActiveTab('tools');
-          setToolsSubTab('quiz');
-          setUserNotification("✅ Restored quiz session!");
-          return;
-        }
-
-        // Check if there is a shared quiz ID in Firestore
-        let targetQuizId = '';
-        if (item.id.startsWith('quiz-')) {
-          targetQuizId = item.id.replace('quiz-', '');
-          if (targetQuizId.startsWith('fin-')) targetQuizId = '';
-        }
-        if (targetQuizId && targetQuizId !== 'current-quiz') {
-          try {
-            await loadSharedQuiz(targetQuizId);
-            if (item.score !== undefined) {
-              setQuizState('finished');
-              setQuizScore(item.score);
-              if (item.answers) setUserQuizAnswers(item.answers);
-            }
-            setActiveTab('tools');
-            setToolsSubTab('quiz');
-            return;
-          } catch (err) {
-            console.warn("Shared quiz load failed, generating fallback...", err);
-          }
-        }
-
-        // Fallback: Generate fresh quiz if no questions found anywhere
-        await generateQuiz(item.title || item.topic || "General Assessment", 10, (item.difficulty as any) || "Medium");
-        setActiveTab('tools');
-        setToolsSubTab('quiz');
-      } else if (item.type === 'exam') {
-        setActiveTab('tools');
-        setToolsSubTab('exam');
-        if (item.score !== undefined) {
-          setExamLobbyState('result');
-          setExamScore(item.score);
-          if (item.subjectScores) setSubjectScores(item.subjectScores);
-          if (item.questions) setExamQuestions(item.questions);
-          if (item.answers) setExamAnswers(item.answers);
-          if (item.matric) setMatricNumber(item.matric);
-          if (item.studentName) setStudentName(item.studentName);
-        } else {
-          if (item.questions) setExamQuestions(item.questions);
-          if (item.answers) setExamAnswers(item.answers);
-          if (item.matric) setMatricNumber(item.matric);
-          if (item.studentName) setStudentName(item.studentName);
-          setExamLobbyState('exam');
-          setExamFinished(false);
-          setUserNotification("🔄 Restored your active exam session!");
-        }
-      } else if (item.type === 'recording') {
-        const session = sessions.find(s => s.id === item.id);
-        if (session) {
-          loadRecordingSession(session);
-        }
-        setActiveTab('tools');
-        setToolsSubTab('record');
-      } else if (item.type === 'assignment') {
-        setActiveTab('tools');
-        setToolsSubTab('assignment');
-        if (item.data) {
-          setActiveAssignmentSolution(item.data);
-        }
-      } else if (item.type === 'note' as any) {
-        const note = userNotes.find(n => n.id === item.id);
-        if (note) {
-          setSelectedNote(note);
-          setNoteHistory([]);
-          setRedoStack([]);
-        }
-        setActiveTab('tools');
-        setToolsSubTab('notebook');
-      } else if (item.type === 'faculty') {
-        setActiveTab('tools');
-        setToolsSubTab('faculty');
-      }
-    } catch (err) {
-      console.error("History item click error:", err);
-    } finally {
-      setHistoryLoadingModal({ show: false, title: '', message: '' });
-    }
-  };
-
-  const sendQuizReportToAI = () => {
-    const report = `
-      I just completed a quiz on ${quizTopic}.
-      Score: ${quizScore}/${quizQuestions.length}.
-      Difficulty: ${quizDifficulty}.
-      Please analyze my performance and provide a study plan based on these results.
-    `;
-    setChatHistory(prev => [...prev, { role: 'user', text: report, timestamp: new Date().toLocaleTimeString() }]);
-    setActiveTab('ai');
-    handleSendMessage();
-  };
-
-  const handleOptionSelect = (index: number, qIndex?: number) => {
-    const targetIdx = qIndex !== undefined ? qIndex : currentQuestionIndex;
-    if (!user) {
-      setUserNotification("Quickly log in with Google or sign up to submit answers and track your academic standing!");
-      setAuthMode('signup');
-      setShowAuthModal(true);
-      return;
-    }
-    if (quizState === 'finished') return;
-    if (userQuizAnswers[targetIdx] !== undefined) return; // Prevent multiple clicks
-    
-    setCurrentQuestionIndex(targetIdx);
-    setSelectedOption(index);
-    setIsAnswered(true);
-    
-    // Store user answer instantly for targetIdx
-    setUserQuizAnswers(prev => {
-      const newAnswers = [...prev];
-      newAnswers[targetIdx] = index;
-      return newAnswers;
-    });
-
-    // Optionally increment score immediately if correct
-    if (quizQuestions[targetIdx] && index === quizQuestions[targetIdx].correctAnswer) {
-      setQuizScore(prev => prev + 1);
-    }
-  };
-
-  const nextQuestion = () => {
-    if (currentQuestionIndex < quizQuestions.length - 1) {
-      const nextIdx = currentQuestionIndex + 1;
-      setCurrentQuestionIndex(nextIdx);
-      setSelectedOption(userQuizAnswers[nextIdx] !== undefined ? userQuizAnswers[nextIdx] : null);
-      setIsAnswered(userQuizAnswers[nextIdx] !== undefined);
-    } else {
-      // Calculate final score
-      let finalScore = 0;
-      quizQuestions.forEach((q, idx) => {
-        if (userQuizAnswers[idx] === q.correctAnswer) finalScore++;
-      });
-      
-      setQuizScore(finalScore);
-      setQuizState('finished');
-      
-      const historyId = currentQuizId ? (currentQuizId.startsWith('quiz-') ? currentQuizId : `quiz-${currentQuizId}`) : `quiz-fin-${Date.now()}`;
-      
-      addToFinishedHistory({
-        id: historyId,
-        title: quizTopic || 'Quiz Result',
-        type: 'quiz',
-        progress: 100,
-        date: new Date().toLocaleDateString(),
-        timestamp: Date.now(),
-        score: finalScore,
-        total: quizQuestions.length,
-        answers: userQuizAnswers,
-        questions: quizQuestions,
-        topic: quizTopic,
-        difficulty: quizDifficulty
-      });
-
-      // ---- POST TO REAL-TIME COMMUNAL SHORE FEED ----
-      if (user) {
-        const percent = Math.round((finalScore / (quizQuestions.length || 1)) * 100);
-        const nameHandle = currentUserData?.username || currentUserData?.displayName || 'Scholar';
-        
-        const titleText = percent < 40 ? `💡 You can do better!` : `🏆 Magnificent Quiz Score!`;
-        const messageText = percent < 40 
-          ? `Keep trying, ${nameHandle}! You completed "${quizTopic || 'General Study'}" Quiz with ${finalScore}/${quizQuestions.length} (${percent}%). Don't give up, you can do better! 💪📚`
-          : `Congratulations ${nameHandle}! You finished "${quizTopic || 'General Study'}" Quiz with ${finalScore}/${quizQuestions.length} (${percent}%). Outstanding determination! 🎉👏`;
-
-        // Push a beautiful notification!
-        addDoc(collection(db, 'notifications'), {
-          to: user.uid,
-          title: titleText,
-          message: messageText,
-          type: percent < 40 ? 'warning' : 'congrats',
-          subtype: 'quiz_complete',
-          targetTab: 'tools',
-          targetSubTab: 'quiz',
-          timestamp: serverTimestamp() || new Date(),
-          read: false
-        }).catch(err => console.error("Error creating completion notification:", err));
-
-        // Trigger on-screen phone-style push notification
-        triggerPhoneNotification(titleText, messageText, 'quiz');
-
-        let actType = 'quiz_complete';
-        let customText = `${nameHandle} completed a quiz on "${quizTopic || 'General Study'}", try yours!`;
-        
-        // Elite score check
-        const finishedQuizzes = finishedHistory.filter((f: any) => f.type === 'quiz');
-        const countEliteSeries = finishedQuizzes.slice(-2).filter((f: any) => (f.score / (f.total || 1)) >= 0.8).length;
-        if (percent >= 80 && countEliteSeries >= 1) {
-          actType = 'quiz_elite';
-          customText = `${nameHandle} got more than 80% in three quizzes in a row, generate yours!`;
-        }
-        
-        addDoc(collection(db, 'activities'), {
-          type: actType,
-          text: customText,
-          username: nameHandle,
-          userId: user.uid,
-          userPhoto: currentUserData?.photoURL || '',
-          timestamp: serverTimestamp(),
-          topic: quizTopic || 'General Study'
-        }).catch((err) => console.error("Error saving global activity:", err));
-      }
-
-      // Clear literal progress
-      const key = currentQuizId ? `nsg_quiz_progress_${currentQuizId}` : 'nsg_current_quiz_progress';
-      localStorage.removeItem(key);
-    }
-  };
-
-  const prevQuestion = () => {
-    if (currentQuestionIndex > 0) {
-      const prevIdx = currentQuestionIndex - 1;
-      setCurrentQuestionIndex(prevIdx);
-      setSelectedOption(userQuizAnswers[prevIdx] !== undefined ? userQuizAnswers[prevIdx] : null);
-      setIsAnswered(userQuizAnswers[prevIdx] !== undefined);
-    }
-  };
-
-  const closeWelcome = () => {
-    setShowWelcome(false);
-    localStorage.setItem('nsg_welcome_seen', 'true');
-  };
-
-  // STRICT RULE: Navigation buttons MUST ONLY be displayed on the four main pages:
-  // 1. Main Home Page (activeTab === 'home' && !homeSelectedCourse)
-  // 2. Main Tool List Page (activeTab === 'tools' && toolsSubTab === 'menu')
-  // 3. Main Community Page (activeTab === 'community' && communitySubTab !== 'rankings')
-  // 4. Main Profile Page (activeTab === 'profile' && !isEditingProfile && profileSubTab !== 'stats')
-  // All other pages, tools, and chat rooms MUST NOT show the footer navigation.
-  const isMainPage = Boolean(
-    !showGodMode &&
-    !legalPage &&
-    (
-      (activeTab === 'home' && !homeSelectedCourse) ||
-      (activeTab === 'tools' && toolsSubTab === 'menu') ||
-      (activeTab === 'community' && communitySubTab !== 'rankings') ||
-      (activeTab === 'profile' && !isEditingProfile && profileSubTab !== 'stats')
-    )
-  );
-
-  const isSecondaryPage = !isMainPage;
-
-  const isAuthView = Boolean(!user || showAuthModal || (activeTab === 'profile' && !user));
-
-  return (
-    <AppBootstrapper onDeepLink={handleDeepLinkUrl}>
-      <div 
-        className="h-screen flex flex-col transition-colors duration-300 font-sans selection:bg-[#DC2626] overflow-hidden relative"
-        style={{
-          backgroundColor: 'var(--bg-base)',
-          color: 'var(--text-primary)',
-        }}
-      >
-      {/* LoggedOutLanding global blocker removed to keep pages accessible */}
-
-      <PremiumOnboarding 
-        showPremiumTrial={showPremiumTrial}
-        setShowPremiumTrial={setShowPremiumTrial}
-        user={user}
-        theme={theme}
-        initializeMonthly={initializeMonthly}
-        initializeYearly={initializeYearly}
-        handleSubscriptionSuccess={handleSubscriptionSuccess}
-        setUserNotification={setUserNotification}
-      />
-      <EmailPreviewModal 
-        showEmailPreviewModal={showEmailPreviewModal}
-        setShowEmailPreviewModal={setShowEmailPreviewModal}
-        theme={theme}
-        emailPreviewTo={emailPreviewTo}
-        emailPreviewSubject={emailPreviewSubject}
-        emailPreviewContent={emailPreviewContent}
-      />
-      <AIChallengeModal 
-        showAIChallengeModal={showAIChallengeModal}
-        setShowAIChallengeModal={setShowAIChallengeModal}
-        activeAIChallenge={activeAIChallenge}
-        setActiveTab={setActiveTab}
-        setToolsSubTab={setToolsSubTab}
-        setUserNotification={setUserNotification}
-        sendPersuasiveEmail={sendPersuasiveEmail}
-      />
-      <AnalysisLoadingOverlay 
-        isAnalyzing={isAnalyzing}
-      />
-      <PremiumModal
-        showPremiumModal={showPremiumModal}
-        setShowPremiumModal={setShowPremiumModal}
-        isPremium={isPremium}
-        user={user}
-        theme={theme}
-        setUserNotification={setUserNotification}
-        initializeMonthly={initializeMonthly}
-        initializeYearly={initializeYearly}
-        handleSubscriptionSuccess={handleSubscriptionSuccess}
-      />
-
-      {/* ABOUT US MODAL */}
-        <AboutUsModal
-          showAboutUsModal={showAboutUsModal}
-          setShowAboutUsModal={setShowAboutUsModal}
-        />
-        <ContactUsModal
-          showContactUsModal={showContactUsModal}
-          setShowContactUsModal={setShowContactUsModal}
-        />
-        <PhoneNotificationOverlay
-          activePhoneNotifs={activePhoneNotifs}
-          setActivePhoneNotifs={setActivePhoneNotifs}
-          setActiveTab={setActiveTab}
-          setToolsSubTab={setToolsSubTab}
-        />
-        <HistoryLoadingModal
-          historyLoadingModal={historyLoadingModal}
-        />
-        <QuotaModal
-          showQuotaModal={showQuotaModal}
-          setShowQuotaModal={setShowQuotaModal}
-          quotaModalMessage={quotaModalMessage}
-        />
-        <AuthModal
-          showAuthModal={showAuthModal}
-          setShowAuthModal={setShowAuthModal}
-          user={user}
-          authMode={authMode}
-          setAuthMode={setAuthMode}
-          authFullName={authFullName}
-          setAuthFullName={setAuthFullName}
-          authUsername={authUsername}
-          setAuthUsername={setAuthUsername}
-          usernameStatus={usernameStatus}
-          authEmail={authEmail}
-          setAuthEmail={setAuthEmail}
-          authPassword={authPassword}
-          setAuthPassword={setAuthPassword}
-          authPhone={authPhone}
-          setAuthPhone={setAuthPhone}
-          authGender={authGender}
-          setAuthGender={setAuthGender}
-          authDOB={authDOB}
-          setAuthDOB={setAuthDOB}
-          authUniversity={authUniversity}
-          setAuthUniversity={setAuthUniversity}
-          authFaculty={authFaculty}
-          setAuthFaculty={setAuthFaculty}
-          authDepartment={authDepartment}
-          setAuthDepartment={setAuthDepartment}
-          authLevel={authLevel}
-          setAuthLevel={setAuthLevel}
-          authInviteCode={authInviteCode}
-          setAuthInviteCode={setAuthInviteCode}
-          showPassword={showPassword}
-          setShowPassword={setShowPassword}
-          isAuthLoading={isAuthLoading}
-          showUniSearchModal={showUniSearchModal}
-          setShowUniSearchModal={setShowUniSearchModal}
-          uniSearchQuery={uniSearchQuery}
-          setUniSearchQuery={setUniSearchQuery}
-          handleAuth={handleAuth}
-          handleGoogleLogin={handleGoogleLogin}
-          setUserNotification={setUserNotification}
-          auth={auth}
-          setLegalPage={setLegalPage}
-        />
-        <WelcomeModal
-          showWelcome={showWelcome}
-          closeWelcome={closeWelcome}
-          theme={theme}
-        />
-        <LegalModal
-          legalPage={legalPage}
-          setLegalPage={setLegalPage}
-          theme={theme}
-        />
-      <AnimatePresence>
-        {true && (
-          <motion.div 
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} 
-            className={`flex h-full overflow-hidden ${isDesktop && !isAuthView ? "flex-row" : "flex-col"} flex-1`}
-          >
-            <DesktopSidebar
-              isDesktop={isDesktop}
-              isAuthView={isAuthView}
-              activeTab={activeTab}
-              setActiveTab={setActiveTab}
-              setToolsSubTab={setToolsSubTab}
-              theme={theme}
-              setTheme={setTheme}
-              user={user}
-              currentUserData={currentUserData}
-              isPremium={isPremium}
-              setShowPremiumModal={setShowPremiumModal}
-              setShowAuthModal={setShowAuthModal}
-              handleLogout={handleLogout}
-              personalNotifications={personalNotifications}
-              unreadCount={personalNotifications.filter(n => !n.read).length}
-            />
-          <main 
-            className={`flex-1 ${
-              isAuthView 
-            ? 'w-full max-w-full p-0 overflow-y-auto' 
-            : ((activeTab === 'home' || activeTab === 'chat' || activeTab === 'class' || activeTab === 'ai' || (activeTab === 'tools' && toolsSubTab === 'notebook') || isDesktop) 
-                ? 'w-full' 
-                : 'max-w-4xl w-full mx-auto px-2 sm:px-4')
-        } ${
-          isAuthView 
-            ? 'p-0 overflow-y-auto' 
-            : ((activeTab === 'tools' && toolsSubTab === 'notebook')
-                ? 'p-0 overflow-hidden'
-                : ((activeTab === 'home' || activeTab === 'chat' || activeTab === 'class' || activeTab === 'ai' || isSecondaryPage) ? 'pb-2 overflow-y-auto pt-0' : 'pb-24 overflow-y-auto pt-4'))
-        } flex flex-col custom-scrollbar ${
-          (activeTab === 'home' || (activeTab === 'tools' && toolsSubTab === 'notebook')) ? 'px-0' : (isDesktop && !isAuthView ? 'px-8' : '')
-        }`}
-        style={{
-          backgroundColor: 'var(--bg-base)',
-        }}
-      >
-        {/* Global Overlays and Notification Popups */}
-        <GlobalNotificationOverlay
-          userNotification={userNotification}
-          setUserNotification={setUserNotification}
-        />
-        <AudioTranscribingOverlay
-          audioTranscribingPopup={audioTranscribingPopup}
-          setAudioTranscribingPopup={setAudioTranscribingPopup}
-          setActiveTab={(t: any) => setActiveTab(t)}
-          setToolsSubTab={(s: any) => setToolsSubTab(s)}
-          userNotes={userNotes}
-          activeAudioNoteId={activeAudioNoteId}
-          setSelectedNote={setSelectedNote}
-        />
-        <AudioUploadOverlay
-          audioUploadState={audioUploadState}
-        />
-
-        <AnimatePresence mode="popLayout">
-          {/* HOME TAB */}
-          {activeTab === 'home' && (
-            <HomePage
-              theme={theme}
-              user={user}
-              currentUserData={currentUserData}
-              userNotes={userNotes}
-              finishedHistory={finishedHistory}
-              sessions={sessions}
-              unreadCount={unreadCount}
-              personalNotifications={personalNotifications}
-              setActiveTab={setActiveTab}
-              setToolsSubTab={setToolsSubTab}
-              setSelectedNote={setSelectedNote}
-              setImportedQuizNote={setImportedQuizNote}
-              setQuizTopic={setQuizTopic}
-              setQuizDocuments={setQuizDocuments}
-              openCoursePreview={openCoursePreviewFromHome}
-              openCoursesWithFilter={openCoursesWithFilterFromHome}
-              setUserNotification={setUserNotification}
-            />
-          )}
-
-          {/* QUIZ HISTORY TAB */}
-          {activeTab === 'quiz_history' && (
-            <QuizHistoryPage
-              finishedHistory={finishedHistory}
-              onOpenQuizById={(qId) => loadSharedQuiz(qId)}
-              setActiveTab={setActiveTab}
-              setToolsSubTab={setToolsSubTab}
-            />
-          )}
-
-          {/* EXAM HISTORY TAB */}
-          {activeTab === 'exam_history' && (
-            <ExamHistoryPage
-              finishedHistory={finishedHistory}
-              setActiveTab={setActiveTab}
-              setToolsSubTab={setToolsSubTab}
-            />
-          )}
-
-          {/* NOTES HISTORY TAB */}
-          {activeTab === 'notes_history' && (
-            <NotesHistoryPage
-              userNotes={userNotes}
-              setActiveTab={setActiveTab}
-              setToolsSubTab={setToolsSubTab}
-              setSelectedNote={setSelectedNote}
-            />
-          )}
-
-          {/* GENERAL HISTORY TAB */}
-          {activeTab === 'general_history' && (
-            <GeneralHistoryPage
-              finishedHistory={finishedHistory}
-              userNotes={userNotes}
-              sessions={sessions}
-              onOpenQuizById={(qId) => loadSharedQuiz(qId)}
-              setActiveTab={setActiveTab}
-              setToolsSubTab={setToolsSubTab}
-              setSelectedNote={setSelectedNote}
-            />
-          )}
-
-          {/* PREMIUM TAB */}
-          {activeTab === 'premium' && (
-            <PremiumPage
-              isPremium={isPremium}
-              onClose={() => setActiveTab('home')}
-              setUserNotification={setUserNotification}
-              setIsPremium={setIsPremium}
-              initializeMonthly={initializeMonthly}
-              initializeYearly={initializeYearly}
-              handleSubscriptionSuccess={handleSubscriptionSuccess}
-            />
-          )}
-
-          {/* OMNI OFFLINE DOWNLOAD TAB */}
-          {activeTab === 'omni_offline' && (
-            <OmniOfflinePage
-              theme={theme}
-              onBack={() => setActiveTab('home')}
-              onOpenChat={() => {
-                setActiveTab('chat');
-              }}
-              onOpenQuiz={() => {
-                setActiveTab('tools');
-                setToolsSubTab('quiz');
-              }}
-            />
-          )}
-
-          {/* COURSES TAB */}
-          {activeTab === 'courses' && (
-            <CoursesPage
-              theme={theme}
-              user={user}
-              userNotes={userNotes}
-              setUserNotification={setUserNotification}
-              generateQuiz={generateQuiz}
-              setActiveTab={setActiveTab}
-              setToolsSubTab={setToolsSubTab}
-              setSelectedNote={setSelectedNote}
-              setImportedQuizNote={setImportedQuizNote}
-              setQuizTopic={setQuizTopic}
-              setQuizDocuments={setQuizDocuments}
-              onBack={() => setActiveTab('home')}
-              initialSelectedCourse={homeSelectedCourse}
-              initialFacultyFilter={coursesFacultyFilter}
-              initialDepartmentFilter={coursesDepartmentFilter}
-            />
-          )}
-
-          {/* TOOLS & STUDY TAB */}
-          {activeTab === 'tools' && (
-            <ToolsPage
-              theme={theme}
-              user={user}
-              currentUserData={currentUserData}
-              activeTab={activeTab}
-              setActiveTab={setActiveTab}
-              toolsSubTab={toolsSubTab}
-              setToolsSubTab={setToolsSubTab}
-              setUserNotification={setUserNotification}
-              checkAndIncrementUsage={checkAndIncrementUsage}
-              isPremium={isPremium}
-              showHelp={showHelp}
-              setShowHelp={setShowHelp}
-              showAuthModal={showAuthModal}
-              setShowAuthModal={setShowAuthModal}
-              chatSessions={chatSessions}
-              setChatSessions={setChatSessions}
-              activeChatSessionId={activeChatSessionId}
-              setActiveChatSessionId={setActiveChatSessionId}
-              handleSendMessage={handleSendMessage}
-              chatHistory={chatHistory}
-              setChatHistory={setChatHistory}
-              CoursesTool={CoursesTool}
-              AssignmentSolver={AssignmentSolver}
-              AILibrary={AILibrary}
-              sessions={sessions}
-              selectedSession={selectedSession}
-              setSelectedSession={setSelectedSession}
-              deleteLectureSession={deleteLectureSession}
-              togglePinLectureSession={togglePinLectureSession}
-              loadRecordingSession={loadRecordingSession}
-              showRecordSidebar={showRecordSidebar}
-              setShowRecordSidebar={setShowRecordSidebar}
-              showAnalysisInRecord={showAnalysisInRecord}
-              setShowAnalysisInRecord={setShowAnalysisInRecord}
-              isTranscribing={isTranscribing}
-              transcriptionNotes={transcriptionNotes}
-              isAnalyzing={isAnalyzing}
-              analysisResult={analysisResult}
-              setAnalysisResult={setAnalysisResult}
-              refurbishedResult={refurbishedResult}
-              setRefurbishedResult={setRefurbishedResult}
-              isRecording={isRecording}
-              isProcessingFinal={isProcessingFinal}
-              recordingTime={recordingTime}
-              audioUrl={audioUrl}
-              setAudioUrl={setAudioUrl}
-              recordedBlob={recordedBlob}
-              setRecordedBlob={setRecordedBlob}
-              uploadedImages={uploadedImages}
-              setUploadedImages={setUploadedImages}
-              isNotebookDrawerOpen={isNotebookDrawerOpen}
-              setIsNotebookDrawerOpen={setIsNotebookDrawerOpen}
-              isPodcastActive={isPodcastActive}
-              setIsPodcastActive={setIsPodcastActive}
-              isTeacherMode={isTeacherMode}
-              setIsTeacherMode={setIsTeacherMode}
-              podcastDialogue={podcastDialogue}
-              generatePodcastDiscussion={generatePodcastDiscussion}
-              isGeneratingPodcast={isGeneratingPodcast}
-              handlePodcastInput={handlePodcastInput}
-              replyingTo={replyingTo}
-              setReplyingTo={setReplyingTo}
-              showPodcastUploadMenu={showPodcastUploadMenu}
-              setShowPodcastUploadMenu={setShowPodcastUploadMenu}
-              selectedNote={selectedNote}
-              setSelectedNote={setSelectedNote}
-              importedQuizNote={importedQuizNote}
-              setImportedQuizNote={setImportedQuizNote}
-              userNotes={userNotes}
-              setUserNotes={setUserNotes}
-              saveNote={saveNote}
-              deleteNote={deleteNote}
-              quizState={quizState}
-              setQuizState={setQuizState}
-              quizCreationMethod={quizCreationMethod}
-              setQuizCreationMethod={setQuizCreationMethod}
-              onGlobalBack={handleGlobalBack}
-              quizTopic={quizTopic}
-              setQuizTopic={setQuizTopic}
-              quizQuestionCount={quizQuestionCount}
-              setQuizQuestionCount={setQuizQuestionCount}
-              quizDifficulty={quizDifficulty}
-              setQuizDifficulty={setQuizDifficulty}
-              quizAnswerType={quizAnswerType}
-              setQuizAnswerType={setQuizAnswerType}
-              quizAnswerTypes={quizAnswerTypes}
-              setQuizAnswerTypes={setQuizAnswerTypes}
-              dailyQuizUsedCount={dailyQuizUsedCount}
-              quizImages={quizImages}
-              setQuizImages={setQuizImages}
-              isUploadingQuizImages={isUploadingQuizImages}
-              isUploadingQuizDocs={isUploadingQuizDocs}
-              handleQuizImageUpload={handleQuizImageUpload}
-              removeQuizImage={removeQuizImage}
-              quizDocuments={quizDocuments}
-              setQuizDocuments={setQuizDocuments}
-              handleQuizDocumentUpload={handleQuizDocumentUpload}
-              removeQuizDocument={removeQuizDocument}
-              isGeneratingQuiz={isGeneratingQuiz}
-              generateQuiz={generateQuiz}
-              examLobbyState={examLobbyState}
-              setExamLobbyState={setExamLobbyState}
-              studentName={studentName}
-              setStudentName={setStudentName}
-              matricNumber={matricNumber}
-              setMatricNumber={setMatricNumber}
-              showAdminLogin={showAdminLogin}
-              setShowAdminLogin={setShowAdminLogin}
-              examIdInput={examIdInput}
-              setExamIdInput={setExamIdInput}
-              isAuthLoading={isAuthLoading}
-              adminMode={adminMode}
-              setAdminMode={setAdminMode}
-              adminPin={adminPin}
-              setAdminPin={setAdminPin}
-              handleAdminLogin={handleAdminLogin}
-              handleMatricLogin={handleMatricLogin}
-              isTakingPaid={isTakingPaid}
-              examConfig={examConfig}
-              startExam={startExam}
-              examTimer={examTimer}
-              currentExamIndex={currentExamIndex}
-              setCurrentExamIndex={setCurrentExamIndex}
-              examQuestions={examQuestions}
-              submitExam={submitExam}
-              examAnswers={examAnswers}
-              setExamAnswers={setExamAnswers}
-              examScore={examScore}
-              quizQuestions={quizQuestions}
-              currentQuestionIndex={currentQuestionIndex}
-              setCurrentQuestionIndex={setCurrentQuestionIndex}
-              shareQuiz={shareQuiz}
-              userQuizAnswers={userQuizAnswers}
-              selectedOption={selectedOption}
-              setSelectedOption={setSelectedOption}
-              isAnswered={isAnswered}
-              setIsAnswered={setIsAnswered}
-              handleOptionSelect={handleOptionSelect}
-              prevQuestion={prevQuestion}
-              nextQuestion={nextQuestion}
-              quizScore={quizScore}
-              handleShareResult={handleShareResult}
-              uploadNoteFile={uploadNoteFile}
-              notePreviewMode={notePreviewMode}
-              setNotePreviewMode={setNotePreviewMode}
-              podcastSpeechIndex={podcastSpeechIndex}
-              stopPodcastSpeech={stopPodcastSpeech}
-              playPodcastDialogueLine={playPodcastDialogueLine}
-              scrollContainerRef={scrollContainerRef}
-              handleNoteScroll={handleNoteScroll}
-              setSelectedNoteTitle={(title: string) => setSelectedNote({ ...selectedNote, title })}
-              handleNoteContentChange={handleNoteContentChange}
-              lastFocusedBlock={lastFocusedBlock}
-              insertText={insertText}
-              noteBlocks={noteBlocks}
-              updateBlock={updateBlock}
-              removeBlock={removeBlock}
-              noteScrollPos={noteScrollPos}
-              scrollToPosition={scrollToPosition}
-              noteHistory={noteHistory}
-              setNoteHistory={setNoteHistory}
-              redoStack={redoStack}
-              setRedoStack={setRedoStack}
-              undoNote={undoNote}
-              redoNote={redoNote}
-              initializePayment={initializePayment}
-              handleTakingPaymentSuccess={handleTakingPaymentSuccess}
-              handlePaystackClose={handlePaystackClose}
-              uploadHistoryToOmni={uploadHistoryToOmni}
-              shareAnalysis={shareAnalysis}
-              handleToggleRecording={handleToggleRecording}
-              handleSaveFacultyHistory={handleSaveFacultyHistory}
-              addToFinishedHistory={addToFinishedHistory}
-              finishedHistory={finishedHistory}
-              activeAssignmentSolution={activeAssignmentSolution}
-              setActiveAssignmentSolution={setActiveAssignmentSolution}
-              getAiInstance={getAiInstance}
-              getHfInstance={getHfInstance}
-              fileToGenerativePart={fileToGenerativePart}
-              studentActiveQuestions={studentActiveQuestions}
-              activeStudentSubject={activeStudentSubject}
-              setActiveStudentSubject={setActiveStudentSubject}
-              handleUploadAudioRecordPage={handleUploadAudioRecordPage}
-              activeAudioNoteId={activeAudioNoteId}
-              isAudioTranscribing={isAudioTranscribing}
-              audioTranscribingPopup={audioTranscribingPopup}
-              setAudioTranscribingPopup={setAudioTranscribingPopup}
-              subjectScores={subjectScores}
-              onOpenOmniWithPrompt={handleOpenOmniWithPrompt}
-            />
-          )}
-
-          {/* CHAT ROOM TAB */}
-          {activeTab === 'chat' && (
-            user ? (
-              <ChatRoom 
-                key="chat"
-                theme={theme}
-                user={user}
-                userHandle={userHandle}
-                userNotes={userNotes}
-                onOpenNote={handleOpenSharedNote}
-                onTagOmni={handleTagOmni}
-                uploadToCloudinary={uploadToCloudinary}
-                setUserNotification={setUserNotification}
-                onChatSelect={(isActive) => setIsChatRoomActive(isActive)}
-                setAppActiveTab={(tab) => setActiveTab(tab as any)}
-                setToolsSubTab={(subTab) => setToolsSubTab(subTab as any)}
-                setImportedQuizNote={setImportedQuizNote}
-                setQuizTopic={setQuizTopic}
-                generateQuiz={generateQuiz}
-                initialSelectedChat={selectedChatForRoom}
-                onOpenQuizById={(qId) => loadSharedQuiz(qId)}
-              />
-            ) : (
-              <motion.div 
-                key="chat-guest" 
-                initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                className="flex-1 flex flex-col items-center justify-center p-8 text-center max-w-lg mx-auto space-y-6 select-none my-12"
-              >
-                <div className="w-16 h-16 bg-[#DC2626]/10 rounded-2xl flex items-center justify-center text-[#DC2626]">
-                  <MessageSquare size={36} />
-                </div>
-                <h3 className="text-xl font-black text-white uppercase tracking-tighter italic">NSG Relay Chat Workspace</h3>
-                <p className="text-xs text-white/50 leading-relaxed">
-                  Join student chat rooms, converse with our smart academic AI assistant, OMNI, share study notebooks, and connect in real-time. Log in or quickly create your official NSG study account to begin.
-                </p>
-                <div className="flex flex-col sm:flex-row gap-3 w-full justify-center pt-2">
-                  <button 
-                    onClick={() => { setAuthMode('signup'); setShowAuthModal(true); }}
-                    className="px-6 py-3.5 bg-[#DC2626] font-black uppercase text-[9px] tracking-widest text-white rounded-xl shadow-xl shadow-[#DC2626]/20 active:scale-95 transition-all cursor-pointer"
-                  >
-                    Register Account
-                  </button>
-                  <button 
-                    onClick={() => { setAuthMode('login'); setShowAuthModal(true); }}
-                    className="px-6 py-3.5 bg-white/5 border border-white/10 hover:bg-white/10 font-black uppercase text-[9px] tracking-widest text-white rounded-xl active:scale-95 transition-all cursor-pointer"
-                  >
-                    Log In with Google / Email
-                  </button>
-                </div>
-              </motion.div>
-            )
-          )}
-
-          {/* CLASS ROOM TAB */}
-          {activeTab === 'class' && (
-            <div className="flex-1 overflow-hidden">
-              {classRoomId ? (
-                <ClassRoom 
-                  theme={theme}
-                  user={user}
-                  userHandle={userHandle}
-                  isHost={isHost}
-                  classId={classRoomId}
-                  onExit={() => { setClassRoomId(null); setActiveTab('home'); }}
-                  uploadToCloudinary={uploadToCloudinary}
-                  setUserNotification={setUserNotification}
-                />
-              ) : (
-                <div className="h-full flex flex-col items-center justify-center p-8 space-y-8 text-center relative">
-                   <button 
-                     type="button"
-                     onClick={() => setActiveTab('tools')}
-                     className="absolute top-4 left-4 flex items-center gap-2 bg-[#1E1B2E] border border-white/5 hover:border-[#DC2626]/40 text-[9px] uppercase tracking-widest text-white/75 font-black px-4 py-2.5 rounded-xl transition-all shadow-inner active:scale-95"
-                   >
-                     ← Back to Tools
-                   </button>
-                   <div className="space-y-4 mt-8">
-                     <div className="w-16 h-16 bg-[#DC2626]/10 rounded-2xl flex items-center justify-center mx-auto mb-2">
-                        <Video size={32} className="text-[#DC2626]" />
-                     </div>
-                     <h2 className="text-2xl font-black text-white uppercase italic tracking-tighter">NSG Live Classes</h2>
-                     <p className="text-sm text-white/40 max-w-xs mx-auto">Host professional lecture rooms with video, audio, and real-time classboards.</p>
-                   </div>
-                   
-                   <div className="w-full max-w-sm space-y-3">
-                     <button 
-                       onClick={startClass}
-                       className="w-full bg-[#DC2626] text-white font-black py-4 rounded-2xl shadow-xl shadow-[#DC2626]/20 flex items-center justify-center gap-2 uppercase tracking-widest text-xs"
-                     >
-                       <Zap size={18} /> Host New Class
-                     </button>
-                     <div className="flex items-center gap-3 py-2">
-                       <div className="h-px flex-1 bg-white/5" />
-                       <span className="text-[8px] font-black text-white/20 uppercase">Or</span>
-                       <div className="h-px flex-1 bg-white/5" />
-                     </div>
-                     <div className="flex gap-2">
-                       <input 
-                         id="join-class-id"
-                         placeholder="Enter Class ID (NSG-XXXX)"
-                         className="flex-1 bg-white/5 border border-white/10 rounded-2xl px-4 text-xs text-white outline-none focus:border-[#DC2626]"
-                       />
-                       <button 
-                         onClick={() => {
-                           const el = document.getElementById('join-class-id') as HTMLInputElement;
-                           if (el.value) joinClass(el.value);
-                         }}
-                         className="bg-white/10 text-white font-black px-6 py-4 rounded-2xl text-xs uppercase tracking-widest border border-white/10 hover:bg-white/20 transition-all"
-                       >
-                         Join
-                       </button>
-                     </div>
-                   </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* NOTIFICATIONS TAB */}
-          {activeTab === 'notifications' && (
-            <NotificationsView
-              setActiveTab={setActiveTab}
-              selectedArticle={selectedArticle}
-              setSelectedArticle={setSelectedArticle}
-              theme={theme}
-              personalNotifications={personalNotifications}
-              user={user}
-              currentUserData={currentUserData}
-              setToolsSubTab={setToolsSubTab}
-              setProfileSubTab={setProfileSubTab}
-              handleGlobalBack={handleGlobalBack}
-              handleHistoryItemClick={handleHistoryItemClick}
-            />
-          )}
-          {activeTab === 'community' && (
-            <CommunityPage 
-              currentUserData={currentUserData}
-              sessions={sessions}
-              finishedHistory={finishedHistory}
-              leaderboard={leaderboard}
-              user={user}
-              db={db}
-              updateDoc={updateDoc}
-              doc={doc}
-              arrayUnion={arrayUnion}
-              increment={increment}
-              serverTimestamp={serverTimestamp}
-              addDoc={addDoc}
-              collection={collection}
-              setUserNotification={setUserNotification}
-              setActiveTab={setActiveTab}
-              setToolsSubTab={setToolsSubTab}
-              setProfileSubTab={setProfileSubTab}
-              setShowInviteModal={setShowInviteModal}
-              theme={theme}
-              quests={dailyQuests}
-              userNotes={userNotes}
-            />
-          )}
-
-          {/* PROFILE TAB (GUEST OR USER) */}
-          {activeTab === 'profile' && !user && (
-            <ProfileGuestView
-              authMode={authMode}
-              setAuthMode={setAuthMode}
-              authFullName={authFullName}
-              setAuthFullName={setAuthFullName}
-              authUsername={authUsername}
-              setAuthUsername={setAuthUsername}
-              usernameStatus={usernameStatus}
-              authEmail={authEmail}
-              setAuthEmail={setAuthEmail}
-              authPassword={authPassword}
-              setAuthPassword={setAuthPassword}
-              authPhone={authPhone}
-              setAuthPhone={setAuthPhone}
-              authGender={authGender}
-              setAuthGender={setAuthGender}
-              authDOB={authDOB}
-              setAuthDOB={setAuthDOB}
-              authUniversity={authUniversity}
-              setAuthUniversity={setAuthUniversity}
-              authFaculty={authFaculty}
-              setAuthFaculty={setAuthFaculty}
-              authDepartment={authDepartment}
-              setAuthDepartment={setAuthDepartment}
-              authLevel={authLevel}
-              setAuthLevel={setAuthLevel}
-              authInviteCode={authInviteCode}
-              setAuthInviteCode={setAuthInviteCode}
-              showPassword={showPassword}
-              setShowPassword={setShowPassword}
-              isAuthLoading={isAuthLoading}
-              showUniSearchModal={showUniSearchModal}
-              setShowUniSearchModal={setShowUniSearchModal}
-              uniSearchQuery={uniSearchQuery}
-              setUniSearchQuery={setUniSearchQuery}
-              handleAuth={handleAuth}
-              handleGoogleLogin={handleGoogleLogin}
-              setUserNotification={setUserNotification}
-              auth={auth}
-              setLegalPage={setLegalPage}
-            />
-          )}
-          {activeTab === 'profile' && user && (
-            <ProfileUserView
-              user={user}
-              currentUserData={currentUserData}
-              theme={theme}
-              profileSubTab={profileSubTab}
-              setProfileSubTab={setProfileSubTab}
-              setActiveTab={setActiveTab}
-              isEditingProfile={isEditingProfile}
-              setIsEditingProfile={setIsEditingProfile}
-              setIsDeleteAccountOpen={setIsDeleteAccountOpen}
-              setDeleteConfirmInput={setDeleteConfirmInput}
-              setShowPremiumModal={setShowPremiumModal}
-              setShowAboutUsModal={setShowAboutUsModal}
-              setShowContactUsModal={setShowContactUsModal}
-              setShowInviteModal={setShowInviteModal}
-              setShowGodMode={setShowGodMode}
-              handleLogout={handleLogout}
-              handleProfileTouchStart={handleProfileTouchStart}
-              handleProfileTouchMove={handleProfileTouchMove}
-              handleProfileTouchEnd={handleProfileTouchEnd}
-              finishedHistory={finishedHistory}
-              isPremium={isPremium}
-            />
-          )}
-        </AnimatePresence>
-      </main>
-    </motion.div>
-  )}
-</AnimatePresence>
-
-
-        <HostExamPanel
-          adminMode={adminMode}
-          setAdminMode={setAdminMode}
-          theme={theme}
-          user={user}
-          currentUserData={currentUserData}
-          isPremium={isPremium}
-          examConfig={examConfig}
-          setExamConfig={setExamConfig}
-          examStatus={examStatus}
-          setExamStatus={setExamStatus}
-          scoreSheet={scoreSheet}
-          registeredStudents={registeredStudents}
-          setRegisteredStudents={setRegisteredStudents}
-          deleteHostedExam={deleteHostedExam}
-          downloadExamScorecard={downloadExamScorecard}
-          generateAdminQuestions={generateAdminQuestions}
-          parseAndImportBatchQuestions={parseAndImportBatchQuestions}
-          setUserNotification={setUserNotification}
-          setConfirmModal={setConfirmModal}
-          setShowShareModal={setShowShareModal}
-          copyToClipboard={copyToClipboard}
-        />
-
-        <EditProfilePage
-          isEditingProfile={isEditingProfile}
-          setIsEditingProfile={setIsEditingProfile}
-          user={user}
-          currentUserData={currentUserData}
-          profileFormData={profileFormData}
-          setProfileFormData={setProfileFormData}
-          theme={theme}
-          setTheme={setTheme}
-          isSavingProfile={isAuthLoading}
-          handleSaveProfile={handleSaveProfile}
-          setIsDeleteAccountOpen={setIsDeleteAccountOpen}
-          setDeleteConfirmInput={setDeleteConfirmInput}
-          setUserNotification={setUserNotification}
-          handleLogout={handleLogout}
-        />
-
-        <DeleteAccountModal
-          isDeleteAccountOpen={isDeleteAccountOpen}
-          setIsDeleteAccountOpen={setIsDeleteAccountOpen}
-          deleteConfirmInput={deleteConfirmInput}
-          setDeleteConfirmInput={setDeleteConfirmInput}
-          isDeletingAccount={isAuthLoading}
-          handleDeleteAccount={handleDeleteAccount}
-          theme={theme}
-        />
-
-        <CustomConfirmModal
-          confirmModal={confirmModal}
-          setConfirmModal={setConfirmModal}
-          theme={theme}
-        />
-
-        <GodModePanel
-          showGodMode={showGodMode}
-          setShowGodMode={setShowGodMode}
-          godTab={godTab}
-          setGodTab={setGodTab}
-          theme={theme}
-          user={user}
-          currentUserData={currentUserData}
-          godUsers={allUsers}
-          courses={customCourses}
-          godSafetyReports={reports}
-          godBlogPosts={blogPosts}
-          handleDeleteCourse={handleDeleteCourse}
-          handleDeleteBlogPost={deletePost}
-        />
-        {/* Admin & Content Management Modals */}
-        <PublishArticleModal
-          isAddingPost={isAddingPost}
-          setIsAddingPost={setIsAddingPost}
-          theme={theme}
-          newPost={newPost}
-          setNewPost={setNewPost}
-          handleAddPost={handleAddPost}
-        />
-        <EditArticleModal
-          isEditingPost={isEditingPost}
-          setIsEditingPost={setIsEditingPost}
-          editingPost={editingPost}
-          setEditingPost={setEditingPost}
-          theme={theme}
-          handleUpdatePost={handleUpdatePost}
-          deletePost={deletePost}
-        />
-        <AdminEditUserModal
-          editingUser={editingUser}
-          setEditingUser={setEditingUser}
-          theme={theme}
-          handleEditUser={handleEditUser}
-        />
-        <AdminEditGroupModal
-          editingGroup={editingGroup}
-          setEditingGroup={setEditingGroup}
-          theme={theme}
-          handleEditGroup={handleEditGroup}
-        />
-
-        {/* SHARE MODAL */}
-
-        <SaveModal
-          saveModal={saveModal}
-          setSaveModal={setSaveModal}
-          theme={theme}
-        />
-
-        <ShareModal
-          showShareModal={showShareModal}
-          setShowShareModal={setShowShareModal}
-          theme={theme}
-          shareQuizLink={shareQuizLink || undefined}
-          copyToClipboard={copyToClipboard}
-          shareName={user?.displayName || currentUserData?.name || 'Student'}
-          downloadScorecard={toolsSubTab === 'exam' ? downloadExamScorecard : downloadQuizScorecard}
-          isSharing={false}
-          shareCardRef={shareCardRef}
-          examConfig={examConfig}
-          currentScore={examScore}
-          totalQuestions={studentActiveQuestions.length || examQuestions.length}
-          toolsSubTab={toolsSubTab}
-        />
-
-        <QuizShareModal
-          showQuizShareModal={showQuizShareModal}
-          setShowQuizShareModal={setShowQuizShareModal}
-          theme={theme}
-          shareQuizLink={shareQuizLink || ''}
-          shareQuizTitle={quizTopic || 'Study Quiz'}
-          copyToClipboard={copyToClipboard}
-          handleShareQuizToPlatform={handleShareQuizToPlatform}
-          isGeneratingShareImage={isGeneratingShareImage}
-          quizShareCardRef={quizShareCardRef}
-          quizQuestions={quizQuestions}
-          currentQuizIndex={currentQuestionIndex}
-        />
-
-        <InviteModal
-          showInviteModal={showInviteModal}
-          setShowInviteModal={setShowInviteModal}
-          currentUserData={currentUserData}
-          copyToClipboard={copyToClipboard}
-          handleShareInvite={handleShareInvite}
-        />
-
-        <BottomNavigation
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          setToolsSubTab={setToolsSubTab}
-          theme={theme}
-          isSecondaryPage={isSecondaryPage}
-          isDesktop={isDesktop}
-          isAuthView={isAuthView}
-          personalNotifications={personalNotifications}
-          toolsSubTab={toolsSubTab}
-          communitySubTab={communitySubTab}
-          profileSubTab={profileSubTab}
-          isEditingProfile={isEditingProfile}
-          homeSelectedCourse={homeSelectedCourse}
-        />
-      {/* OFFLINE MODAL POPUP */}
-      <OfflineModal 
-        isOpen={showOfflineModal} 
-        onClose={() => setShowOfflineModal(false)} 
-        message={offlineModalMessage} 
-      />
-
-      {/* NATIVE AUDIO RECORDER & LIVE VISUALIZER OVERLAY */}
-      <NativeAudioRecorder
-        isRecording={isRecording}
-        recordingTime={recordingTime}
-        handleToggleRecording={handleToggleRecording}
-        isProcessingFinal={isProcessingFinal}
-        isOnline={isOnline}
-        theme={theme}
-        isTranscribePage={activeTab === 'tools' && toolsSubTab === 'record'}
-      />
-
-      {/* QUIZ LINK LOADING POPUP OVERLAY */}
-
-        <QuizLinkLoadingOverlay
-          isLinkQuizLoading={isLinkQuizLoading}
-        />
-
-      {/* EXAM ALARM SOUND SETTINGS MODAL */}
-      <AnimatePresence>
-        {showAlarmSettingsModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto"
-            onClick={() => setShowAlarmSettingsModal(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-2xl bg-[#120F1D] border border-white/10 rounded-3xl p-6 shadow-2xl overflow-hidden"
-            >
-              <AlarmSoundSettings
-                onBack={() => setShowAlarmSettingsModal(false)}
-                onSaved={() => setUserNotification("Alarm sound preferences saved! 🔔")}
-              />
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-      </div>
-    </AppBootstrapper>
-  );
-}

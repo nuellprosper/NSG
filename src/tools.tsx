@@ -485,7 +485,7 @@ export const ToolsPage = (props: any) => {
     }
   }, [selectedNote?.id, notePreviewMode]);
 
-  const handleLaunchOmniQuizDiscussion = (targetSessionId: 'new' | string) => {
+  const handleLaunchOmniQuizDiscussion = (targetSessionId: 'new' | 'current' | string) => {
     const percentage = Math.round((quizScore / ((quizQuestions && quizQuestions.length) || 1)) * 100);
     
     let docsContext = '';
@@ -499,8 +499,8 @@ export const ToolsPage = (props: any) => {
 
     const breakdown = (quizQuestions || []).map((q: any, idx: number) => {
       const userAns = userQuizAnswers[idx];
-      const userChoiceText = userAns !== undefined && q.options && q.options[userAns] ? `${String.fromCharCode(65 + userAns)}) ${q.options[userAns]}` : 'Not Answered / Skipped';
-      const correctChoiceText = q.options && q.options[q.correctAnswer] ? `${String.fromCharCode(65 + q.correctAnswer)}) ${q.options[q.correctAnswer]}` : 'N/A';
+      const userChoiceText = userAns !== undefined && q.options && q.options[userAns] ? `${String.fromCharCode(65 + userAns)}) ${q.options[userAns]}` : (userAns !== undefined ? String(userAns) : 'Not Answered / Skipped');
+      const correctChoiceText = q.options && q.options[q.correctAnswer] ? `${String.fromCharCode(65 + q.correctAnswer)}) ${q.options[q.correctAnswer]}` : (q.options ? q.options[0] : (q.correctAnswer !== undefined ? String(q.correctAnswer) : 'N/A'));
       const isCorrect = userAns === q.correctAnswer;
       
       return `Question ${idx + 1}: ${q.question}
@@ -520,6 +520,7 @@ ${breakdown}
 
 Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}". Please review my score and performance breakdown above. Point out my mistakes, explain why my wrong choices were incorrect and why the right options were correct, teach me the core concepts I missed, and provide a friendly study coaching summary!`;
 
+    setShowReviewWithOmniModal(false);
     setShowOmniQuizModal(false);
     if (props.onOpenOmniWithPrompt) {
       props.onOpenOmniWithPrompt(contextPrompt, targetSessionId);
@@ -542,6 +543,171 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
       return `data:audio/webm;base64,${session.audioBase64}`;
     }
     return "";
+  }, []);
+
+  // 🎙️ Native App Direct Audio Recording & Offline Storage
+  const isNative = isNativePlatform();
+  const [isNativeTranscribeRecording, setIsNativeTranscribeRecording] = useState(false);
+  const [nativeTranscribeSeconds, setNativeTranscribeSeconds] = useState(0);
+  const [nativeTranscribeBars, setNativeTranscribeBars] = useState<number[]>(new Array(24).fill(20));
+
+  const nativeTranscribeMediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const nativeTranscribeStreamRef = useRef<MediaStream | null>(null);
+  const nativeTranscribeTimerRef = useRef<any>(null);
+  const nativeTranscribeBarsRef = useRef<any>(null);
+  const nativeTranscribeChunksRef = useRef<Blob[]>([]);
+
+  const startNativeTranscribeRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+      nativeTranscribeStreamRef.current = stream;
+
+      const mimeType = typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('audio/mp4')
+        ? 'audio/mp4'
+        : 'audio/webm';
+
+      const recorder = new MediaRecorder(stream, { mimeType });
+      nativeTranscribeMediaRecorderRef.current = recorder;
+      nativeTranscribeChunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          nativeTranscribeChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        const audioBlob = new Blob(nativeTranscribeChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        const localAudioUrl = URL.createObjectURL(audioBlob);
+        const durationSec = nativeTranscribeSeconds || 1;
+        const mins = Math.floor(durationSec / 60);
+        const secs = durationSec % 60;
+        const durationStr = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        const newSessionId = `native_rec_${Date.now()}`;
+        const newTitle = `Lecture Voice Note - ${new Date().toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
+
+        // Convert blob to base64 for offline durable storage
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+          const base64Data = (reader.result as string)?.split(',')[1] || '';
+          const newSessionObj = {
+            id: newSessionId,
+            title: newTitle,
+            duration: durationStr,
+            audioUrl: localAudioUrl,
+            audioBase64: base64Data,
+            createdAt: Date.now(),
+            date: new Date().toLocaleDateString(),
+            type: 'native_recording',
+            isOfflineReady: true
+          };
+
+          // Save directly to local storage for offline retrieval
+          try {
+            const stored = localStorage.getItem('nsg_recorded_lectures');
+            const parsedList = stored ? JSON.parse(stored) : [];
+            localStorage.setItem('nsg_recorded_lectures', JSON.stringify([newSessionObj, ...parsedList]));
+          } catch (e) {
+            console.warn("Local storage write error:", e);
+          }
+
+          // If user is logged in, optionally save reference to Firestore
+          if (user?.uid) {
+            try {
+              await addDoc(collection(db, 'users', user.uid, 'recorded_sessions'), {
+                id: newSessionId,
+                title: newTitle,
+                duration: durationStr,
+                createdAt: serverTimestamp(),
+                platform: 'native'
+              }).catch(() => {});
+            } catch (fsErr) {
+              console.warn("Firestore sync notice (offline mode active):", fsErr);
+            }
+          }
+
+          if (setSelectedSession) {
+            setSelectedSession(newSessionObj);
+          }
+          if (setUserNotification) {
+            setUserNotification("✅ Voice recording saved directly to offline storage!");
+          }
+        };
+        reader.readAsDataURL(audioBlob);
+        setIsNativeTranscribeRecording(false);
+      };
+
+      recorder.start(100);
+      setIsNativeTranscribeRecording(true);
+      setNativeTranscribeSeconds(0);
+
+      if (nativeTranscribeTimerRef.current) clearInterval(nativeTranscribeTimerRef.current);
+      nativeTranscribeTimerRef.current = setInterval(() => {
+        setNativeTranscribeSeconds(prev => prev + 1);
+      }, 1000);
+
+      if (nativeTranscribeBarsRef.current) clearInterval(nativeTranscribeBarsRef.current);
+      nativeTranscribeBarsRef.current = setInterval(() => {
+        setNativeTranscribeBars(Array.from({ length: 24 }, () => Math.floor(Math.random() * 80) + 15));
+      }, 90);
+
+    } catch (err) {
+      console.error("Native recording error:", err);
+      if (setUserNotification) {
+        setUserNotification("Failed to access microphone. Please check permissions.");
+      }
+      setIsNativeTranscribeRecording(false);
+    }
+  };
+
+  const stopNativeTranscribeRecording = () => {
+    if (nativeTranscribeTimerRef.current) clearInterval(nativeTranscribeTimerRef.current);
+    if (nativeTranscribeBarsRef.current) clearInterval(nativeTranscribeBarsRef.current);
+
+    if (nativeTranscribeMediaRecorderRef.current && nativeTranscribeMediaRecorderRef.current.state !== 'inactive') {
+      nativeTranscribeMediaRecorderRef.current.stop();
+    }
+    if (nativeTranscribeStreamRef.current) {
+      nativeTranscribeStreamRef.current.getTracks().forEach(t => t.stop());
+      nativeTranscribeStreamRef.current = null;
+    }
+  };
+
+  const cancelNativeTranscribeRecording = () => {
+    if (nativeTranscribeTimerRef.current) clearInterval(nativeTranscribeTimerRef.current);
+    if (nativeTranscribeBarsRef.current) clearInterval(nativeTranscribeBarsRef.current);
+
+    if (nativeTranscribeMediaRecorderRef.current && nativeTranscribeMediaRecorderRef.current.state !== 'inactive') {
+      nativeTranscribeMediaRecorderRef.current.ondataavailable = null;
+      nativeTranscribeMediaRecorderRef.current.onstop = null;
+      nativeTranscribeMediaRecorderRef.current.stop();
+    }
+    if (nativeTranscribeStreamRef.current) {
+      nativeTranscribeStreamRef.current.getTracks().forEach(t => t.stop());
+      nativeTranscribeStreamRef.current = null;
+    }
+    nativeTranscribeChunksRef.current = [];
+    setIsNativeTranscribeRecording(false);
+    setNativeTranscribeSeconds(0);
+  };
+
+  // Cleanup native recording on unmount
+  useEffect(() => {
+    return () => {
+      if (nativeTranscribeTimerRef.current) clearInterval(nativeTranscribeTimerRef.current);
+      if (nativeTranscribeBarsRef.current) clearInterval(nativeTranscribeBarsRef.current);
+      if (nativeTranscribeStreamRef.current) {
+        nativeTranscribeStreamRef.current.getTracks().forEach(t => t.stop());
+      }
+    };
   }, []);
 
   // Custom states inside Tools
@@ -974,7 +1140,25 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
         <motion.div key="record" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
           <div className="flex items-center justify-between px-2">
             <button onClick={handleToolsBack} className="text-white/40 hover:text-[#DC2626] transition-colors flex items-center gap-1.5 text-xs font-black uppercase"><ArrowLeft size={14} /> Back</button>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              {/* Native-only Direct Audio Record Button */}
+              {isNative && (
+                <button 
+                  type="button"
+                  onClick={isNativeTranscribeRecording ? stopNativeTranscribeRecording : startNativeTranscribeRecording}
+                  className={`px-3.5 py-1.5 font-black text-[10px] rounded-xl shadow-lg transition-all uppercase tracking-wider flex items-center gap-1.5 cursor-pointer ${
+                    isNativeTranscribeRecording 
+                      ? 'bg-red-600 text-white animate-pulse shadow-red-600/30' 
+                      : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20'
+                  }`}
+                  title="Record audio offline & online directly to local and cloud storage"
+                >
+                  <Mic size={14} className={isNativeTranscribeRecording ? 'animate-ping' : ''} />
+                  <span>{isNativeTranscribeRecording ? `Stop & Save (${Math.floor(nativeTranscribeSeconds/60)}:${(nativeTranscribeSeconds%60).toString().padStart(2, '0')})` : 'Record Audio'}</span>
+                  <span className="text-[7.5px] px-1.5 py-0.5 rounded bg-black/30 font-mono">OFFLINE/ONLINE</span>
+                </button>
+              )}
+
               <input 
                 type="file" 
                 id="record-page-audio-upload" 
@@ -1005,39 +1189,110 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
             <div className="md:col-span-2 space-y-6">
               <div className={`${theme === 'dark' ? 'bg-[#13111C]/60 border-white/5' : 'bg-white border-slate-200'} border p-6 sm:p-10 rounded-[2.5rem] relative flex flex-col items-center text-center justify-center min-h-[350px] overflow-hidden`}>
                 <div className="space-y-6 my-auto relative z-10 w-full max-w-md flex flex-col items-center justify-center">
-                  <div className="w-20 h-20 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-500 mb-1 shadow-lg shadow-red-500/5">
-                    <FileAudio size={40} />
-                  </div>
+                  
+                  {/* Live Native Recording View inside Transcribe card */}
+                  {isNativeTranscribeRecording ? (
+                    <div className="space-y-5 w-full flex flex-col items-center">
+                      <div className="w-20 h-20 rounded-full bg-red-600/20 border-2 border-red-500 flex items-center justify-center text-red-500 shadow-xl shadow-red-600/30 animate-pulse">
+                        <Mic size={36} />
+                      </div>
+                      
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-ping" />
+                          <span className="text-xl font-mono font-black text-red-500 tracking-wider">
+                            {Math.floor(nativeTranscribeSeconds / 60).toString().padStart(2, '0')}:{(nativeTranscribeSeconds % 60).toString().padStart(2, '0')}
+                          </span>
+                        </div>
+                        <p className="text-[11px] font-bold text-white/80 uppercase tracking-widest">
+                          Recording Voice Audio (Offline & Online Active)
+                        </p>
+                        <p className="text-[10px] text-white/40 font-mono">
+                          Will save directly to permanent device storage
+                        </p>
+                      </div>
 
-                  {!isProcessingFinal && (
-                    <div className="space-y-2">
-                      <h3 className="font-extrabold text-xl text-white">Transcribe Recorded Audio</h3>
-                      <p className="text-xs text-white/50 max-w-sm mx-auto leading-relaxed">Upload your pre-recorded lecture audio to automatically transcribe speech into structured study notes and AI summaries.</p>
-                    </div>
-                  )}
+                      {/* Real-time Dynamic Waveform visualizer */}
+                      <div className="w-full flex items-center justify-center gap-1 h-10 px-4 bg-white/5 rounded-2xl border border-white/10 overflow-hidden">
+                        {nativeTranscribeBars.map((lvl, i) => (
+                          <div 
+                            key={i} 
+                            style={{ height: `${lvl}%` }} 
+                            className="w-1.5 bg-red-500 rounded-full transition-all duration-75 min-h-[6px]"
+                          />
+                        ))}
+                      </div>
 
-                  {!isProcessingFinal && (
-                    <div className="flex flex-col sm:flex-row items-center justify-center gap-3 w-full">
-                      {handleToggleRecording && (
-                        <button 
+                      <div className="flex items-center gap-3">
+                        <button
                           type="button"
-                          onClick={handleToggleRecording}
-                          className="px-6 py-3.5 bg-gradient-to-r from-[#DC2626] via-red-600 to-purple-600 hover:brightness-110 text-white font-black text-xs rounded-2xl shadow-xl shadow-[#DC2626]/30 transition-all uppercase tracking-wider flex items-center gap-2 cursor-pointer active:scale-95 border border-white/20"
+                          onClick={cancelNativeTranscribeRecording}
+                          className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white/70 hover:text-red-400 font-black text-xs uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer"
                         >
-                          <Mic size={16} className="animate-pulse" />
-                          <span>Record Lecture Audio</span>
+                          <Trash2 size={15} />
+                          <span>Cancel</span>
                         </button>
-                      )}
-                      <button 
-                        type="button"
-                        onClick={() => document.getElementById('record-page-audio-upload')?.click()}
-                        className="px-6 py-3.5 bg-white/10 hover:bg-white/20 text-white border border-white/10 font-black text-xs rounded-2xl transition-all uppercase tracking-wider flex items-center gap-2 cursor-pointer active:scale-95"
-                      >
-                        <Upload size={16} />
-                        <span>Upload Recorded Audio</span>
-                        <span className="text-[9px] px-2 py-0.5 rounded bg-black/20 font-mono">{isPremium ? '4HR MAX' : '30MIN MAX'}</span>
-                      </button>
+                        <button
+                          type="button"
+                          onClick={stopNativeTranscribeRecording}
+                          className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 text-white font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-xl shadow-emerald-600/30 active:scale-95 transition-all cursor-pointer"
+                        >
+                          <Check size={16} />
+                          <span>Stop & Save to Storage</span>
+                        </button>
+                      </div>
                     </div>
+                  ) : (
+                    <>
+                      <div className="w-20 h-20 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-500 mb-1 shadow-lg shadow-red-500/5">
+                        <FileAudio size={40} />
+                      </div>
+
+                      {!isProcessingFinal && (
+                        <div className="space-y-2">
+                          <h3 className="font-extrabold text-xl text-white">Transcribe Recorded Audio</h3>
+                          <p className="text-xs text-white/50 max-w-sm mx-auto leading-relaxed">Record your lecture speech or upload audio to automatically transcribe speech into structured study notes and AI summaries.</p>
+                        </div>
+                      )}
+
+                      {!isProcessingFinal && (
+                        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 w-full flex-wrap">
+                          {/* Native-only direct record button */}
+                          {isNative && (
+                            <button 
+                              type="button"
+                              onClick={startNativeTranscribeRecording}
+                              className="px-6 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 text-white font-black text-xs rounded-2xl shadow-xl shadow-emerald-600/30 transition-all uppercase tracking-wider flex items-center gap-2 cursor-pointer active:scale-95 border border-white/20"
+                            >
+                              <Mic size={16} className="animate-pulse" />
+                              <span>Record Audio</span>
+                              <span className="text-[8px] px-1.5 py-0.5 rounded bg-black/30 font-mono">OFFLINE/ONLINE</span>
+                            </button>
+                          )}
+
+                          {handleToggleRecording && !isNative && (
+                            <button 
+                              type="button"
+                              onClick={handleToggleRecording}
+                              className="px-6 py-3.5 bg-gradient-to-r from-[#DC2626] via-red-600 to-purple-600 hover:brightness-110 text-white font-black text-xs rounded-2xl shadow-xl shadow-[#DC2626]/30 transition-all uppercase tracking-wider flex items-center gap-2 cursor-pointer active:scale-95 border border-white/20"
+                            >
+                              <Mic size={16} className="animate-pulse" />
+                              <span>Record Lecture Audio</span>
+                            </button>
+                          )}
+
+                          <button 
+                            type="button"
+                            onClick={() => document.getElementById('record-page-audio-upload')?.click()}
+                            className="px-6 py-3.5 bg-white/10 hover:bg-white/20 text-white border border-white/10 font-black text-xs rounded-2xl transition-all uppercase tracking-wider flex items-center gap-2 cursor-pointer active:scale-95"
+                          >
+                            <Upload size={16} />
+                            <span>Upload Recorded Audio</span>
+                            <span className="text-[9px] px-2 py-0.5 rounded bg-black/20 font-mono">{isPremium ? '4HR MAX' : '30MIN MAX'}</span>
+                          </button>
+                        </div>
+                      )}
+                    </>
                   )}
 
                   {isProcessingFinal && (
@@ -1775,8 +2030,8 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
 
                       {quizDocuments && quizDocuments.length > 0 && (
                         <div className="flex flex-wrap gap-2">
-                          {quizDocuments.map((docItem: any, docIdx: number) => (
-                            <div key={`${docItem.id || 'doc'}-${docIdx}`} className={`border rounded-xl p-2.5 flex items-center gap-2.5 ${
+                          {quizDocuments.map((docItem: any) => (
+                            <div key={docItem.id} className={`border rounded-xl p-2.5 flex items-center gap-2.5 ${
                               theme === 'dark' ? 'bg-purple-950/40 border-purple-500/40 text-white' : 'bg-purple-50 border-purple-200 text-slate-900'
                             }`}>
                               <FileText size={16} className="text-purple-600" />
@@ -2069,7 +2324,7 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
           {!isGeneratingQuiz && quizState === 'preview' && quizQuestions && quizQuestions.length > 0 && (
             <div className="space-y-6 pb-24">
               {/* Quiz Header Info */}
-              <div className="p-5 rounded-3xl bg-[#120D24] border border-purple-500/20 space-y-3 shadow-xl overflow-hidden max-w-full">
+              <div className="p-5 rounded-3xl bg-[#120D24] border border-purple-500/20 space-y-3 shadow-xl">
                 <div className="flex items-center justify-between">
                   <span className="px-3 py-1 rounded-full bg-purple-500/20 border border-purple-500/30 text-purple-300 text-[10px] font-extrabold uppercase tracking-widest">
                     Quiz Preview
@@ -2078,10 +2333,10 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                     0 of {quizQuestions.length} Answered
                   </span>
                 </div>
-                <h2 className="text-xl font-black text-white leading-tight break-words [overflow-wrap:anywhere] max-w-full">
+                <h2 className="text-xl font-black text-white leading-tight">
                   {quizTopic || "Generated Quiz"}
                 </h2>
-                <div className="flex items-center gap-4 text-xs font-bold text-white/60 pt-1 flex-wrap">
+                <div className="flex items-center gap-4 text-xs font-bold text-white/60 pt-1">
                   <span>Difficulty: <strong className="text-purple-300">{quizDifficulty}</strong></span>
                   <span>Total Questions: <strong className="text-purple-300">{quizQuestions.length}</strong></span>
                 </div>
@@ -2724,16 +2979,11 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                       </p>
 
                       <div className="space-y-2.5 pt-1">
-                        {/* Option 1: New History */}
+                        {/* Option 1: New Chat */}
                         <button
                           onClick={() => {
                             setShowReviewWithOmniModal(false);
-                            const incorrectList = quizQuestions.filter((q: any, i: number) => userQuizAnswers[i] !== q.correctAnswer);
-                            const prompt = `Hi Omni! I just finished a quiz on "${quizTopic || 'Study Topic'}". I scored ${correctCount}/${quizQuestions.length}. Here are the questions I struggled with:\n${incorrectList.map((q: any, i: number) => `${i+1}. ${q.question} (Correct Answer: ${q.options ? q.options[q.correctAnswer] : q.correctAnswer})`).join('\n')}\nCan you review these with me step-by-step?`;
-                            
-                            if (props.setActiveChatSessionId) props.setActiveChatSessionId(null);
-                            if (props.setInputMessage) props.setInputMessage(prompt);
-                            if (props.setActiveTab) props.setActiveTab('ai');
+                            handleLaunchOmniQuizDiscussion('new');
                           }}
                           className={`w-full p-4 rounded-2xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
                             theme === 'dark' ? 'bg-purple-900/30 border-purple-500/30 hover:bg-purple-900/50' : 'bg-purple-50 border-purple-200 hover:bg-purple-100'
@@ -2743,20 +2993,16 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                             <Plus size={18} />
                           </div>
                           <div className="space-y-0.5">
-                            <h4 className="text-sm font-black text-white">New History / Fresh Chat</h4>
-                            <p className="text-xs text-purple-200/70 font-medium">Start a brand new chat session focused exclusively on reviewing this quiz.</p>
+                            <h4 className="text-sm font-black text-white">New Chat</h4>
+                            <p className="text-xs text-purple-200/70 font-medium">Opens up a new chat and pastes the quiz questions, your choices, and correct answers so Omni can review with you.</p>
                           </div>
                         </button>
 
-                        {/* Option 2: Previous History */}
+                        {/* Option 2: Current Chat */}
                         <button
                           onClick={() => {
                             setShowReviewWithOmniModal(false);
-                            const incorrectList = quizQuestions.filter((q: any, i: number) => userQuizAnswers[i] !== q.correctAnswer);
-                            const prompt = `I'd like to review my latest quiz on "${quizTopic || 'Study Topic'}". Score: ${correctCount}/${quizQuestions.length}. ${incorrectList.length > 0 ? `Incorrect items:\n${incorrectList.map((q: any, i: number) => `${i+1}. ${q.question}`).join('\n')}` : 'I passed all questions!'}`;
-                            
-                            if (props.setInputMessage) props.setInputMessage(prompt);
-                            if (props.setActiveTab) props.setActiveTab('ai');
+                            handleLaunchOmniQuizDiscussion('current');
                           }}
                           className={`w-full p-4 rounded-2xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
                             theme === 'dark' ? 'bg-white/5 border-white/10 hover:bg-white/10' : 'bg-slate-100 border-slate-200 hover:bg-slate-200'
@@ -2766,8 +3012,8 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                             <History size={18} />
                           </div>
                           <div className="space-y-0.5">
-                            <h4 className="text-sm font-black text-white">Previous History / Active Chat</h4>
-                            <p className="text-xs text-purple-200/70 font-medium">Append this quiz breakdown to your ongoing chat session with Omni.</p>
+                            <h4 className="text-sm font-black text-white">Current Chat</h4>
+                            <p className="text-xs text-purple-200/70 font-medium">Opens up your latest Omni chat history and pastes the quiz content for detailed review.</p>
                           </div>
                         </button>
                       </div>
