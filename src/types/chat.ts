@@ -24,7 +24,7 @@ export interface Message {
   mediaUrl?: string;
   seenBy?: string[];
   isViewOnce?: boolean;
-  status?: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+  status?: 'sending' | 'sent' | 'delivered' | 'read' | 'failed' | 'error';
   isSharedNote?: boolean;
   sharedAccessType?: 'readonly' | 'editable';
   noteTitle?: string;
@@ -32,6 +32,7 @@ export interface Message {
   starredBy?: string[]; // Users who bookmarked this message
   reactions?: Reaction[]; // Floating Reaction collection
   duration?: number; // Voice message duration in seconds
+  waveform?: number[]; // Audio preview graph waveform array
   isOmniResponse?: boolean;
 }
 
