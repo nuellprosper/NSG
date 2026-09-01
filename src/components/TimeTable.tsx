@@ -6,7 +6,7 @@ import {
   Bell, BellRing, Share2, Check, ChevronRight, X, AlertTriangle,
   Flame, Award, Eye, Download, Info, ChevronLeft, CalendarCheck2, ExternalLink
 } from 'lucide-react';
-import { scheduleLocalNotification } from '../lib/capacitor/notifications';
+import { scheduleLocalNotification, scheduleExamAlarms } from '../lib/capacitor/notifications';
 import { extractPdfDetails } from '../utils';
 
 export type TimetableType = 'lecture' | 'personal' | 'exam';
@@ -437,7 +437,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
   };
 
   // Open Calendar Page directly (NO .ics download!)
-  const handleOpenCalendarEvent = (exam: ExamItem) => {
+  const handleOpenCalendarEvent = async (exam: ExamItem) => {
     try {
       const nextAlarmState = !exam.alarmSet;
       const updated = examItems.map(item => item.id === exam.id ? { ...item, alarmSet: nextAlarmState } : item);
@@ -473,17 +473,18 @@ export const TimeTable: React.FC<TimeTableProps> = ({
       // Open Google Calendar / Device Calendar web intent directly
       window.open(gcalUrl, '_blank');
 
-      // Schedule in-app local notification 2 hours before
-      const twoHoursBeforeMs = startDate.getTime() - (2 * 60 * 60 * 1000);
-      scheduleLocalNotification(
-        `🔔 Upcoming Exam in 2 Hours: ${exam.courseCode}`,
-        `Your ${exam.courseCode} examination starts at ${exam.startTime} in ${exam.venue}. Proceed to your exam hall now!`,
-        twoHoursBeforeMs > Date.now() ? twoHoursBeforeMs : Date.now() + 5000,
-        'nsg_exam_alarms'
-      );
+      // Schedule exact 1-hour and 5-minute pre-exam alarms with background Snooze & Dismiss actions
+      await scheduleExamAlarms({
+        id: exam.id,
+        courseCode: exam.courseCode,
+        courseTitle: exam.courseTitle,
+        venue: exam.venue,
+        examDate: exam.examDate,
+        startTime: exam.startTime
+      });
 
       if (setUserNotification) {
-        setUserNotification(`Opening Calendar for ${exam.courseCode} Exam & set 2-hour pre-exam reminder!`);
+        setUserNotification(`Opening Calendar & set 1-hour and 5-minute countdown alarms for ${exam.courseCode} Exam!`);
       }
     } catch (err) {
       console.error("Calendar opening error", err);
@@ -1270,6 +1271,16 @@ export const TimeTable: React.FC<TimeTableProps> = ({
                   >
                     <Eye size={13} />
                     <span>Full Timetable ({examItems.length})</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => window.dispatchEvent(new CustomEvent('nsg_open_alarm_settings'))}
+                    className="px-3 py-1.5 rounded-xl bg-red-500/15 hover:bg-red-500/25 border border-red-500/30 text-xs font-bold text-red-300 flex items-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+                    title="Configure Pre-Exam Alarm Sounds"
+                  >
+                    <BellRing size={13} />
+                    <span>Alarm Tone</span>
                   </button>
                 </>
               )}

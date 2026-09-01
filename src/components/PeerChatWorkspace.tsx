@@ -8,6 +8,8 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Message, Chat } from '../types/chat';
+import { QuizReadyCard } from './chat/QuizReadyCard';
+import { TruncatedUserMessage } from './chat/TruncatedUserMessage';
 
 // Sub-component: Waveform Voice Note Player
 interface VoiceNotePlayerProps {
@@ -531,10 +533,34 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
                           📖 View Study Note
                         </button>
                       </div>
+                    ) : msg.text && (msg.text.includes('[[QUIZ_READY:') || msg.text.includes('[[GENERATE_QUIZ:')) ? (
+                      <div className="w-full">
+                        {(() => {
+                          const matchReady = msg.text.match(/\[\[QUIZ_READY:\s*([^,\]]+),\s*([^,\]]+),\s*(\d+)\s*\]\]/i);
+                          const matchGen = msg.text.match(/\[\[GENERATE_QUIZ:\s*([^,\]]+),\s*(\d+)\s*\]\]/i);
+                          if (matchReady) {
+                            return (
+                              <QuizReadyCard
+                                quizId={matchReady[1].trim()}
+                                topic={matchReady[2].trim()}
+                                count={parseInt(matchReady[3], 10) || 5}
+                              />
+                            );
+                          }
+                          if (matchGen) {
+                            return (
+                              <QuizReadyCard
+                                quizId=""
+                                topic={matchGen[1].trim()}
+                                count={parseInt(matchGen[2], 10) || 5}
+                              />
+                            );
+                          }
+                          return <TruncatedUserMessage text={msg.text} maxChars={260} />;
+                        })()}
+                      </div>
                     ) : (
-                      <span className="text-[12.5px] font-semibold leading-relaxed tracking-tight break-words pr-8">
-                        {msg.text}
-                      </span>
+                      <TruncatedUserMessage text={msg.text} maxChars={260} />
                     )}
 
                     {/* Checkmark logs & Timestamps tucked neatly in bottom right corner */}

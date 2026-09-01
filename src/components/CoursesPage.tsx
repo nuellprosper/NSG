@@ -197,16 +197,12 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
         setActiveDeleteCardId(null);
         return;
       }
-      // Note: Touching/tapping the card body or scrolling does not open preview.
-      // Only tapping the dedicated "View" button on the card opens the course.
+      // Normal tap -> view course details
+      setSelectedCourse(course);
+      setCourseDetailTab('about');
+      setActiveImageIndex(0);
+      setIsReadMore(false);
     }
-  };
-
-  const handleOpenCourse = (course: CourseMaterial) => {
-    setSelectedCourse(course);
-    setCourseDetailTab('about');
-    setActiveImageIndex(0);
-    setIsReadMore(false);
   };
 
   const handleCardTouchCancel = (courseId: string) => {
@@ -1351,7 +1347,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
                       onTouchEnd={() => handleCardTouchEnd(course)}
                       onTouchCancel={() => handleCardTouchCancel(course.id)}
                       onTouchMove={(e) => handleCardTouchMove(course.id, e)}
-                      className={`relative group rounded-2xl border p-2 sm:p-2.5 flex flex-col justify-between transition-all duration-200 select-none hover:shadow-lg ${
+                      className={`relative group rounded-2xl border p-2 sm:p-2.5 flex flex-col justify-between transition-all duration-200 cursor-pointer select-none hover:shadow-lg hover:-translate-y-0.5 active:scale-98 ${
                         theme === 'dark'
                           ? 'bg-[#171328] border-purple-500/20 hover:border-purple-500/50'
                           : 'bg-white border-slate-200 hover:border-purple-400 shadow-sm'
@@ -1450,7 +1446,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
                       </div>
 
                       {/* Clean Text Details without container boxes */}
-                      <div className="pt-2 space-y-0.5 flex-1">
+                      <div className="pt-2 space-y-0.5">
                         <h3 className={`text-xs font-bold leading-tight line-clamp-1 ${
                           theme === 'dark' ? 'text-white' : 'text-slate-900'
                         }`}>
@@ -1468,27 +1464,6 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
                         }`}>
                           {course.uploaderName ? `By ${course.uploaderName}` : 'Omni Scholar'}
                         </p>
-                      </div>
-
-                      {/* Dedicated View Action Button */}
-                      <div className="pt-2.5">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenCourse(course);
-                          }}
-                          className={`w-full py-1.5 px-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-sm active:scale-95 cursor-pointer ${
-                            theme === 'dark'
-                              ? 'bg-purple-600/30 hover:bg-purple-600 text-purple-200 hover:text-white border border-purple-500/30'
-                              : 'bg-purple-50 hover:bg-purple-600 text-purple-700 hover:text-white border border-purple-200 hover:border-purple-600'
-                          }`}
-                          title={`View ${course.code}`}
-                        >
-                          <Eye size={13} className="stroke-[2.5]" />
-                          <span>View</span>
-                          <span className="hidden sm:inline">Course</span>
-                        </button>
                       </div>
                     </motion.div>
                   );

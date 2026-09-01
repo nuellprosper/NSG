@@ -99,8 +99,7 @@ export const QuizHistoryPage: React.FC<QuizHistoryPageProps> = ({
         <div className="space-y-3">
           {filteredQuizzes.map((item, idx) => {
             const rawTopic = item.topic || item.title || item.subject || 'Quiz Practice';
-            // Limit characters so long horizontal topics never expand the card or distort action buttons
-            const topic = rawTopic.length > 45 ? rawTopic.slice(0, 45).trim() + '...' : rawTopic;
+            const displayTopic = rawTopic.length > 45 ? `${rawTopic.slice(0, 42)}...` : rawTopic;
             const score = item.score !== undefined ? `${item.score}%` : (item.correctCount !== undefined ? `${item.correctCount}/${item.totalQuestions || 10}` : 'Completed');
             const dateStr = formatSafeDate(item.date || item.timestamp, 'Recent');
 
@@ -109,7 +108,7 @@ export const QuizHistoryPage: React.FC<QuizHistoryPageProps> = ({
                 key={`${item.id || 'quiz-hist'}-${idx}`}
                 className="p-4 sm:p-5 rounded-2xl bg-[#131022] border border-white/10 hover:border-red-500/40 transition-all shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 group overflow-hidden max-w-full"
               >
-                <div className="space-y-1.5 min-w-0 flex-1 w-full sm:w-auto overflow-hidden">
+                <div className="space-y-1.5 min-w-0 flex-1 w-full overflow-hidden">
                   <div className="flex items-center gap-2">
                     <span className="px-2.5 py-0.5 rounded-md bg-red-500/15 text-red-400 text-[9px] font-black uppercase tracking-wider border border-red-500/20 shrink-0">
                       Quiz
@@ -119,12 +118,12 @@ export const QuizHistoryPage: React.FC<QuizHistoryPageProps> = ({
                     </span>
                   </div>
                   <h3 
+                    className="text-sm font-bold text-white line-clamp-1 [overflow-wrap:anywhere] break-words break-all group-hover:text-red-400 transition-colors"
                     title={rawTopic}
-                    className="text-sm font-bold text-white truncate group-hover:text-red-400 transition-colors max-w-full break-words [overflow-wrap:anywhere]"
                   >
-                    {topic}
+                    {displayTopic}
                   </h3>
-                  <div className="flex items-center gap-3 text-[11px] text-white/60 font-medium flex-wrap sm:flex-nowrap">
+                  <div className="flex items-center gap-3 text-[11px] text-white/60 font-medium">
                     <span className="flex items-center gap-1 text-emerald-400 font-bold shrink-0">
                       <Award size={13} /> Score: {score}
                     </span>
@@ -142,7 +141,7 @@ export const QuizHistoryPage: React.FC<QuizHistoryPageProps> = ({
                       setToolsSubTab('quiz');
                     }
                   }}
-                  className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-red-600 to-rose-600 hover:bg-red-500 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer shrink-0 active:scale-95 whitespace-nowrap"
+                  className="w-full sm:w-auto px-4 sm:px-5 py-2.5 bg-gradient-to-r from-red-600 to-rose-600 hover:bg-red-500 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer shrink-0 whitespace-nowrap active:scale-95"
                 >
                   <PlayCircle size={15} className="shrink-0" />
                   <span>Take / Review Quiz</span>
