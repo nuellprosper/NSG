@@ -54,24 +54,51 @@ export async function getNetworkAndAIStatus(): Promise<AIStatusOverview> {
 
 /**
  * Reliable Cloud AI Fetcher with strict Timeout (AbortController) and multi-provider fallback.
- * Tries Gemini direct -> Server AI Proxy -> Groq / Together / OpenRouter / HF
+ * Prioritizes Server AI Proxy -> Direct Gemini -> Groq / Together / OpenRouter / HF -> Local Qwen
  */
 export async function fetchCloudAIWithTimeout(
   payload: AIRequestPayload,
   timeoutMs = 15000
 ): Promise<string> {
-  const apiKey = getApiKey();
   const promptText = payload.systemInstruction 
     ? `${payload.systemInstruction}\n\nStudent: ${payload.prompt}\nOmni:`
     : payload.prompt;
 
-  // 1. Direct Gemini REST call if API Key is available
+  // 1. Primary: Server AI Proxy Endpoint (/api/ai/chat) - fastest & secure
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    const proxyRes = await fetch('/api/ai/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: payload.prompt,
+        systemInstruction: payload.systemInstruction,
+        maxTokens: payload.maxTokens || 1024,
+        responseMimeType: payload.responseMimeType
+      }),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    if (proxyRes.ok) {
+      const data = await proxyRes.json();
+      if (data?.text && data.text.trim()) {
+        return data.text.trim();
+      }
+    }
+  } catch (proxyErr) {
+    // Server proxy unreached or timeout - continue to client-side direct fallbacks
+  }
+
+  // 2. Direct Gemini REST call if API Key is available
+  const apiKey = getApiKey();
   if (apiKey && apiKey !== 'offline_fallback_key') {
-    const candidateModels = [MODEL_NAME || 'gemini-3.1-flash-lite', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+    const candidateModels = ['gemini-3.1-flash-lite', 'gemini-2.5-flash', 'gemini-flash-latest'];
     for (const model of candidateModels) {
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
         const requestBody = {
@@ -110,33 +137,6 @@ export async function fetchCloudAIWithTimeout(
     }
   }
 
-  // 2. Try Server AI Proxy Endpoint (/api/ai/chat)
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-    const proxyRes = await fetch('/api/ai/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prompt: payload.prompt,
-        systemInstruction: payload.systemInstruction,
-        maxTokens: payload.maxTokens || 1024,
-        responseMimeType: payload.responseMimeType
-      }),
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-
-    if (proxyRes.ok) {
-      const data = await proxyRes.json();
-      if (data?.text && data.text.trim()) {
-        return data.text.trim();
-      }
-    }
-  } catch (proxyErr) {
-    // Silently continue to next cloud provider
-  }
-
   // 3. Try Together AI
   try {
     const togetherText = await callTogetherAI(promptText);
@@ -172,7 +172,7 @@ export async function fetchCloudAIWithTimeout(
     }
   } catch (hfErr) {}
 
-  // If local model is downloaded, use local Qwen
+  // 6. If local model is downloaded, use local Qwen
   if (isLocalQwenModelDownloaded()) {
     return await runLocalQwenInference(payload);
   }

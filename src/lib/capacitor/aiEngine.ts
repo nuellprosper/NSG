@@ -1,5 +1,6 @@
 import { isNativePlatform, checkNetworkStatus } from './platform';
 import { isOmniBrainDownloaded, getSavedModelPath, isCapacitorNative } from './omniBrainDownloader';
+import { Capacitor } from '@capacitor/core';
 
 export interface AIRequestPayload {
   prompt: string;
@@ -173,7 +174,7 @@ export async function runLocalQwenInference(payload: AIRequestPayload): Promise<
     throw new Error("⚠️ Audio transcription requires an active internet connection. Please connect to the internet to transcribe audio.");
   }
 
-  const rawModelPath = getSavedModelPath();
+  const rawModelPath = (typeof localStorage !== 'undefined' ? localStorage.getItem('omni_brain_model_path') : null) || getSavedModelPath() || 'qwen2.5-0.5b-instruct.gguf';
   const cleanPath = (rawModelPath || '').replace(/^file:\/\//, '').replace('file://', '');
   const formattedPrompt = formatQwenPrompt(payload);
   const nPredict = payload.maxTokens || 512;
@@ -183,7 +184,7 @@ export async function runLocalQwenInference(payload: AIRequestPayload): Promise<
 
   // 2. NATIVE LLAMA C++ RAM EXECUTION (Primary Android/Capacitor Engine)
   let nativeLlamaError: any = null;
-  if (isNativePlatform()) {
+  if (Capacitor.isNativePlatform() || isNativePlatform()) {
     try {
       const { initLlama, releaseAllLlama } = await import('llama-cpp-capacitor');
       

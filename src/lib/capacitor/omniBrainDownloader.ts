@@ -21,7 +21,7 @@ const CHUNKS_STORE = 'model_chunks';
 const META_STORE = 'model_meta';
 
 // Qwen 2.5 0.5B Instruct GGUF Model Config
-export const QWEN_GGUF_MODEL_FILENAME = 'qwen2.5-0.5b-instruct-q4_k_m.gguf';
+export const QWEN_GGUF_MODEL_FILENAME = 'qwen2.5-0.5b-instruct.gguf';
 export const QWEN_DIRECT_DOWNLOAD_URL = 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf';
 export const QWEN_FALLBACK_DOWNLOAD_URL = 'https://huggingface.co/bartowski/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf';
 export const ESTIMATED_TOTAL_BYTES = 398500000; // ~398.5 MB standard
