@@ -1,6 +1,6 @@
 {
   "name": "NUELL STUDY GUIDE",
-  "description": "Nuell Study Guide (NSG) is an advanced academic companion offering AI-powered quizzes, offline study tools, CGPA calculation, and real-time class transcriptions.",
+  "description": "Generate quizzes, read lecture notes offline, and chat with the Omni AI study assistant. Join NSG today!",
   "requestFramePermissions": [
     "camera",
     "microphone",
