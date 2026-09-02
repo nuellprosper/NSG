@@ -19,6 +19,7 @@ import { OmniChatWorkspace } from './OmniChatWorkspace';
 import { PeerChatWorkspace } from './PeerChatWorkspace';
 import { MessageOverlay } from './MessageOverlay';
 import { requestMicrophonePermission, getSupportedAudioMimeType } from '../lib/audioRecorder';
+import { cleanupRAM } from '../services/aiEngine';
 
 const extractYoutubeLinks = (text: string): string[] => {
   if (!text) return [];
@@ -264,6 +265,13 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
       setSelectedChat(initialSelectedChat);
     }
   }, [initialSelectedChat]);
+
+  // Lifecycle RAM Management: guarantee model is flushed from RAM when leaving Chat Room
+  useEffect(() => {
+    return () => {
+      cleanupRAM().catch(err => console.warn('ChatRoom RAM cleanup note:', err));
+    };
+  }, []);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -2836,7 +2844,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
               onSendImageMessage={handleSendOmniImage}
               onClose={() => {
                 if (setAppActiveTab) {
-                  setAppActiveTab('home');
+                  setAppActiveTab('tools');
                 } else {
                   setSelectedChat(OMNI_DEFAULT_CHAT);
                   onChatSelect?.(false);

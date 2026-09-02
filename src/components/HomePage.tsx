@@ -483,10 +483,10 @@ export const HomePage: React.FC<HomePageProps> = ({
         theme === 'dark' ? 'bg-[#0B0813] text-white' : 'bg-slate-50 text-slate-900'
       }`}
     >
-      {/* 1. SIGNATURE LIGHT PURPLE TOP PATCH (Smooth natural scrolling header with generous viewport for content) */}
+      {/* 1. SIGNATURE LIGHT PURPLE TOP PATCH (Sticky header with content scrolling underneath) */}
       <div 
         style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)' }}
-        className="relative z-20 bg-gradient-to-b from-purple-600 via-purple-600 to-purple-500 text-white pb-6 px-4 sm:px-6 rounded-b-[2.5rem] shadow-xl overflow-visible"
+        className="sticky top-0 z-40 bg-gradient-to-b from-purple-600 via-purple-600 to-purple-500 text-white pb-6 px-4 sm:px-6 rounded-b-[2.5rem] shadow-xl overflow-visible"
       >
         {/* Subtle decorative background topography contour lines */}
         <div className="absolute inset-0 opacity-10 pointer-events-none overflow-hidden rounded-b-[2.5rem]">
@@ -517,7 +517,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                     referrerPolicy="no-referrer"
                   />
                 ) : (
-                  <div className="w-11 h-11 rounded-full bg-white/20 backdrop-blur-md border-2 border-white/80 text-white font-black text-sm flex items-center justify-center shadow-md group-hover:scale-105 transition-transform">
+                  <div className="w-11 h-11 rounded-full bg-white/20 border-2 border-white/80 text-white font-black text-sm flex items-center justify-center shadow-md group-hover:scale-105 transition-transform">
                     {userDisplayName.substring(0, 2).toUpperCase()}
                   </div>
                 )}
@@ -543,17 +543,17 @@ export const HomePage: React.FC<HomePageProps> = ({
               </div>
             </button>
 
-            {/* Notification Button on Right (Matching position and color in screenshot) */}
+            {/* Notification Button on Right (Containerless bell icon with badge) */}
             <button
               id="home-notifications-btn"
               type="button"
               onClick={() => setActiveTab('notifications')}
-              className="relative w-10 h-10 rounded-2xl bg-white/20 hover:bg-white/30 backdrop-blur-md flex items-center justify-center text-white border border-white/30 shadow-md cursor-pointer transition-all active:scale-95 shrink-0"
+              className="relative p-2 flex items-center justify-center text-white hover:text-purple-100 cursor-pointer transition-all active:scale-90 shrink-0"
               title="Notifications"
             >
-              <Bell size={19} className="text-white" />
+              <Bell size={22} className="text-white drop-shadow-sm" />
               {totalUnread > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 text-[9px] font-black text-purple-700 bg-white rounded-full flex items-center justify-center shadow-md border-2 border-purple-600 animate-pulse">
+                <span className="absolute top-0 right-0 min-w-[18px] h-[18px] px-1 text-[9px] font-black text-purple-700 bg-white rounded-full flex items-center justify-center shadow-md border-2 border-purple-600 animate-pulse">
                   {totalUnread > 99 ? '99+' : totalUnread}
                 </span>
               )}
@@ -721,7 +721,7 @@ export const HomePage: React.FC<HomePageProps> = ({
       </div>
 
       {/* MAIN BODY CONTENT */}
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 space-y-6 pt-5">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 space-y-6 pt-5 pb-36 sm:pb-40">
         
         {/* 2. #COURSESFORYOU SECTION (Replaces #SpecialForYou) */}
         <div id="courses-for-you-section" className="space-y-3">
@@ -918,9 +918,8 @@ export const HomePage: React.FC<HomePageProps> = ({
               popularCourses.map((course) => (
                 <motion.div
                   key={course.id}
-                  onClick={() => openCoursePreview ? openCoursePreview(course) : setActiveTab('courses')}
                   whileHover={{ y: -3 }}
-                  className="w-[280px] sm:w-[320px] shrink-0 h-[175px] sm:h-[190px] rounded-3xl relative overflow-hidden shadow-lg border border-purple-500/20 snap-start cursor-pointer group flex flex-col justify-between p-4"
+                  className="w-[280px] sm:w-[320px] shrink-0 h-[175px] sm:h-[190px] rounded-3xl relative overflow-hidden shadow-lg border border-purple-500/20 snap-start group flex flex-col justify-between p-4"
                   style={{
                     backgroundImage: `linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.85) 100%), url(${getCourseThumbnail(course)})`,
                     backgroundSize: 'cover',
@@ -965,7 +964,15 @@ export const HomePage: React.FC<HomePageProps> = ({
 
                     <button
                       type="button"
-                      className="px-3.5 py-1.5 rounded-full bg-purple-600 hover:bg-purple-500 text-white text-xs font-black shadow-md transition-all active:scale-95 shrink-0"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (openCoursePreview) {
+                          openCoursePreview(course);
+                        } else {
+                          setActiveTab('courses');
+                        }
+                      }}
+                      className="px-3.5 py-1.5 rounded-full bg-purple-600 hover:bg-purple-500 text-white text-xs font-black shadow-md transition-all active:scale-95 shrink-0 cursor-pointer"
                     >
                       View
                     </button>
