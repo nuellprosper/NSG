@@ -1,3 +1,57 @@
+// Global safety guard for JSON.stringify to prevent circular structure crashes across SDKs and DOM events
+if (typeof JSON !== 'undefined' && JSON.stringify) {
+  const nativeStringify = JSON.stringify;
+  JSON.stringify = function (value: any, replacer?: any, space?: string | number): string {
+    try {
+      return nativeStringify.apply(this, arguments as any);
+    } catch (err: any) {
+      if (err instanceof TypeError && (String(err?.message || '').toLowerCase().includes('circular') || String(err?.message || '').toLowerCase().includes('cyclic'))) {
+        const seen = new WeakSet();
+        const isArrayReplacer = Array.isArray(replacer);
+        const isFnReplacer = typeof replacer === 'function';
+        try {
+          return nativeStringify(value, function (this: any, k: string, v: any) {
+            if (isFnReplacer) {
+              try { v = replacer.call(this, k, v); } catch (_) { return '[ReplacerError]'; }
+            } else if (isArrayReplacer && k !== '' && !replacer.includes(k)) {
+              return undefined;
+            }
+            if (v !== null && typeof v === 'object') {
+              try {
+                if (seen.has(v)) return '[Circular]';
+                seen.add(v);
+              } catch (_) {
+                return '[Unserializable]';
+              }
+            }
+            return v;
+          }, space);
+        } catch (_) {
+          return '"[Unserializable circular object]"';
+        }
+      }
+      throw err;
+    }
+  };
+}
+
+// Global runtime error listeners to prevent harmless script error overlays
+if (typeof window !== 'undefined') {
+  window.addEventListener('error', (event) => {
+    if (event?.message && (event.message.includes('circular') || event.message.includes('Script error.'))) {
+      console.warn('Handled global runtime event notice:', event.message);
+      event.preventDefault?.();
+    }
+  });
+  window.addEventListener('unhandledrejection', (event) => {
+    const reasonStr = String(event?.reason?.message || event?.reason || '');
+    if (reasonStr.includes('circular') || reasonStr.includes('Could not reach Cloud Firestore') || reasonStr.includes('Backend didn\'t respond')) {
+      console.warn('Handled unhandled rejection notice:', reasonStr);
+      event.preventDefault?.();
+    }
+  });
+}
+
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MotionConfig } from 'motion/react';

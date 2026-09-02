@@ -1158,7 +1158,7 @@ export default function App() {
     // Sync with Firestore
     if (user && sanitizedItem && sanitizedItem.id) {
       try {
-        const firestoreData = JSON.parse(JSON.stringify(sanitizedItem));
+        const firestoreData = JSON.parse(circularSafeStringify(sanitizedItem));
         await setDoc(doc(db, 'users', user.uid, 'studyHistory', String(sanitizedItem.id)), firestoreData);
       } catch (err) {
         console.error("History Sync Error:", err);
@@ -8980,30 +8980,30 @@ CRITICAL INSTRUCTIONS & RULES:
         }
       }
 
-      // Build context from history (strip internal quiz markers from raw text)
-      const cleanHistoryMessages = pastMessages.map(m => {
+      // Clean and normalize past messages without fabricating artificial transcripts
+      const structuredHistory = pastMessages.map(m => {
         const cleanedText = (m.text || '')
-          .replace(/\[\[QUIZ_READY:[^\]]+\]\]/gi, '[Interactive Quiz Created]')
-          .replace(/\[\[GENERATE_QUIZ:[^\]]+\]\]/gi, '');
-        return `${m.role === 'user' ? 'Student' : 'Omni'}: ${cleanedText.trim()}`;
-      }).filter(Boolean);
+          .replace(/\[\[QUIZ_READY:[^\]]+\]\]/gi, '')
+          .replace(/\[\[GENERATE_QUIZ:[^\]]+\]\]/gi, '')
+          .replace(/^(Student|User|Omni|Assistant):\s*/i, '')
+          .trim();
+        return {
+          role: (m.role === 'model' || m.role === 'assistant' || m.role === 'omni') ? 'assistant' : 'user',
+          content: cleanedText
+        };
+      }).filter(m => !!m.content);
 
-      const historyContext = cleanHistoryMessages.join('\n');
       const studentInputText = attachmentsContext 
         ? `${text || 'I sent a voice note.'}\n${attachmentsContext}\nPlease listen carefully and respond directly, helpfully, and comprehensively to my spoken audio content above.`
         : text;
-
-      const promptWithHistory = historyContext 
-        ? `CONVERSATION HISTORY:\n${historyContext}\n\nStudent: ${studentInputText}`
-        : studentInputText;
 
       // Execute via robust Dual-Mode AI Service
       let reply = '';
       try {
         const aiResponse = await executeAITask({
-          prompt: promptWithHistory,
+          prompt: studentInputText,
           systemInstruction: systemInstructionText,
-          context: historyContext
+          historyMessages: structuredHistory
         });
         reply = aiResponse?.text || '';
       } catch (aiErr: any) {

@@ -11,12 +11,12 @@ const activeFirebaseConfig = {
 
 const app = initializeApp(activeFirebaseConfig);
 
-// Initialize Firestore with modern persistent cache and immediate long-polling to prevent 10s connection timeout stalls
+// Initialize Firestore with modern persistent cache and auto-detect long-polling to prevent 10s connection timeout stalls
 export const db = initializeFirestore(app, {
   localCache: persistentLocalCache({
     tabManager: persistentMultipleTabManager()
   }),
-  experimentalForceLongPolling: true,
+  experimentalAutoDetectLongPolling: true,
 }, firebaseConfig.firestoreDatabaseId || '(default)');
 
 export const auth = getAuth(app);
@@ -277,12 +277,17 @@ export interface FirestoreErrorInfo {
 }
 
 /**
- * Deeply clean an object by removing undefined values, which Firestore does not support.
+ * Deeply clean an object by removing undefined values and circular references, which Firestore does not support.
  */
-export function sanitizeData(data: any): any {
+export function sanitizeData(data: any, visited = new WeakSet()): any {
   if (data === undefined) return null;
   if (data === null) return null;
   if (typeof data === 'function') return null;
+
+  if (typeof data === 'object') {
+    if (visited.has(data)) return null;
+    visited.add(data);
+  }
 
   if (data instanceof Date) return data.toISOString();
   if (typeof data === 'object' && typeof data.toDate === 'function') return data; // Firestore Timestamp
@@ -290,18 +295,28 @@ export function sanitizeData(data: any): any {
   if (Array.isArray(data)) {
     return data
       .filter(item => item !== undefined)
-      .map(item => sanitizeData(item));
+      .map(item => sanitizeData(item, visited));
   }
 
   if (typeof data === 'object') {
+    if (typeof window !== 'undefined' && (data instanceof Element || data instanceof Node || data instanceof Event || data === window)) {
+      return null;
+    }
     const clean: any = {};
     for (const key of Object.keys(data)) {
-      const val = data[key];
-      if (val !== undefined && typeof val !== 'function') {
-        const cleanedVal = sanitizeData(val);
-        if (cleanedVal !== undefined) {
-          clean[key] = cleanedVal;
+      if (key === 'src' || key === 'target' || key === '_delegate' || key.startsWith('_') || key.startsWith('$')) {
+        continue;
+      }
+      try {
+        const val = data[key];
+        if (val !== undefined && typeof val !== 'function') {
+          const cleanedVal = sanitizeData(val, visited);
+          if (cleanedVal !== undefined) {
+            clean[key] = cleanedVal;
+          }
         }
+      } catch {
+        // Skip unreadable property
       }
     }
     return clean;
