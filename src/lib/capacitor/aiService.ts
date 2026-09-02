@@ -1,3 +1,4 @@
+import { CapacitorHttp } from '@capacitor/core';
 import { checkNetworkStatus, isNativePlatform } from './platform';
 import { 
   runLocalQwenInference, 
@@ -5,7 +6,8 @@ import {
   AIRequestPayload, 
   AIResponseResult, 
   initWebLlmQwen,
-  getQwenProgressState
+  getQwenProgressState,
+  executeCloudAINativeHttp
 } from './aiEngine';
 import { isOmniBrainDownloaded, getOmniBrainState, getSavedModelPath, ESTIMATED_TOTAL_BYTES } from './omniBrainDownloader';
 import { getApiKey, MODEL_NAME, FLASH_MODEL, callTogetherAI, callOpenRouter, getHfInstance, HF_MODELS } from '../../utils';
@@ -64,41 +66,27 @@ export async function fetchCloudAIWithTimeout(
     ? `${payload.systemInstruction}\n\nStudent: ${payload.prompt}\nOmni:`
     : payload.prompt;
 
-  // 1. Primary: Server AI Proxy Endpoint (/api/ai/chat) - fastest & secure
+  // 1. Primary: Server AI Proxy Endpoint via Native HTTP (CapacitorHttp) - fastest, secure & CORS-immune
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
-    const proxyRes = await fetch('/api/ai/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prompt: payload.prompt,
-        systemInstruction: payload.systemInstruction,
-        maxTokens: payload.maxTokens || 1024,
-        responseMimeType: payload.responseMimeType
-      }),
-      signal: controller.signal
+    const reply = await executeCloudAINativeHttp({
+      prompt: payload.prompt,
+      systemInstruction: payload.systemInstruction,
+      maxTokens: payload.maxTokens || 1024,
+      responseMimeType: payload.responseMimeType
     });
-    clearTimeout(timeoutId);
-
-    if (proxyRes.ok) {
-      const data = await proxyRes.json();
-      if (data?.text && data.text.trim()) {
-        return data.text.trim();
-      }
+    if (reply && reply.trim()) {
+      return reply.trim();
     }
   } catch (proxyErr) {
-    // Server proxy unreached or timeout - continue to client-side direct fallbacks
+    // Server proxy unreached - continue to client-side direct fallbacks
   }
 
-  // 2. Direct Gemini REST call if API Key is available
+  // 2. Direct Gemini REST call via native CapacitorHttp if API Key is available
   const apiKey = getApiKey();
   if (apiKey && apiKey !== 'offline_fallback_key') {
     const candidateModels = ['gemini-3.1-flash-lite', 'gemini-2.5-flash', 'gemini-flash-latest'];
     for (const model of candidateModels) {
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 6000);
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
         const requestBody = {
@@ -114,17 +102,14 @@ export async function fetchCloudAIWithTimeout(
           }
         };
 
-        const res = await fetch(url, {
-          method: 'POST',
+        const res = await CapacitorHttp.post({
+          url,
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestBody),
-          signal: controller.signal
+          data: requestBody
         });
 
-        clearTimeout(timeoutId);
-
-        if (res.ok) {
-          const data = await res.json();
+        if (res.status >= 200 && res.status < 300) {
+          const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
           const candidate = data?.candidates?.[0];
           const textPart = candidate?.content?.parts?.[0]?.text;
           if (textPart && textPart.trim()) {
