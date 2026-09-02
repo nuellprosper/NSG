@@ -50,40 +50,50 @@ export async function performGoogleAuth(authInstance: Auth): Promise<UserCredent
   }
 
   // Native Android flow
-  await initGoogleAuth();
-
-  console.log('📱 Invoking native Google Sign-In account picker...');
-  let googleUser: any;
   try {
-    const { GoogleAuth } = await import('@codetrix-studio/capacitor-google-auth');
-    googleUser = await GoogleAuth.signIn();
-  } catch (signInErr: any) {
-    console.error('❌ Native GoogleAuth.signIn error:', signInErr);
-    const msg = signInErr?.message || 'Google Sign-In was cancelled or failed to initialize.';
-    if (!msg.toLowerCase().includes('cancelled') && !msg.toLowerCase().includes('canceled') && !msg.toLowerCase().includes('user cancelled')) {
-      alert(`Google Sign-In Error: ${msg}`);
+    await initGoogleAuth();
+
+    console.log('📱 Invoking native Google Sign-In account picker...');
+    let googleUser: any = null;
+    try {
+      const { GoogleAuth } = await import('@codetrix-studio/capacitor-google-auth');
+      googleUser = await GoogleAuth.signIn();
+    } catch (signInErr: any) {
+      console.error('❌ Native GoogleAuth.signIn error:', signInErr);
+      const msg = signInErr?.message || String(signInErr);
+      const isCancelled = msg.toLowerCase().includes('cancelled') || 
+                          msg.toLowerCase().includes('canceled') || 
+                          msg.toLowerCase().includes('user cancelled') ||
+                          msg.toLowerCase().includes('12501'); // 12501 is Google sign-in cancelled code
+
+      if (!isCancelled) {
+        console.warn('⚠️ Native sign in failed, trying fallback to web popup...');
+        try {
+          const provider = new GoogleAuthProvider();
+          provider.setCustomParameters({ prompt: 'select_account' });
+          return await signInWithPopup(authInstance, provider);
+        } catch (popupErr) {
+          console.error('Fallback web popup error:', popupErr);
+        }
+      }
+      throw new Error(isCancelled ? 'Sign-in cancelled' : `Google Sign-In failed: ${msg}`);
     }
-    throw new Error(`Google Sign-In failed: ${msg}`);
-  }
 
-  console.log('✅ Native GoogleAuth response received:', googleUser);
+    console.log('✅ Native GoogleAuth response received:', googleUser);
 
-  if (!googleUser || !googleUser.authentication) {
-    const errMsg = 'No authentication details received from Google Sign-In.';
-    console.error(`❌ ${errMsg}`, googleUser);
-    alert(`Google Sign-In Error: ${errMsg}`);
-    throw new Error(errMsg);
-  }
+    if (!googleUser || !googleUser.authentication) {
+      const errMsg = 'No authentication details received from Google Sign-In.';
+      console.error(`❌ ${errMsg}`, googleUser);
+      throw new Error(errMsg);
+    }
 
-  const idToken = googleUser.authentication.idToken;
-  if (!idToken) {
-    const errMsg = 'Missing Google ID Token from native authentication response. Please ensure forceCodeForRefreshToken is false and your Web Client ID / SHA-1 certificates are correctly configured in Firebase.';
-    console.error(`❌ ${errMsg}`, googleUser);
-    alert(`Google Authentication Error: ${errMsg}`);
-    throw new Error(errMsg);
-  }
+    const idToken = googleUser.authentication.idToken;
+    if (!idToken) {
+      const errMsg = 'Missing Google ID Token from native authentication response. Please verify client configuration.';
+      console.error(`❌ ${errMsg}`, googleUser);
+      throw new Error(errMsg);
+    }
 
-  try {
     // Create Firebase Google Auth Credential using the native ID token
     const credential = GoogleAuthProvider.credential(idToken);
 
@@ -91,10 +101,8 @@ export async function performGoogleAuth(authInstance: Auth): Promise<UserCredent
     const userCredential = await signInWithCredential(authInstance, credential);
     console.log('✅ Firebase native credential sign-in success:', userCredential.user.email);
     return userCredential;
-  } catch (firebaseErr: any) {
-    console.error('❌ Firebase credential sign-in error:', firebaseErr);
-    const errMsg = firebaseErr?.message || 'Failed to authenticate with Firebase using Google credential.';
-    alert(`Firebase Sign-In Error: ${errMsg}`);
-    throw firebaseErr;
+  } catch (error: any) {
+    console.error('❌ performGoogleAuth top-level error:', error);
+    throw error;
   }
 }

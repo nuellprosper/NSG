@@ -19,6 +19,8 @@ export const isNativePlatform = (): boolean => {
   }
 };
 
+export const isCapacitorNative = isNativePlatform;
+
 export const getDevicePlatform = (): PlatformType => {
   try {
     const p = Capacitor.getPlatform();
