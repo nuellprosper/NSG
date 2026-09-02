@@ -5,6 +5,7 @@ import {
   cleanupRAM, 
   formatQwenChatML, 
   executeNativeInference, 
+  executeCloudAINativeHttp,
   OMNI_SYSTEM_PERSONA, 
   getIsModelLoaded 
 } from './aiEngine';
@@ -126,23 +127,13 @@ export async function routeMessage(
     if (options.cloudFetcher) {
       cloudReply = await options.cloudFetcher(message, history, options.systemInstruction);
     } else {
-      // Default cloud fetch to server-side AI endpoint
-      const response = await fetch('/api/ai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: message,
-          history,
-          systemInstruction: options.systemInstruction || OMNI_SYSTEM_PERSONA
-        })
+      // Execute Native HTTP request via CapacitorHttp to completely bypass Android WebView CORS
+      cloudReply = await executeCloudAINativeHttp({
+        prompt: message,
+        history,
+        systemInstruction: options.systemInstruction || OMNI_SYSTEM_PERSONA,
+        maxTokens: options.maxTokens || 1024
       });
-
-      if (!response.ok) {
-        throw new Error(`Cloud AI returned status ${response.status}`);
-      }
-
-      const data = await response.json();
-      cloudReply = data.text || data.reply || '';
     }
 
     // Immediately execute cleanupRAM() to ensure the offline model isn't hogging memory in the background

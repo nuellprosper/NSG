@@ -223,26 +223,42 @@ export async function startOrResumeOmniBrainDownload(): Promise<void> {
 
     console.log(`📥 [OmniBrain] Initiating native download via CapacitorHttp to Directory.Data: ${QWEN_GGUF_MODEL_FILENAME}`);
 
-    // 3. Execute Native CapacitorHttp.downloadFile
+    // 3. Execute Native CapacitorHttp.downloadFile with multi-mirror resilience
     let downloadResult: any = null;
-    try {
-      downloadResult = await (CapacitorHttp as any).downloadFile({
-        url: QWEN_DIRECT_DOWNLOAD_URL,
-        filePath: QWEN_GGUF_MODEL_FILENAME,
-        fileDirectory: Directory.Data,
-        progress: true
-      });
-    } catch (primaryErr) {
-      console.warn('⚠️ Primary download URL failed, attempting fallback URL:', primaryErr);
-      downloadResult = await (CapacitorHttp as any).downloadFile({
-        url: QWEN_FALLBACK_DOWNLOAD_URL,
-        filePath: QWEN_GGUF_MODEL_FILENAME,
-        fileDirectory: Directory.Data,
-        progress: true
-      });
+    let downloadError: any = null;
+
+    const downloadCandidates = [
+      QWEN_DIRECT_DOWNLOAD_URL,
+      QWEN_FALLBACK_DOWNLOAD_URL,
+      'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/raw/main/qwen2.5-0.5b-instruct-q4_k_m.gguf'
+    ];
+
+    for (let i = 0; i < downloadCandidates.length; i++) {
+      const candidateUrl = downloadCandidates[i];
+      try {
+        console.log(`📥 [OmniBrain] Attempting download mirror [${i + 1}/${downloadCandidates.length}]: ${candidateUrl}`);
+        downloadResult = await (CapacitorHttp as any).downloadFile({
+          url: candidateUrl,
+          filePath: QWEN_GGUF_MODEL_FILENAME,
+          fileDirectory: Directory.Data,
+          progress: true
+        });
+
+        if (downloadResult) {
+          console.log(`✅ [OmniBrain] Native download mirror [${i + 1}] returned response:`, JSON.stringify(downloadResult));
+          downloadError = null;
+          break;
+        }
+      } catch (mirrorErr: any) {
+        downloadError = mirrorErr;
+        const errDetail = JSON.stringify(mirrorErr, Object.getOwnPropertyNames(mirrorErr));
+        console.warn(`⚠️ Download mirror [${i + 1}] failed:`, errDetail);
+      }
     }
 
-    console.log('✅ [OmniBrain] Native downloadFile resolved:', downloadResult);
+    if (!downloadResult && downloadError) {
+      throw new Error(`Download failed across all mirrors: ${downloadError?.message || JSON.stringify(downloadError)}`);
+    }
 
     // 4. VERIFICATION: Immediately execute Filesystem.stat
     const stat = await Filesystem.stat({

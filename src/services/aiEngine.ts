@@ -1,4 +1,4 @@
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { QWEN_GGUF_MODEL_FILENAME, getSavedModelPath, isOmniBrainDownloaded } from './omniBrain';
 
@@ -11,6 +11,14 @@ export interface QwenLoadProgress {
   isLoading: boolean;
   isReady: boolean;
   error: string | null;
+}
+
+export interface CloudAIRequestOptions {
+  prompt: string;
+  history?: Array<{ role: string; text: string }>;
+  systemInstruction?: string;
+  maxTokens?: number;
+  responseMimeType?: string;
 }
 
 // Internal in-memory state tracking for RAM residency
@@ -52,7 +60,57 @@ export function getIsModelLoaded(): boolean {
 }
 
 /**
- * 2. NATIVE MEMORY INJECTION & RAM MANAGEMENT (aiEngine.ts)
+ * 2. CLOUD AI NATIVE HTTP REQUEST EXECUTION
+ * Replaces browser-level fetch() with native CapacitorHttp.post() to completely bypass
+ * Android WebView CORS restrictions and origin policy blocks.
+ */
+export async function executeCloudAINativeHttp(options: CloudAIRequestOptions): Promise<string> {
+  const origin = typeof window !== 'undefined' && window.location.origin ? window.location.origin : '';
+  const isLocalOrCapacitor = !origin || origin.startsWith('http://localhost') || origin.startsWith('capacitor://') || origin.startsWith('file://');
+  
+  // Choose absolute production or relative server endpoint
+  const targetUrl = isLocalOrCapacitor ? 'https://nuellstudyguide.name.ng/api/ai/chat' : `${origin}/api/ai/chat`;
+
+  console.log(`🌐 [CloudAI] Executing Native HTTP POST via CapacitorHttp to: ${targetUrl}`);
+
+  try {
+    const response = await CapacitorHttp.post({
+      url: targetUrl,
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      data: {
+        prompt: options.prompt,
+        history: options.history || [],
+        systemInstruction: options.systemInstruction || OMNI_SYSTEM_PERSONA,
+        maxTokens: options.maxTokens || 1024,
+        responseMimeType: options.responseMimeType || 'text/plain'
+      }
+    });
+
+    if (response.status >= 200 && response.status < 300) {
+      let responseData = response.data;
+      if (typeof responseData === 'string') {
+        try {
+          responseData = JSON.parse(responseData);
+        } catch (e) {
+          return responseData.trim();
+        }
+      }
+      const reply = responseData?.text || responseData?.reply || responseData?.content || '';
+      return reply.trim();
+    }
+
+    throw new Error(`Native HTTP request returned status ${response.status}: ${JSON.stringify(response.data)}`);
+  } catch (nativeErr: any) {
+    console.error('❌ Native Cloud AI HTTP request failed:', JSON.stringify(nativeErr, Object.getOwnPropertyNames(nativeErr)));
+    throw nativeErr;
+  }
+}
+
+/**
+ * 3. NATIVE MEMORY INJECTION & RAM MANAGEMENT (aiEngine.ts)
  * 
  * loadModelToRAM():
  * Reads the local file URI from Filesystem.stat / Filesystem.getUri and passes it to the native C++ bridge.
