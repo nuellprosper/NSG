@@ -63,13 +63,14 @@ export async function fetchCloudAIWithTimeout(
   timeoutMs = 15000
 ): Promise<string> {
   const promptText = payload.systemInstruction 
-    ? `${payload.systemInstruction}\n\nStudent: ${payload.prompt}\nOmni:`
+    ? `${payload.systemInstruction}\n\n${payload.prompt}`
     : payload.prompt;
 
   // 1. Primary: Server AI Proxy Endpoint via Native HTTP (CapacitorHttp) - fastest, secure & CORS-immune
   try {
     const reply = await executeCloudAINativeHttp({
       prompt: payload.prompt,
+      history: payload.historyMessages ? payload.historyMessages.map(h => ({ role: h.role, text: h.content || h.text || '' })) : undefined,
       systemInstruction: payload.systemInstruction,
       maxTokens: payload.maxTokens || 1024,
       responseMimeType: payload.responseMimeType

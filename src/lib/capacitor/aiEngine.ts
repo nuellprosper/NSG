@@ -4,6 +4,8 @@ import {
   cleanupRAM, 
   formatQwenChatML, 
   executeNativeInference,
+  executeOfflineQwenChat,
+  OMNI_OFFLINE_SYSTEM_PROMPT,
   OMNI_SYSTEM_PERSONA,
   getQwenProgressState,
   subscribeQwenProgress
@@ -18,6 +20,7 @@ export interface AIRequestPayload {
   responseMimeType?: 'application/json' | 'text/plain';
   context?: string;
   maxTokens?: number;
+  historyMessages?: Array<{ role: string; content?: string; text?: string }>;
 }
 
 export interface AIResponseResult {
@@ -27,7 +30,7 @@ export interface AIResponseResult {
 }
 
 export function formatQwenPrompt(payload: AIRequestPayload): string {
-  return formatQwenChatML(payload.prompt || '', [], payload.systemInstruction || OMNI_SYSTEM_PERSONA);
+  return formatQwenChatML(payload.prompt || '', payload.historyMessages || [], payload.systemInstruction || OMNI_OFFLINE_SYSTEM_PROMPT);
 }
 
 export async function cleanupLlamaModel(): Promise<void> {
@@ -40,12 +43,19 @@ export async function runLocalQwenInference(payload: AIRequestPayload): Promise<
   }
 
   const prompt = (payload.prompt || '').trim();
-  const formattedPrompt = formatQwenChatML(prompt, [], payload.systemInstruction || OMNI_SYSTEM_PERSONA);
-  const maxTokens = payload.maxTokens || 512;
+  const maxTokens = payload.maxTokens || 384;
 
-  return await executeNativeInference(formattedPrompt, maxTokens);
+  const result = await executeOfflineQwenChat({
+    prompt,
+    history: payload.historyMessages,
+    systemInstruction: payload.systemInstruction,
+    maxTokens
+  });
+
+  return result.text;
 }
 
 export async function initWebLlmQwen(): Promise<any> {
   return null;
 }
+
