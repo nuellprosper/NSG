@@ -27,8 +27,8 @@ export async function initGoogleAuth(): Promise<void> {
     });
     isGoogleAuthInitialized = true;
     console.log('✅ GoogleAuth initialized successfully with serverClientId:', GOOGLE_WEB_CLIENT_ID);
-  } catch (error) {
-    const errString = JSON.stringify(error, Object.getOwnPropertyNames(error));
+  } catch (error: any) {
+    const errString = error instanceof Error ? error.message : String(error);
     console.warn('⚠️ GoogleAuth initialize note:', errString);
   }
 }
@@ -61,7 +61,7 @@ export async function performGoogleAuth(authInstance: Auth): Promise<UserCredent
       provider.setCustomParameters({ prompt: 'select_account' });
       return await signInWithPopup(authInstance, provider);
     } catch (popupErr: any) {
-      const errStr = JSON.stringify(popupErr, Object.getOwnPropertyNames(popupErr));
+      const errStr = popupErr instanceof Error ? popupErr.message : String(popupErr);
       console.error('❌ Web Google sign-in error:', errStr);
       throw popupErr;
     }
@@ -80,7 +80,7 @@ export async function performGoogleAuth(authInstance: Auth): Promise<UserCredent
 
     if (!googleUser || !googleUser.authentication) {
       const errMsg = 'No authentication details received from native Google Sign-In.';
-      console.error(`❌ ${errMsg}`, JSON.stringify(googleUser));
+      console.error(`❌ ${errMsg}`);
       throw new Error(errMsg);
     }
 
@@ -88,7 +88,7 @@ export async function performGoogleAuth(authInstance: Auth): Promise<UserCredent
     const idToken = googleUser.authentication.idToken;
     if (!idToken) {
       const errMsg = 'Missing Google ID Token from native authentication response.';
-      console.error(`❌ ${errMsg}`, JSON.stringify(googleUser));
+      console.error(`❌ ${errMsg}`);
       throw new Error(errMsg);
     }
 
@@ -100,7 +100,7 @@ export async function performGoogleAuth(authInstance: Auth): Promise<UserCredent
     console.log('✅ Firebase native token exchange sign-in successful for:', userCredential.user.email);
     return userCredential;
   } catch (error: any) {
-    const fullErrorDetails = JSON.stringify(error, Object.getOwnPropertyNames(error));
+    const fullErrorDetails = error instanceof Error ? error.message : String(error);
     console.error('❌ Native performGoogleAuth error:', fullErrorDetails);
     throw error;
   }

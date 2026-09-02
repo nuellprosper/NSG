@@ -257,13 +257,13 @@ export async function startOrResumeOmniBrainDownload(): Promise<void> {
         }
       } catch (mirrorErr: any) {
         downloadError = mirrorErr;
-        const errDetail = JSON.stringify(mirrorErr, Object.getOwnPropertyNames(mirrorErr));
+        const errDetail = mirrorErr instanceof Error ? mirrorErr.message : String(mirrorErr);
         console.warn(`⚠️ Download mirror [${i + 1}] failed:`, errDetail);
       }
     }
 
     if (!downloadResult && downloadError) {
-      throw new Error(`Download failed across all mirrors: ${downloadError?.message || JSON.stringify(downloadError)}`);
+      throw new Error(`Download failed across all mirrors: ${downloadError?.message || String(downloadError)}`);
     }
 
     // 4. VERIFICATION: Query local path and verify stat size > 0

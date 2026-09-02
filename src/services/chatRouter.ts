@@ -5,7 +5,9 @@ import {
   cleanupRAM, 
   formatQwenChatML, 
   executeNativeInference, 
+  executeOfflineQwenChat,
   executeCloudAINativeHttp,
+  OMNI_OFFLINE_SYSTEM_PROMPT,
   OMNI_SYSTEM_PERSONA, 
   getIsModelLoaded 
 } from './aiEngine';
@@ -95,19 +97,17 @@ export async function routeMessage(
     }
 
     try {
-      // 1. Await loadModelToRAM() if it isn't loaded yet
-      await loadModelToRAM();
-
-      // 2. Prepend constant Omni persona using exact Qwen ChatML format
-      const systemPrompt = options.systemInstruction || OMNI_SYSTEM_PERSONA;
-      const formattedChatML = formatQwenChatML(message, history, systemPrompt);
-
-      // 3. Await native generation and stream / return result
-      const maxTokens = options.maxTokens || 512;
-      const generatedText = await executeNativeInference(formattedChatML, maxTokens, options.onChunk);
+      const systemPrompt = options.systemInstruction || OMNI_OFFLINE_SYSTEM_PROMPT;
+      const result = await executeOfflineQwenChat({
+        prompt: message,
+        history,
+        systemInstruction: systemPrompt,
+        maxTokens: options.maxTokens || 384,
+        onChunk: options.onChunk
+      });
 
       return {
-        text: generatedText,
+        text: result.text,
         source: 'offline-native'
       };
     } catch (offlineErr: any) {
@@ -136,9 +136,6 @@ export async function routeMessage(
       });
     }
 
-    // Immediately execute cleanupRAM() to ensure the offline model isn't hogging memory in the background
-    cleanupRAM().catch(err => console.warn('⚠️ Background cleanupRAM warning:', err));
-
     return {
       text: cloudReply,
       source: 'online-cloud'
@@ -148,13 +145,17 @@ export async function routeMessage(
 
     if (isOmniBrainDownloaded()) {
       try {
-        await loadModelToRAM();
-        const systemPrompt = options.systemInstruction || OMNI_SYSTEM_PERSONA;
-        const formattedChatML = formatQwenChatML(message, history, systemPrompt);
-        const fallbackText = await executeNativeInference(formattedChatML, options.maxTokens || 512, options.onChunk);
+        const systemPrompt = options.systemInstruction || OMNI_OFFLINE_SYSTEM_PROMPT;
+        const result = await executeOfflineQwenChat({
+          prompt: message,
+          history,
+          systemInstruction: systemPrompt,
+          maxTokens: options.maxTokens || 384,
+          onChunk: options.onChunk
+        });
 
         return {
-          text: fallbackText,
+          text: result.text,
           source: 'offline-native'
         };
       } catch (fallbackErr) {
