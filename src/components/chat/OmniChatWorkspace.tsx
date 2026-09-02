@@ -25,6 +25,7 @@ import {
   ESTIMATED_TOTAL_BYTES,
   requestMicrophonePermission
 } from '../../lib/capacitor';
+import { cleanupRAM } from '../../services/aiEngine';
 import { getApiKey } from '../../utils';
 import { ChatDrawer, OmniChatSession } from './ChatDrawer';
 import { AudioPreviewGraph, RecordedAudioData } from './AudioPreviewGraph';
@@ -703,7 +704,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
     await startAudioRecording();
   };
 
-  // Cleanup recorders on unmount
+  // Cleanup recorders and flush offline AI model from device RAM on unmount
   useEffect(() => {
     return () => {
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
@@ -711,6 +712,8 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
       if (audioStreamRef.current) {
         audioStreamRef.current.getTracks().forEach(t => t.stop());
       }
+      // Guarantee the model is flushed from device RAM the moment the user leaves the chat page
+      cleanupRAM().catch(err => console.warn('RAM cleanup note:', err));
     };
   }, []);
 
