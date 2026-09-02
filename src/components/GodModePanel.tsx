@@ -897,7 +897,7 @@ export const GodModePanel: React.FC<GodModePanelProps> = ({
                       </div>
                       <div className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
                         <span className="text-white/70">Cloud Reasoning Model</span>
-                        <span className="font-mono text-cyan-400 font-bold">Gemini 2.5 Flash / Thinking</span>
+                        <span className="font-mono text-cyan-400 font-bold">gemini-3.1-flash-lite</span>
                       </div>
                       <div className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
                         <span className="text-white/70">Target Android Package</span>
