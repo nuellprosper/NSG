@@ -5,6 +5,8 @@ import { QWEN_GGUF_MODEL_FILENAME, getSavedModelPath, isOmniBrainDownloaded } fr
 export const OMNI_SYSTEM_PERSONA = 
   "You are Omni, a high-precision academic, math, CBT examination, and homework assistant for Nigerian and international university and secondary students. Provide direct, highly accurate, structured, step-by-step explanations.";
 
+export const TARGET_CLOUD_MODEL = 'gemini-3.1-flash-lite';
+
 export interface QwenLoadProgress {
   progress: number;
   text: string;
@@ -59,33 +61,129 @@ export function getIsModelLoaded(): boolean {
   return isModelLoaded;
 }
 
+function resolveApiKey(): string {
+  let storedKey = '';
+  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    storedKey = localStorage.getItem('gemini_api_key') ||
+                localStorage.getItem('nsg_gemini_api_key') ||
+                localStorage.getItem('user_gemini_api_key') ||
+                localStorage.getItem('GEMINI_API_KEY') ||
+                localStorage.getItem('omni_cloud_api_key') ||
+                localStorage.getItem('omni_api_key') ||
+                localStorage.getItem('custom_gemini_api_key') || '';
+  }
+
+  const windowKey = typeof window !== 'undefined' ? ((window as any).__GEMINI_API_KEY__ || '') : '';
+  const key = storedKey.trim() ||
+              windowKey.trim() ||
+              (typeof process !== 'undefined' && process.env ? (process.env.GEMINI_API_KEY || (process.env as any).VITE_GEMINI_API_KEY) : '') ||
+              (typeof import.meta !== 'undefined' && import.meta.env ? (import.meta.env.VITE_GEMINI_API_KEY || (import.meta.env as any).GEMINI_API_KEY) : '');
+  return (key || '').trim();
+}
+
 /**
- * 2. CLOUD AI NATIVE HTTP REQUEST EXECUTION (CORS & WEBVIEW BYPASS)
- * Replaces browser-level fetch() with native CapacitorHttp.post() to completely bypass
- * Android WebView CORS restrictions and origin policy blocks.
+ * 1. CLOUD AI (gemini-3.1-flash-lite) NATIVE HTTP BYPASS
+ * Replaces browser-level fetch() with native CapacitorHttp.post() from @capacitor/core
+ * targeting the Google Generative AI REST endpoint:
+ * https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${API_KEY}
  */
 export async function executeCloudAINativeHttp(options: CloudAIRequestOptions): Promise<string> {
+  const apiKey = resolveApiKey();
+  const systemText = options.systemInstruction || OMNI_SYSTEM_PERSONA;
+  const maxTokens = options.maxTokens || 1024;
+  const mimeType = options.responseMimeType || 'text/plain';
+
+  // Format contents array for Google Generative AI REST API
+  const contents: Array<{ role: string; parts: Array<{ text: string }> }> = [];
+
+  if (options.history && options.history.length > 0) {
+    for (const h of options.history) {
+      if (h.text && h.text.trim()) {
+        const role = (h.role === 'model' || h.role === 'assistant') ? 'model' : 'user';
+        contents.push({
+          role,
+          parts: [{ text: h.text.trim() }]
+        });
+      }
+    }
+  }
+
+  contents.push({
+    role: 'user',
+    parts: [{ text: options.prompt }]
+  });
+
+  const requestBody = {
+    contents,
+    systemInstruction: {
+      parts: [{ text: systemText }]
+    },
+    generationConfig: {
+      temperature: mimeType === 'application/json' ? 0.2 : 0.7,
+      maxOutputTokens: maxTokens,
+      responseMimeType: mimeType
+    }
+  };
+
+  // 1. If API key exists, call direct Google Generative AI REST endpoint with CapacitorHttp.post
+  if (apiKey && apiKey !== 'offline_fallback_key') {
+    const directUrl = `https://generativelanguage.googleapis.com/v1beta/models/${TARGET_CLOUD_MODEL}:generateContent?key=${apiKey}`;
+    console.log(`🌐 [CloudAI] Executing Native HTTP POST via CapacitorHttp to Google Generative AI REST API (${TARGET_CLOUD_MODEL})`);
+
+    try {
+      const response = await CapacitorHttp.post({
+        url: directUrl,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        data: requestBody
+      });
+
+      if (response.status >= 200 && response.status < 300) {
+        let responseData = response.data;
+        if (typeof responseData === 'string') {
+          try {
+            responseData = JSON.parse(responseData);
+          } catch (e) {
+            return responseData.trim();
+          }
+        }
+
+        const candidate = responseData?.candidates?.[0];
+        const textPart = candidate?.content?.parts?.[0]?.text;
+        if (textPart && textPart.trim()) {
+          return textPart.trim();
+        }
+      } else {
+        console.warn(`⚠️ Direct Google Generative AI endpoint returned status ${response.status}:`, response.data);
+      }
+    } catch (directErr) {
+      console.warn(`⚠️ Direct Google Generative AI native request failed, attempting proxy route:`, directErr);
+    }
+  }
+
+  // 2. Fallback to server proxy /api/ai/chat via CapacitorHttp.post
   const origin = typeof window !== 'undefined' && window.location.origin ? window.location.origin : '';
   const isLocalOrCapacitor = !origin || origin.startsWith('http://localhost') || origin.startsWith('capacitor://') || origin.startsWith('file://');
-  
-  // Choose absolute production or relative server endpoint
-  const targetUrl = isLocalOrCapacitor ? 'https://nuellstudyguide.name.ng/api/ai/chat' : `${origin}/api/ai/chat`;
+  const proxyUrl = isLocalOrCapacitor ? 'https://nuellstudyguide.name.ng/api/ai/chat' : `${origin}/api/ai/chat`;
 
-  console.log(`🌐 [CloudAI] Executing Native HTTP POST via CapacitorHttp to: ${targetUrl}`);
+  console.log(`🌐 [CloudAI] Executing Native HTTP POST via CapacitorHttp to server proxy: ${proxyUrl}`);
 
   try {
     const response = await CapacitorHttp.post({
-      url: targetUrl,
+      url: proxyUrl,
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json'
       },
       data: {
+        model: TARGET_CLOUD_MODEL,
         prompt: options.prompt,
         history: options.history || [],
-        systemInstruction: options.systemInstruction || OMNI_SYSTEM_PERSONA,
-        maxTokens: options.maxTokens || 1024,
-        responseMimeType: options.responseMimeType || 'text/plain'
+        systemInstruction: systemText,
+        maxTokens,
+        responseMimeType: mimeType
       }
     });
 
@@ -99,7 +197,9 @@ export async function executeCloudAINativeHttp(options: CloudAIRequestOptions): 
         }
       }
       const reply = responseData?.text || responseData?.reply || responseData?.content || '';
-      return reply.trim();
+      if (reply && reply.trim()) {
+        return reply.trim();
+      }
     }
 
     throw new Error(`Native HTTP request returned status ${response.status}: ${JSON.stringify(response.data)}`);
@@ -110,11 +210,11 @@ export async function executeCloudAINativeHttp(options: CloudAIRequestOptions): 
 }
 
 /**
- * 3. NATIVE MEMORY INJECTION & RAM MANAGEMENT (aiEngine.ts)
+ * 2. NATIVE MEMORY INJECTION & RAM MANAGEMENT
  * 
  * loadModelToRAM():
- * 1. Queries local path with Filesystem.stat / Filesystem.getUri to locate the GGUF model in Directory.Data.
- * 2. Passes the file path / file URI directly to the native C++ bridge (NativeLLM.loadModel({ path })).
+ * 1. Queries local path with Filesystem.stat to locate the GGUF model in Directory.Data.
+ * 2. Passes the file path directly to the native C++ bridge (NativeLLM.loadModel({ path })).
  * 3. Sets isModelLoaded = true to prevent redundant memory loading.
  */
 export async function loadModelToRAM(): Promise<boolean> {
@@ -138,6 +238,7 @@ export async function loadModelToRAM(): Promise<boolean> {
           path: QWEN_GGUF_MODEL_FILENAME,
           directory: Directory.Data
         });
+
         if (fileStat?.uri) {
           modelPath = fileStat.uri.replace(/^file:\/\//, '');
         }

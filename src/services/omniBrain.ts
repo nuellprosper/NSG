@@ -1,11 +1,12 @@
-import { CapacitorHttp } from '@capacitor/core';
-import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Filesystem, Directory, ProgressStatus } from '@capacitor/filesystem';
+import { PluginListenerHandle } from '@capacitor/core';
 
-export const QWEN_GGUF_MODEL_FILENAME = 'qwen2-0.5b-instruct.gguf';
+export const QWEN_GGUF_MODEL_FILENAME = 'qwen2.5-0.5b-instruct.gguf';
+export const QWEN_LEGACY_MODEL_FILENAME = 'qwen2-0.5b-instruct.gguf';
 
-// High-speed direct CDN mirrors for the model
+// High-speed direct raw Hugging Face resolve download URLs (direct binary, never HTML blob pages)
 export const QWEN_DIRECT_DOWNLOAD_URL = 
-  'https://huggingface.co/Qwen/Qwen2-0.5B-Instruct-GGUF/resolve/main/qwen2-0_5b-instruct-q4_k_m.gguf';
+  'https://huggingface.co/bartowski/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf';
 
 export const QWEN_FALLBACK_DOWNLOAD_URL = 
   'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf';
@@ -60,7 +61,7 @@ let currentState: OmniBrainDownloadState = {
 };
 
 const listeners: Set<(state: OmniBrainDownloadState) => void> = new Set();
-let progressListenerHandle: any = null;
+let progressListenerHandle: PluginListenerHandle | null = null;
 let isDownloadingActive = false;
 let lastBytes = 0;
 let lastTimestamp = 0;
@@ -120,38 +121,43 @@ export function getSavedModelPath(): string {
  * Verify if the model file is physically present in Directory.Data
  */
 export async function verifyOmniBrainFile(): Promise<{ isReady: boolean; size: number; path: string | null }> {
-  try {
-    const statResult = await Filesystem.stat({
-      path: QWEN_GGUF_MODEL_FILENAME,
-      directory: Directory.Data
-    });
+  // Check main Qwen 2.5 filename first
+  const filenamesToCheck = [QWEN_GGUF_MODEL_FILENAME, QWEN_LEGACY_MODEL_FILENAME];
 
-    if (statResult && statResult.size > 0) {
-      let cleanUri = statResult.uri || '';
-      if (cleanUri.startsWith('file://')) {
-        cleanUri = cleanUri.replace(/^file:\/\//, '');
-      }
-
-      localStorage.setItem('omni_brain_ready', 'true');
-      if (cleanUri) {
-        localStorage.setItem('omni_brain_model_path', cleanUri);
-      }
-
-      updateState({
-        status: 'completed',
-        downloadedBytes: statResult.size,
-        totalBytes: statResult.size,
-        progressPercent: 100,
-        speedFormatted: '0 KB/s',
-        modelLocalPath: cleanUri || QWEN_GGUF_MODEL_FILENAME,
-        modelPath: cleanUri || QWEN_GGUF_MODEL_FILENAME,
-        error: null
+  for (const filename of filenamesToCheck) {
+    try {
+      const statResult = await Filesystem.stat({
+        path: filename,
+        directory: Directory.Data
       });
 
-      return { isReady: true, size: statResult.size, path: cleanUri };
+      if (statResult && statResult.size > 0) {
+        let cleanUri = statResult.uri || '';
+        if (cleanUri.startsWith('file://')) {
+          cleanUri = cleanUri.replace(/^file:\/\//, '');
+        }
+
+        localStorage.setItem('omni_brain_ready', 'true');
+        if (cleanUri) {
+          localStorage.setItem('omni_brain_model_path', cleanUri);
+        }
+
+        updateState({
+          status: 'completed',
+          downloadedBytes: statResult.size,
+          totalBytes: statResult.size,
+          progressPercent: 100,
+          speedFormatted: '0 KB/s',
+          modelLocalPath: cleanUri || filename,
+          modelPath: cleanUri || filename,
+          error: null
+        });
+
+        return { isReady: true, size: statResult.size, path: cleanUri || filename };
+      }
+    } catch (err) {
+      // File not found on filesystem, check next
     }
-  } catch (err) {
-    // Model not found on filesystem
   }
 
   localStorage.removeItem('omni_brain_ready');
@@ -159,10 +165,11 @@ export async function verifyOmniBrainFile(): Promise<{ isReady: boolean; size: n
 }
 
 /**
- * 1. STRICT NATIVE DOWNLOAD IMPLEMENTATION (omniBrain.ts)
- * - Uses native Capacitor HTTP plugin: CapacitorHttp.downloadFile({ url, filePath, fileDirectory: Directory.Data, progress: true })
- * - Binds native progress event listener to compute (bytes / contentLength) * 100 and update React UI.
- * - Verifies via Filesystem.stat upon resolution.
+ * 2. FIX OFFLINE QWEN DOWNLOAD MANAGER
+ * - Uses Filesystem.downloadFile() from @capacitor/filesystem (NOT CapacitorHttp)
+ * - Targets Directory.Data with recursive: true, progress: true
+ * - Listens to Filesystem 'progress' event to compute speed and completion percentages
+ * - Saves result.path for the llama-cpp-capacitor / native bridge init step
  */
 export async function startOrResumeOmniBrainDownload(): Promise<void> {
   if (isDownloadingActive) return;
@@ -181,17 +188,15 @@ export async function startOrResumeOmniBrainDownload(): Promise<void> {
     // 1. Clean up any previous progress listeners
     if (progressListenerHandle) {
       try {
-        if (typeof progressListenerHandle.remove === 'function') {
-          await progressListenerHandle.remove();
-        }
+        await progressListenerHandle.remove();
       } catch (e) {}
       progressListenerHandle = null;
     }
 
-    // 2. Register native CapacitorHttp progress listener
+    // 2. Register native Filesystem progress listener
     try {
-      if ((CapacitorHttp as any).addListener) {
-        progressListenerHandle = await (CapacitorHttp as any).addListener('progress', (progressEvent: any) => {
+      if (typeof Filesystem.addListener === 'function') {
+        progressListenerHandle = await Filesystem.addListener('progress', (progressEvent: ProgressStatus | any) => {
           if (!isDownloadingActive) return;
 
           const bytes = progressEvent.bytes ?? progressEvent.loaded ?? progressEvent.current ?? 0;
@@ -217,34 +222,36 @@ export async function startOrResumeOmniBrainDownload(): Promise<void> {
         });
       }
     } catch (listenerErr) {
-      console.warn('⚠️ Native progress listener registration note:', listenerErr);
+      console.warn('⚠️ Native Filesystem progress listener registration note:', listenerErr);
     }
 
-    console.log(`📥 [OmniBrain] Initiating native download via CapacitorHttp to Directory.Data: ${QWEN_GGUF_MODEL_FILENAME}`);
+    console.log(`📥 [OmniBrain] Initiating direct raw binary download via Filesystem.downloadFile: ${QWEN_DIRECT_DOWNLOAD_URL}`);
 
-    // 3. Execute Native CapacitorHttp.downloadFile with mirror failover
-    let downloadResult: any = null;
+    // 3. Execute Filesystem.downloadFile with direct raw Hugging Face resolve link
+    let downloadResult: { path?: string } | null = null;
     let downloadError: any = null;
 
     const downloadCandidates = [
       QWEN_DIRECT_DOWNLOAD_URL,
-      QWEN_FALLBACK_DOWNLOAD_URL,
-      'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/raw/main/qwen2.5-0.5b-instruct-q4_k_m.gguf'
+      QWEN_FALLBACK_DOWNLOAD_URL
     ];
 
     for (let i = 0; i < downloadCandidates.length; i++) {
       const candidateUrl = downloadCandidates[i];
       try {
-        console.log(`📥 [OmniBrain] Attempting download mirror [${i + 1}/${downloadCandidates.length}]: ${candidateUrl}`);
-        downloadResult = await (CapacitorHttp as any).downloadFile({
+        console.log(`📥 [OmniBrain] Downloading model binary [${i + 1}/${downloadCandidates.length}] via Filesystem: ${candidateUrl}`);
+        
+        const result = await Filesystem.downloadFile({
           url: candidateUrl,
-          filePath: QWEN_GGUF_MODEL_FILENAME,
-          fileDirectory: Directory.Data,
-          progress: true
+          path: QWEN_GGUF_MODEL_FILENAME,
+          directory: Directory.Data,
+          progress: true,
+          recursive: true
         });
 
-        if (downloadResult) {
-          console.log(`✅ [OmniBrain] Native download mirror [${i + 1}] response:`, JSON.stringify(downloadResult));
+        if (result && result.path) {
+          console.log(`✅ [OmniBrain] Filesystem.downloadFile completed successfully. Absolute path: ${result.path}`);
+          downloadResult = result;
           downloadError = null;
           break;
         }
@@ -266,10 +273,10 @@ export async function startOrResumeOmniBrainDownload(): Promise<void> {
     });
 
     if (!stat || stat.size === 0) {
-      throw new Error('Downloaded file is empty (0 bytes).');
+      throw new Error('Downloaded model file is empty (0 bytes).');
     }
 
-    let finalUri = stat.uri || '';
+    let finalUri = downloadResult?.path || stat.uri || '';
     if (finalUri.startsWith('file://')) {
       finalUri = finalUri.replace(/^file:\/\//, '');
     }
@@ -300,9 +307,7 @@ export async function startOrResumeOmniBrainDownload(): Promise<void> {
     isDownloadingActive = false;
     if (progressListenerHandle) {
       try {
-        if (typeof progressListenerHandle.remove === 'function') {
-          await progressListenerHandle.remove();
-        }
+        await progressListenerHandle.remove();
       } catch (e) {}
       progressListenerHandle = null;
     }
@@ -313,9 +318,7 @@ export async function pauseOmniBrainDownload(): Promise<void> {
   isDownloadingActive = false;
   if (progressListenerHandle) {
     try {
-      if (typeof progressListenerHandle.remove === 'function') {
-        await progressListenerHandle.remove();
-      }
+      await progressListenerHandle.remove();
     } catch (e) {}
     progressListenerHandle = null;
   }
@@ -331,9 +334,14 @@ export async function deleteOmniBrainModel(): Promise<void> {
       path: QWEN_GGUF_MODEL_FILENAME,
       directory: Directory.Data
     });
-  } catch (e) {
-    console.warn('⚠️ deleteFile note:', e);
-  }
+  } catch (e) {}
+
+  try {
+    await Filesystem.deleteFile({
+      path: QWEN_LEGACY_MODEL_FILENAME,
+      directory: Directory.Data
+    });
+  } catch (e) {}
 
   localStorage.removeItem('omni_brain_ready');
   localStorage.removeItem('omni_brain_model_path');
