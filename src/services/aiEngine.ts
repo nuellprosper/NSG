@@ -60,7 +60,7 @@ export function getIsModelLoaded(): boolean {
 }
 
 /**
- * 2. CLOUD AI NATIVE HTTP REQUEST EXECUTION
+ * 2. CLOUD AI NATIVE HTTP REQUEST EXECUTION (CORS & WEBVIEW BYPASS)
  * Replaces browser-level fetch() with native CapacitorHttp.post() to completely bypass
  * Android WebView CORS restrictions and origin policy blocks.
  */
@@ -113,12 +113,13 @@ export async function executeCloudAINativeHttp(options: CloudAIRequestOptions): 
  * 3. NATIVE MEMORY INJECTION & RAM MANAGEMENT (aiEngine.ts)
  * 
  * loadModelToRAM():
- * Reads the local file URI from Filesystem.stat / Filesystem.getUri and passes it to the native C++ bridge.
- * Sets the isModelLoaded flag so it doesn't reload unnecessarily if already resident in memory.
+ * 1. Queries local path with Filesystem.stat / Filesystem.getUri to locate the GGUF model in Directory.Data.
+ * 2. Passes the file path / file URI directly to the native C++ bridge (NativeLLM.loadModel({ path })).
+ * 3. Sets isModelLoaded = true to prevent redundant memory loading.
  */
 export async function loadModelToRAM(): Promise<boolean> {
   if (isModelLoaded && (loadedContextInstance || currentLoadedPath)) {
-    console.log('⚡ [aiEngine] Model is already loaded in RAM.');
+    console.log('⚡ [aiEngine] Model is already resident in RAM.');
     return true;
   }
 
@@ -130,29 +131,29 @@ export async function loadModelToRAM(): Promise<boolean> {
     updateProgress({ isLoading: true, isReady: false, text: 'Loading Qwen into RAM...' });
 
     try {
-      // 1. Verify model exists on disk
+      // 1. Query local path & stat from Directory.Data
       let modelPath = getSavedModelPath();
       try {
-        const uriResult = await Filesystem.getUri({
+        const fileStat = await Filesystem.stat({
           path: QWEN_GGUF_MODEL_FILENAME,
           directory: Directory.Data
         });
-        if (uriResult?.uri) {
-          modelPath = uriResult.uri.replace(/^file:\/\//, '');
+        if (fileStat?.uri) {
+          modelPath = fileStat.uri.replace(/^file:\/\//, '');
         }
-      } catch (uriErr) {
-        console.warn('⚠️ getUri note:', uriErr);
+      } catch (statErr) {
+        console.warn('⚠️ Filesystem.stat note:', statErr);
       }
 
       console.log(`🧠 [Native RAM] Injecting Qwen GGUF model into device RAM from: ${modelPath}`);
 
-      // 2. Try NativeLLM Plugin (Android C++ Bridge)
+      // 2. Pass local URI to NativeLLM C++ bridge
       const nativeLLM = (Capacitor as any)?.Plugins?.NativeLLM;
       if (nativeLLM && typeof nativeLLM.loadModel === 'function') {
         await nativeLLM.loadModel({ path: modelPath });
         isModelLoaded = true;
         currentLoadedPath = modelPath;
-        console.log('✅ [NativeLLM C++] Model loaded into device RAM.');
+        console.log('✅ [NativeLLM C++] Model successfully injected into device RAM.');
         updateProgress({ isLoading: false, isReady: true, progress: 100, text: 'Model loaded in RAM' });
         return true;
       }

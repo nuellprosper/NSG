@@ -35,10 +35,15 @@ export async function initGoogleAuth(): Promise<void> {
 
 /**
  * Perform Google Authentication flow:
- * - Native Android APK: Explicitly awaits GoogleAuth.initialize() BEFORE calling GoogleAuth.signIn(),
- *   extracts the ID token, and authenticates with Firebase via signInWithCredential.
- * - Web / Browser: Uses signInWithPopup.
- * - Wraps the entire flow in a robust try/catch that logs stringified errors to prevent unhandled native crashes.
+ * 1. STRICT NATIVE CAPACITOR AUTH:
+ *    - Never call signInWithRedirect or signInWithPopup on native Android (Capacitor.isNativePlatform()).
+ *    - Await GoogleAuth.initialize() to prevent native race conditions.
+ *    - Trigger native Android account picker: const googleUser = await GoogleAuth.signIn();
+ *    - Extract ID Token: const idToken = googleUser.authentication.idToken;
+ *    - Construct Firebase credential: const credential = GoogleAuthProvider.credential(idToken);
+ *    - Authenticate silently in the background: const userCredential = await signInWithCredential(authInstance, credential);
+ * 2. WEB BROWSER AUTH:
+ *    - Falls back to signInWithPopup only when running on web browser.
  */
 export async function performGoogleAuth(authInstance: Auth): Promise<UserCredential> {
   const isNative = typeof window !== 'undefined' && (
@@ -48,6 +53,7 @@ export async function performGoogleAuth(authInstance: Auth): Promise<UserCredent
     (window as any)?.Capacitor?.getPlatform?.() === 'ios'
   );
 
+  // Web Browser fallback ONLY
   if (!isNative) {
     console.log('🌐 Web platform detected: Using Firebase signInWithPopup...');
     try {
@@ -61,50 +67,24 @@ export async function performGoogleAuth(authInstance: Auth): Promise<UserCredent
     }
   }
 
-  // Native Android / iOS execution path
+  // Strict Native Android / iOS execution path
   try {
-    // 1. Explicitly await GoogleAuth.initialize() BEFORE signIn() is ever called
+    // 1. Explicitly await GoogleAuth.initialize() BEFORE signIn() is called
     await initGoogleAuth();
 
     console.log('📱 Invoking native Google Sign-In account picker...');
     const { GoogleAuth } = await import('@codetrix-studio/capacitor-google-auth');
     
-    let googleUser: any = null;
-    try {
-      googleUser = await GoogleAuth.signIn();
-    } catch (signInErr: any) {
-      const stringifiedErr = JSON.stringify(signInErr, Object.getOwnPropertyNames(signInErr));
-      console.error('❌ Native GoogleAuth.signIn error details:', stringifiedErr);
-      
-      const msg = signInErr?.message || String(signInErr);
-      const isCancelled = msg.toLowerCase().includes('cancelled') || 
-                          msg.toLowerCase().includes('canceled') || 
-                          msg.toLowerCase().includes('user cancelled') ||
-                          msg.toLowerCase().includes('12501'); // 12501 = Google Sign-In Cancelled
-
-      if (!isCancelled) {
-        console.warn('⚠️ Native account picker failed, attempting fallback to web popup...');
-        try {
-          const provider = new GoogleAuthProvider();
-          provider.setCustomParameters({ prompt: 'select_account' });
-          return await signInWithPopup(authInstance, provider);
-        } catch (fallbackPopupErr: any) {
-          const fallbackErrStr = JSON.stringify(fallbackPopupErr, Object.getOwnPropertyNames(fallbackPopupErr));
-          console.error('❌ Fallback web popup error details:', fallbackErrStr);
-        }
-      }
-      
-      throw new Error(isCancelled ? 'Sign-in cancelled' : `Google Sign-In error: ${msg}`);
-    }
-
-    console.log('✅ Native GoogleAuth response received:', googleUser ? 'User credentials present' : 'Empty response');
+    // 2. Call the native plugin
+    const googleUser = await GoogleAuth.signIn();
 
     if (!googleUser || !googleUser.authentication) {
-      const errMsg = 'No authentication details received from Google Sign-In.';
+      const errMsg = 'No authentication details received from native Google Sign-In.';
       console.error(`❌ ${errMsg}`, JSON.stringify(googleUser));
       throw new Error(errMsg);
     }
 
+    // 3. Extract the ID token
     const idToken = googleUser.authentication.idToken;
     if (!idToken) {
       const errMsg = 'Missing Google ID Token from native authentication response.';
@@ -112,14 +92,16 @@ export async function performGoogleAuth(authInstance: Auth): Promise<UserCredent
       throw new Error(errMsg);
     }
 
-    // Authenticate with Firebase using the Google ID token
+    // 4. Create a Firebase credential
     const credential = GoogleAuthProvider.credential(idToken);
+
+    // 5. Authenticate silently in the background
     const userCredential = await signInWithCredential(authInstance, credential);
-    console.log('✅ Firebase native credential sign-in success for:', userCredential.user.email);
+    console.log('✅ Firebase native token exchange sign-in successful for:', userCredential.user.email);
     return userCredential;
   } catch (error: any) {
     const fullErrorDetails = JSON.stringify(error, Object.getOwnPropertyNames(error));
-    console.error('❌ performGoogleAuth top-level handled error:', fullErrorDetails);
+    console.error('❌ Native performGoogleAuth error:', fullErrorDetails);
     throw error;
   }
 }
