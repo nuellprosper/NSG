@@ -1,5 +1,5 @@
 {
-  "appId": "com.nsg.app",
+  "appId": "ng.name.nuellstudyguide",
   "appName": "NSG",
   "webDir": "dist",
   "bundledWebRuntime": false,
