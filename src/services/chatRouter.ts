@@ -141,28 +141,19 @@ export async function routeMessage(
       source: 'online-cloud'
     };
   } catch (cloudErr: any) {
-    console.warn('⚠️ Cloud fetch failed, attempting automatic fallback to on-device Qwen model:', cloudErr);
-
-    if (isOmniBrainDownloaded()) {
-      try {
-        const systemPrompt = options.systemInstruction || OMNI_OFFLINE_SYSTEM_PROMPT;
-        const result = await executeOfflineQwenChat({
-          prompt: message,
-          history,
-          systemInstruction: systemPrompt,
-          maxTokens: options.maxTokens || 384,
-          onChunk: options.onChunk
-        });
-
-        return {
-          text: result.text,
-          source: 'offline-native'
-        };
-      } catch (fallbackErr) {
-        console.error('Fallback failed:', fallbackErr);
-      }
+    let exactErrorMessage = '';
+    if (cloudErr instanceof Error) {
+      exactErrorMessage = cloudErr.message;
+    } else if (typeof cloudErr === 'object' && cloudErr !== null) {
+      exactErrorMessage = JSON.stringify(cloudErr, null, 2);
+    } else {
+      exactErrorMessage = String(cloudErr);
     }
-
-    throw cloudErr;
+    console.error("CLOUD AI EXACT ERROR:", exactErrorMessage);
+    return {
+      text: `[DEBUG ERROR]: ${exactErrorMessage}`,
+      source: 'online-cloud',
+      error: exactErrorMessage
+    };
   }
 }

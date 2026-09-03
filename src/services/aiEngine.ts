@@ -1,6 +1,33 @@
-import { Capacitor, CapacitorHttp } from '@capacitor/core';
+import { Capacitor, CapacitorHttp, registerPlugin } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { QWEN_GGUF_MODEL_FILENAME, getSavedModelPath, isOmniBrainDownloaded } from './omniBrain';
+
+// ======================================================================
+// 1. CORRECT CAPACITOR PLUGIN REGISTRATION & INTERFACE
+// ======================================================================
+export interface NativeLLMPlugin {
+  loadModel(options: { path: string }): Promise<{ success: boolean }>;
+  llamaChat(options: { prompt: string; maxTokens?: number }): Promise<{ text: string }>;
+  unloadModel(): Promise<{ success: boolean }>;
+}
+
+export const NativeLLM = registerPlugin<NativeLLMPlugin>('NativeLLM');
+
+// ======================================================================
+// 2. BROWSER & NULL SAFETY FALLBACKS
+// ======================================================================
+export async function runOfflineInference(prompt: string, maxTokens?: number): Promise<string> {
+  if (!Capacitor.isNativePlatform()) {
+    throw new Error("Offline Omni Brain is only available on the compiled Android APK, not in web browsers.");
+  }
+
+  if (!NativeLLM || typeof NativeLLM.llamaChat !== 'function') {
+    throw new Error("NativeLLM plugin is not registered in the Capacitor bridge. Check Android MainActivity registration.");
+  }
+
+  const result = await NativeLLM.llamaChat({ prompt, maxTokens });
+  return result?.text || '';
+}
 
 export const OMNI_SYSTEM_PERSONA = 
   "You are Omni, a high-precision academic, math, CBT examination, and homework assistant for Nigerian and international university and secondary students. Provide direct, highly accurate, structured, step-by-step explanations.";
@@ -208,66 +235,21 @@ export async function executeCloudAINativeHttp(options: CloudAIRequestOptions): 
     }
   };
 
-  // 1. If API key exists, call direct Google Generative AI REST endpoint with CapacitorHttp.post
-  if (apiKey && apiKey !== 'offline_fallback_key') {
+  try {
+    if (!apiKey || apiKey === 'offline_fallback_key') {
+      throw new Error("Missing Gemini API Key. No valid API key found in localStorage or environment.");
+    }
+
     const directUrl = `https://generativelanguage.googleapis.com/v1beta/models/${TARGET_CLOUD_MODEL}:generateContent?key=${apiKey}`;
     console.log(`🌐 [CloudAI] Executing Native HTTP POST via CapacitorHttp to Google Generative AI REST API (${TARGET_CLOUD_MODEL})`);
 
-    try {
-      const response = await CapacitorHttp.post({
-        url: directUrl,
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        data: requestBody
-      });
-
-      if (response.status >= 200 && response.status < 300) {
-        let responseData = response.data;
-        if (typeof responseData === 'string') {
-          try {
-            responseData = JSON.parse(responseData);
-          } catch (e) {
-            return responseData.trim();
-          }
-        }
-
-        const candidate = responseData?.candidates?.[0];
-        const textPart = candidate?.content?.parts?.[0]?.text;
-        if (textPart && textPart.trim()) {
-          return textPart.trim();
-        }
-      } else {
-        console.warn(`⚠️ Direct Google Generative AI endpoint returned status ${response.status}:`, response.data);
-      }
-    } catch (directErr) {
-      console.warn(`⚠️ Direct Google Generative AI native request failed, attempting proxy route:`, directErr);
-    }
-  }
-
-  // 2. Fallback to server proxy /api/ai/chat via CapacitorHttp.post
-  const origin = typeof window !== 'undefined' && window.location.origin ? window.location.origin : '';
-  const isLocalOrCapacitor = !origin || origin.startsWith('http://localhost') || origin.startsWith('capacitor://') || origin.startsWith('file://');
-  const proxyUrl = isLocalOrCapacitor ? 'https://nuellstudyguide.name.ng/api/ai/chat' : `${origin}/api/ai/chat`;
-
-  console.log(`🌐 [CloudAI] Executing Native HTTP POST via CapacitorHttp to server proxy: ${proxyUrl}`);
-
-  try {
     const response = await CapacitorHttp.post({
-      url: proxyUrl,
+      url: directUrl,
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json'
       },
-      data: {
-        model: TARGET_CLOUD_MODEL,
-        prompt: options.prompt,
-        history: options.history || [],
-        systemInstruction: systemText,
-        maxTokens,
-        responseMimeType: mimeType
-      }
+      data: requestBody
     });
 
     if (response.status >= 200 && response.status < 300) {
@@ -279,17 +261,37 @@ export async function executeCloudAINativeHttp(options: CloudAIRequestOptions): 
           return responseData.trim();
         }
       }
-      const reply = responseData?.text || responseData?.reply || responseData?.content || '';
-      if (reply && reply.trim()) {
-        return reply.trim();
+
+      const candidate = responseData?.candidates?.[0];
+      const textPart = candidate?.content?.parts?.[0]?.text;
+      if (textPart && textPart.trim()) {
+        return textPart.trim();
       }
+      throw new Error(`Cloud AI response (${TARGET_CLOUD_MODEL}) has no candidate text parts: ${JSON.stringify(responseData, null, 2)}`);
+    } else {
+      // Throw direct CapacitorHttp error response containing status, model, and response body
+      throw {
+        status: response.status,
+        model: TARGET_CLOUD_MODEL,
+        data: response.data
+      };
+    }
+  } catch (error: any) {
+    let exactErrorMessage = '';
+   
+    if (error instanceof Error) {
+      exactErrorMessage = error.message;
+    } else if (typeof error === 'object' && error !== null) {
+      // If it's a CapacitorHttp error response containing status and data
+      exactErrorMessage = JSON.stringify(error, null, 2);
+    } else {
+      exactErrorMessage = String(error);
     }
 
-    throw new Error(`Native HTTP request returned status ${response.status}: ${JSON.stringify(response.data)}`);
-  } catch (nativeErr: any) {
-    const errDetail = nativeErr instanceof Error ? nativeErr.message : String(nativeErr);
-    console.error('❌ Native Cloud AI HTTP request failed:', errDetail);
-    throw nativeErr;
+    console.error("CLOUD AI EXACT ERROR:", exactErrorMessage);
+   
+    // Return or display the literal error string in the chat UI so we can read it on screen
+    return `[DEBUG ERROR]: ${exactErrorMessage}`;
   }
 }
 
@@ -334,15 +336,18 @@ export async function loadModelToRAM(forceReload: boolean = false): Promise<bool
       console.log(`🧠 [Native RAM] Injecting Qwen GGUF model into device RAM from: ${modelPath}`);
 
       // 2. Pass local URI to NativeLLM C++ bridge if available
-      const nativeLLM = (Capacitor as any)?.Plugins?.NativeLLM;
-      if (nativeLLM && typeof nativeLLM.loadModel === 'function') {
-        await nativeLLM.loadModel({ path: modelPath });
-        isModelLoaded = true;
-        currentLoadedPath = modelPath;
-        lastModelLoadMs = Math.round(performance.now() - loadStart);
-        console.log(`✅ [NativeLLM C++] Model successfully injected into device RAM in ${lastModelLoadMs}ms.`);
-        updateProgress({ isLoading: false, isReady: true, progress: 100, text: 'Model loaded in RAM' });
-        return true;
+      if (Capacitor.isNativePlatform() && NativeLLM && typeof NativeLLM.loadModel === 'function') {
+        try {
+          await NativeLLM.loadModel({ path: modelPath });
+          isModelLoaded = true;
+          currentLoadedPath = modelPath;
+          lastModelLoadMs = Math.round(performance.now() - loadStart);
+          console.log(`✅ [NativeLLM C++] Model successfully injected into device RAM in ${lastModelLoadMs}ms.`);
+          updateProgress({ isLoading: false, isReady: true, progress: 100, text: 'Model loaded in RAM' });
+          return true;
+        } catch (nativeLoadErr) {
+          console.warn('⚠️ NativeLLM.loadModel note:', nativeLoadErr);
+        }
       }
 
       // 3. Load via llama-cpp-capacitor bridge with mmap & optimized thread count
@@ -405,9 +410,8 @@ export async function cleanupRAM(): Promise<void> {
 
   // 1. Unload from NativeLLM C++ Bridge
   try {
-    const nativeLLM = (Capacitor as any)?.Plugins?.NativeLLM;
-    if (nativeLLM && typeof nativeLLM.unloadModel === 'function') {
-      await nativeLLM.unloadModel();
+    if (Capacitor.isNativePlatform() && NativeLLM && typeof NativeLLM.unloadModel === 'function') {
+      await NativeLLM.unloadModel();
       console.log('✅ [NativeLLM] RAM cleared.');
     }
   } catch (err) {
@@ -598,65 +602,88 @@ export async function executeOfflineQwenChat(options: OfflineChatOptions): Promi
   let genMs = 0;
   let genTps = 0;
 
-  // 3. Inference execution via llama-cpp-capacitor
-  if (loadedContextInstance && typeof loadedContextInstance.completion === 'function') {
-    const isChatTemplateSupported = 
-      typeof loadedContextInstance.isLlamaChatSupported === 'function' &&
-      (loadedContextInstance.isLlamaChatSupported() || loadedContextInstance.isJinjaSupported());
-
-    let completionParams: any;
-    if (isChatTemplateSupported) {
-      // Use native GGUF chat template via messages array
-      completionParams = {
-        messages: structuredMessages.map(m => ({ role: m.role, content: m.content })),
-        n_predict: maxTokens,
-        temperature,
-        n_threads: threadCount,
-        stop: QWEN_STOP_TOKENS
-      };
-    } else {
-      // Use explicit ChatML format ending in <|im_start|>assistant\n
+  // 3. Inference execution
+  // Prioritize native C++ bridge (NativeLLM) via llamaChat on native platform
+  if (Capacitor.isNativePlatform() && NativeLLM && typeof NativeLLM.llamaChat === 'function') {
+    try {
+      const genStartTime = performance.now();
       const promptText = formatQwenChatMLFromMessages(structuredMessages);
-      completionParams = {
-        prompt: promptText,
-        n_predict: maxTokens,
-        temperature,
-        n_threads: threadCount,
-        stop: QWEN_STOP_TOKENS
-      };
-    }
+      rawGeneratedText = await runOfflineInference(promptText, maxTokens);
+      const genEndTime = performance.now();
 
-    const genStartTime = performance.now();
-    const result = await loadedContextInstance.completion(
-      completionParams,
-      options.onChunk ? (tokenResult: any) => {
-        const token = tokenResult?.token || tokenResult?.text || '';
-        if (token && options.onChunk) options.onChunk(token);
-      } : undefined
-    );
-    const genEndTime = performance.now();
+      if (options.onChunk && rawGeneratedText) {
+        options.onChunk(rawGeneratedText);
+      }
 
-    rawGeneratedText = result?.text || result?.content || '';
-
-    // Extract native timing metrics if available
-    if (result?.timings) {
-      promptTokens = result.timings.prompt_n || 0;
-      promptMs = Math.round(result.timings.prompt_ms || 0);
-      promptTps = Math.round((result.timings.prompt_per_second || 0) * 10) / 10;
-      genTokens = result.timings.predicted_n || 0;
-      genMs = Math.round(result.timings.predicted_ms || 0);
-      genTps = Math.round((result.timings.predicted_per_second || 0) * 10) / 10;
-    } else {
       genMs = Math.round(genEndTime - genStartTime);
       genTokens = Math.round(rawGeneratedText.split(/\s+/).length * 1.3);
       genTps = genMs > 0 ? Math.round((genTokens / (genMs / 1000)) * 10) / 10 : 0;
+    } catch (nativeErr: any) {
+      console.warn('⚠️ NativeLLM inference note, falling back to llama-cpp-capacitor:', nativeErr?.message || nativeErr);
     }
-  } else {
-    // Fallback if loadedContextInstance was not ready
-    const fallbackStart = performance.now();
-    const manualPrompt = formatQwenChatMLFromMessages(structuredMessages);
-    rawGeneratedText = await executeNativeInference(manualPrompt, maxTokens, options.onChunk);
-    genMs = Math.round(performance.now() - fallbackStart);
+  }
+
+  // Fallback to loaded llama-cpp-capacitor context if NativeLLM was not executed
+  if (!rawGeneratedText) {
+    if (loadedContextInstance && typeof loadedContextInstance.completion === 'function') {
+      const isChatTemplateSupported = 
+        typeof loadedContextInstance.isLlamaChatSupported === 'function' &&
+        (loadedContextInstance.isLlamaChatSupported() || loadedContextInstance.isJinjaSupported());
+
+      let completionParams: any;
+      if (isChatTemplateSupported) {
+        // Use native GGUF chat template via messages array
+        completionParams = {
+          messages: structuredMessages.map(m => ({ role: m.role, content: m.content })),
+          n_predict: maxTokens,
+          temperature,
+          n_threads: threadCount,
+          stop: QWEN_STOP_TOKENS
+        };
+      } else {
+        // Use explicit ChatML format ending in <|im_start|>assistant\n
+        const promptText = formatQwenChatMLFromMessages(structuredMessages);
+        completionParams = {
+          prompt: promptText,
+          n_predict: maxTokens,
+          temperature,
+          n_threads: threadCount,
+          stop: QWEN_STOP_TOKENS
+        };
+      }
+
+      const genStartTime = performance.now();
+      const result = await loadedContextInstance.completion(
+        completionParams,
+        options.onChunk ? (tokenResult: any) => {
+          const token = tokenResult?.token || tokenResult?.text || '';
+          if (token && options.onChunk) options.onChunk(token);
+        } : undefined
+      );
+      const genEndTime = performance.now();
+
+      rawGeneratedText = result?.text || result?.content || '';
+
+      // Extract native timing metrics if available
+      if (result?.timings) {
+        promptTokens = result.timings.prompt_n || 0;
+        promptMs = Math.round(result.timings.prompt_ms || 0);
+        promptTps = Math.round((result.timings.prompt_per_second || 0) * 10) / 10;
+        genTokens = result.timings.predicted_n || 0;
+        genMs = Math.round(result.timings.predicted_ms || 0);
+        genTps = Math.round((result.timings.predicted_per_second || 0) * 10) / 10;
+      } else {
+        genMs = Math.round(genEndTime - genStartTime);
+        genTokens = Math.round(rawGeneratedText.split(/\s+/).length * 1.3);
+        genTps = genMs > 0 ? Math.round((genTokens / (genMs / 1000)) * 10) / 10 : 0;
+      }
+    } else {
+      // Fallback if loadedContextInstance was not ready
+      const fallbackStart = performance.now();
+      const manualPrompt = formatQwenChatMLFromMessages(structuredMessages);
+      rawGeneratedText = await executeNativeInference(manualPrompt, maxTokens, options.onChunk);
+      genMs = Math.round(performance.now() - fallbackStart);
+    }
   }
 
   const totalRoundTripMs = Math.round(performance.now() - startTime);
@@ -707,18 +734,15 @@ export async function executeNativeInference(
 
   const threadCount = getOptimalThreadCount();
 
-  // 1. Try NativeLLM Plugin (with streaming if supported)
-  const nativeLLM = (Capacitor as any)?.Plugins?.NativeLLM;
-  if (nativeLLM && typeof nativeLLM.generateText === 'function') {
-    const response = await nativeLLM.generateText({
-      prompt: formattedChatML,
-      max_tokens: maxTokens,
-      temperature: 0.7,
-      stop: QWEN_STOP_TOKENS
-    });
-    const text = response?.text || response?.content || '';
-    if (onChunk && text) onChunk(text);
-    return cleanGeneratedResponse(text);
+  // 1. Try NativeLLM Plugin (llamaChat) with null safety and platform check
+  if (Capacitor.isNativePlatform() && NativeLLM && typeof NativeLLM.llamaChat === 'function') {
+    try {
+      const text = await runOfflineInference(formattedChatML, maxTokens);
+      if (onChunk && text) onChunk(text);
+      return cleanGeneratedResponse(text);
+    } catch (nativeErr: any) {
+      console.warn('⚠️ NativeLLM.llamaChat note, falling back:', nativeErr?.message || nativeErr);
+    }
   }
 
   // 2. Try loaded llama-cpp-capacitor context

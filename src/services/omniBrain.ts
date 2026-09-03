@@ -1,8 +1,9 @@
 import { Filesystem, Directory, ProgressStatus } from '@capacitor/filesystem';
 import { PluginListenerHandle } from '@capacitor/core';
 
-export const QWEN_GGUF_MODEL_FILENAME = 'qwen2.5-0.5b-instruct.gguf';
-export const QWEN_LEGACY_MODEL_FILENAME = 'qwen2-0.5b-instruct.gguf';
+export const QWEN_GGUF_MODEL_FILENAME = 'qwen2.5-0.5b-instruct-q4_k_m.gguf';
+export const QWEN_LEGACY_MODEL_FILENAME = 'qwen2.5-0.5b-instruct.gguf';
+export const QWEN_OLDER_MODEL_FILENAME = 'qwen2-0.5b-instruct.gguf';
 
 // High-speed direct raw Hugging Face resolve download URLs (direct binary, never HTML blob pages)
 export const QWEN_DIRECT_DOWNLOAD_URL = 
@@ -122,7 +123,7 @@ export function getSavedModelPath(): string {
  */
 export async function verifyOmniBrainFile(): Promise<{ isReady: boolean; size: number; path: string | null }> {
   // Check main Qwen 2.5 filename first
-  const filenamesToCheck = [QWEN_GGUF_MODEL_FILENAME, QWEN_LEGACY_MODEL_FILENAME];
+  const filenamesToCheck = [QWEN_GGUF_MODEL_FILENAME, QWEN_LEGACY_MODEL_FILENAME, QWEN_OLDER_MODEL_FILENAME];
 
   for (const filename of filenamesToCheck) {
     try {
@@ -339,6 +340,13 @@ export async function deleteOmniBrainModel(): Promise<void> {
   try {
     await Filesystem.deleteFile({
       path: QWEN_LEGACY_MODEL_FILENAME,
+      directory: Directory.Data
+    });
+  } catch (e) {}
+
+  try {
+    await Filesystem.deleteFile({
+      path: QWEN_OLDER_MODEL_FILENAME,
       directory: Directory.Data
     });
   } catch (e) {}
