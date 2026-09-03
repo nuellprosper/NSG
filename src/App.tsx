@@ -10,7 +10,7 @@ import {
   AudioUploadOverlay 
 } from "./components/GlobalOverlays";
 import { generateExamScorecard, generateQuizScorecard } from "./utils/scorecardGenerators";
-import { buildFallbackQuizQuestions } from "./utils/fallbackQuizData";
+import { generateQuizRouter } from "./services/quizGenerator";
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 // import Browser from './components/Browser'; // Suspended
 import { 
@@ -9007,12 +9007,20 @@ CRITICAL INSTRUCTIONS & RULES:
         });
         reply = aiResponse?.text || '';
       } catch (aiErr: any) {
-        console.error("executeAITask error:", aiErr);
-        reply = aiErr?.message || "I'm sorry, I couldn't process your request right now. Please try again in a moment.";
+        let exactErrorMessage = '';
+        if (aiErr instanceof Error) {
+          exactErrorMessage = aiErr.message;
+        } else if (typeof aiErr === 'object' && aiErr !== null) {
+          exactErrorMessage = JSON.stringify(aiErr, null, 2);
+        } else {
+          exactErrorMessage = String(aiErr);
+        }
+        console.error("CLOUD AI EXACT ERROR:", exactErrorMessage);
+        reply = `[DEBUG ERROR]: ${exactErrorMessage}`;
       }
 
       if (!reply) {
-        reply = "I'm sorry, I couldn't process your request right now. Please try again in a moment.";
+        reply = "[DEBUG ERROR]: Empty response received from AI engine.";
       }
 
       // Parse for [[GENERATE_QUIZ: or explicit user quiz requests
@@ -9420,143 +9428,34 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
     }
   };
 
-  const localFallbackQuizQuestions = (topicName: string, countNum: number) => {
-    return buildFallbackQuizQuestions(topicName, countNum, quizDocuments, importedQuizNote);
-  };
-
   const generateQuiz = async (topicName?: string, countNum?: number, difficultyLevel?: string, autoStart?: boolean) => {
     setIsGeneratingQuiz(true);
-    const activeTopic = topicName || quizTopic || "General Knowledge";
+    const activeTopic = (topicName || quizTopic || "General Knowledge").trim();
     const activeCount = countNum || quizQuestionCount || 5;
     const activeDifficulty = difficultyLevel || quizDifficulty || 'Medium';
 
     try {
-      const aiInstance = getAiInstance();
-      const validImageParts: any[] = [];
-      if (quizDocuments && quizDocuments.length > 0) {
-        for (const doc of quizDocuments) {
-          if (doc.pageImages && doc.pageImages.length > 0) {
-            for (const imgB64 of doc.pageImages.slice(0, 3)) {
-              const cleanB64 = imgB64.includes(',') ? imgB64.split(',')[1] : imgB64;
-              validImageParts.push({
-                inlineData: {
-                  data: cleanB64,
-                  mimeType: 'image/jpeg'
-                }
-              });
-            }
-          }
-        }
-      }
+      const isDeviceOffline = !isOnline || (typeof navigator !== 'undefined' && !navigator.onLine);
+      const isManualOffline = isDeviceOffline || localStorage.getItem('active_chat_engine') === 'omni-brain';
 
-      let prompt = `You are an expert exam master. Generate a high-yield ${activeCount}-question multiple-choice quiz on "${activeTopic}" at difficulty level "${activeDifficulty}".
-Each question MUST have 4 options and a 0-indexed correctAnswer number (0 to 3), plus a thorough explanation.
-CRITICAL DOMAIN INSTRUCTIONS:
-- Generate authentic, conceptual, and practical questions strictly aligned with the real subject and academic context of "${activeTopic}".
-- STRICT PROHIBITION: NEVER force, fabricate, or invent mathematical equations, formulas, integrals, or calculation tasks onto non-mathematical topics (e.g. if the subject is human anatomy, medicine, epiglottitis, biology, law, literature, history, or philosophy, formulate natural questions about anatomical structures, clinical signs, pathophysiology, mechanisms, functions, or historical facts—DO NOT invent fake mathematical formulas like 'the anatomy formula is 1/2 integral').
-- Only include mathematical equations or calculations ($...$) if the topic itself is specifically a mathematics, calculus, physics, or statistical calculation domain.
-Format your output strictly as a JSON object matching this schema:
-{
-  "quizTitle": "${activeTopic}",
-  "questions": [
-    {
-      "question": "Question text",
-      "options": ["Option A", "Option B", "Option C", "Option D"],
-      "correctAnswer": 0,
-      "explanation": "Detailed rationale."
-    }
-  ]
-}`;
+      console.log(`🧠 [Quiz] Initiating quiz generation for "${activeTopic}" (${activeCount} questions). Offline: ${isManualOffline}`);
 
-      const contentsParts: any[] = [{ text: prompt }];
-      validImageParts.forEach(part => {
-        if (part && part.inlineData) {
-          contentsParts.push({ inlineData: part.inlineData });
-        }
+      // Call Centralized Unified Quiz Router (Online Gemini / Offline Local Qwen)
+      const routerResult = await generateQuizRouter(activeTopic, activeCount, {
+        difficulty: activeDifficulty,
+        forceOfflineToggle: isManualOffline,
+        isOnline: !isDeviceOffline,
+        onProgress: (msg) => setUserNotification(msg)
       });
 
-      const askGemini = async () => {
-        try {
-          const res = await aiInstance.models.generateContent({
-            model: FLASH_MODEL,
-            contents: [{ role: 'user', parts: contentsParts }],
-            config: {
-              responseMimeType: "application/json"
-            }
-          });
-          return res?.text || null;
-        } catch (e) {
-          console.warn("Gemini primary quiz generation error, attempting fallback lite/flash model:", e);
-          try {
-            const resFallback = await aiInstance.models.generateContent({
-              model: "gemini-3.1-flash-lite",
-              contents: [{ role: 'user', parts: contentsParts }],
-              config: {
-                responseMimeType: "application/json"
-              }
-            });
-            return resFallback?.text || null;
-          } catch (e2) {
-            console.warn("Gemini secondary quiz generation error:", e2);
-            return null;
-          }
-        }
-      };
-
-      const askOpenRouter = async () => {
-        return await callOpenRouter(prompt, OPENROUTER_MODELS.TEXT_PRO);
-      };
-
-      const askTogether = async () => {
-        return await callTogetherAI(prompt);
-      };
-
-      const askLocalQwen = async () => {
-        try {
-          return await runLocalQwenInference({
-            prompt: prompt,
-            responseMimeType: "application/json"
-          });
-        } catch (e) {
-          console.warn("Local Qwen quiz generation error:", e);
-          return null;
-        }
-      };
-
-      let responseText = "";
-      const isDeviceOffline = !isOnline || (typeof navigator !== 'undefined' && !navigator.onLine);
-
-      if (isDeviceOffline) {
-        if (!isOmniBrainDownloaded()) {
-          console.warn("⚠️ Offline quiz generation requested but Qwen model is not downloaded yet.");
-          setUserNotification(OFFLINE_MODEL_NOT_DOWNLOADED_MSG);
-          setIsGeneratingQuiz(false);
-          return { success: false, error: OFFLINE_MODEL_NOT_DOWNLOADED_MSG };
-        }
-
-        try {
-          console.log("⚡ Device offline: Generating quiz via on-device Qwen model (zero network calls)...");
-          responseText = await askLocalQwen() || "";
-        } catch (localErr: any) {
-          console.error("Local Qwen error during quiz generation:", localErr);
-          setUserNotification(`Offline AI Quiz Error: ${localErr?.message || "Local inference error"}`);
-        }
+      const questionsToUse = routerResult.questions;
+      if (!questionsToUse || questionsToUse.length === 0) {
+        throw new Error(`AI generated an empty questions set for "${activeTopic}".`);
       }
 
-      if (!responseText) {
-        responseText = await askGemini() || await askTogether() || await askOpenRouter() || (isOmniBrainDownloaded() ? await askLocalQwen() : null) || "{}";
-      }
-      let data = robustJSONParse(responseText);
-
-      const docTitles = quizDocuments.map(d => d.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ")).join(" & ");
-      const defaultFallbackTopic = docTitles || (importedQuizNote ? importedQuizNote.title : "Study Material Quiz");
-      const finalQuizTopic = (data && data.quizTitle) || activeTopic.trim() || defaultFallbackTopic;
-
-      let questionsToUse = (data && Array.isArray(data.questions) && data.questions.length > 0) 
-        ? data.questions 
-        : localFallbackQuizQuestions(finalQuizTopic, activeCount);
-
+      const finalQuizTopic = routerResult.topic || activeTopic;
       const genId = `quiz-gen-${Date.now()}`;
+
       setQuizTopic(finalQuizTopic);
       setQuizQuestions(questionsToUse);
       setCurrentQuestionIndex(0);
@@ -9583,7 +9482,7 @@ Format your output strictly as a JSON object matching this schema:
       };
       addToFinishedHistory(historyItem);
 
-      // Only perform Firestore and cloud activity synchronization when online (Zero network calls when offline)
+      // Synchronize with cloud when online
       if (!isDeviceOffline) {
         const cleanGenId = genId.replace(/^quiz-/, '');
         const autoQuizPayload = {
@@ -9599,16 +9498,15 @@ Format your output strictly as a JSON object matching this schema:
         ]).catch(err => console.error("Error auto-saving generated quiz to Firestore:", err));
 
         if (user) {
-          const finalTopic = activeTopic || finalQuizTopic || 'Visual Materials Quiz';
           const nameHandle = currentUserData?.username || currentUserData?.displayName || 'Scholar';
           addDoc(collection(db, 'activities'), {
             type: 'quiz_generated',
-            text: `${nameHandle} generated a quiz on "${finalTopic}", try yours!`,
+            text: `${nameHandle} generated a quiz on "${finalQuizTopic}", try yours!`,
             username: nameHandle,
             userId: user.uid,
             userPhoto: currentUserData?.photoURL || '',
             timestamp: serverTimestamp() || new Date(),
-            topic: finalTopic
+            topic: finalQuizTopic
           }).catch((err) => console.error("Error saving global activity:", err));
         }
       }
@@ -9623,28 +9521,15 @@ Format your output strictly as a JSON object matching this schema:
       if (checkIsQuotaError(error)) {
         triggerQuotaErrorModal();
       }
-      console.error("Quiz Generation Error, falling back to offline practice quiz:", error);
-      setUserNotification(`Quiz Generation Error: ${error?.message || "Failed to generate quiz from online AI. Generating from local practice generator."}`);
-      const docTitles = quizDocuments.map(d => d.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ")).join(" & ");
-      const finalQuizTopic = activeTopic.trim() || docTitles || (importedQuizNote ? importedQuizNote.title : "Practice Quiz");
-      const fallbackQuestions = localFallbackQuizQuestions(finalQuizTopic, activeCount);
-      const genId = `quiz-gen-${Date.now()}`;
-
-      setQuizTopic(finalQuizTopic);
-      setQuizQuestions(fallbackQuestions);
-      setCurrentQuestionIndex(0);
-      setQuizScore(0);
-      setUserQuizAnswers([]);
-      setQuizState('preview');
-      setSelectedOption(null);
-      setIsAnswered(false);
-      setCurrentQuizId(genId);
-
+      const cleanErrMsg = error instanceof Error ? error.message : String(error);
+      console.error("❌ Quiz Generation Failed:", cleanErrMsg);
+      
+      // Transparent error notice — NEVER silently feed fake static mock questions
+      setUserNotification(`Quiz Generation Error: ${cleanErrMsg}`);
+      
       return {
-        success: true,
-        quizId: genId,
-        topic: finalQuizTopic,
-        count: fallbackQuestions.length
+        success: false,
+        error: cleanErrMsg
       };
     } finally {
       setIsGeneratingQuiz(false);
