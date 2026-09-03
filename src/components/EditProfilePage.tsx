@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   ArrowLeft, Camera, User, Mail, Lock, Shield, Sparkles, 
@@ -6,6 +6,8 @@ import {
 } from 'lucide-react';
 import { UNIVERSITIES, FACULTIES, DEPARTMENTS } from '../constants/academic';
 import { auth } from '../firebase';
+import { OtpVerificationModal } from './OtpVerificationModal';
+import { sendOtpEmail } from '../services/authService';
 
 export interface EditProfilePageProps {
   isEditingProfile: boolean;
@@ -88,6 +90,63 @@ export const EditProfilePage: React.FC<EditProfilePageProps> = ({
   isUploadingAvatar,
   handleLogout = () => {},
 }) => {
+  const [showOtpModal, setShowOtpModal] = useState(false);
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [otpExpiresAt, setOtpExpiresAt] = useState<number | undefined>(undefined);
+
+  const handleChangePasswordClick = async () => {
+    if (!user?.email) {
+      setUserNotification("No authenticated email address found on this account.");
+      return;
+    }
+    setIsSendingOtp(true);
+    try {
+      const res = await sendOtpEmail(user.email, 'profile-change');
+      if (res.success && res.expiresAt) {
+        setOtpExpiresAt(res.expiresAt);
+        setShowOtpModal(true);
+        setUserNotification(`A 6-digit security code has been sent to ${user.email}.`);
+      } else {
+        setUserNotification(`Failed to send verification code: ${res.error || 'Check network connection.'}`);
+      }
+    } catch (err: any) {
+      setUserNotification(`Error sending verification code: ${err.message || err}`);
+    } finally {
+      setIsSendingOtp(false);
+    }
+  };
+
+  const handleOtpSuccess = async (data?: { newPassword?: string; otp?: string }) => {
+    setShowOtpModal(false);
+    if (!user?.email) return;
+
+    if (data?.newPassword && auth.currentUser) {
+      try {
+        const { updatePassword } = await import('firebase/auth');
+        await updatePassword(auth.currentUser, data.newPassword);
+        setUserNotification("Password successfully updated! Your new password is now active.");
+        return;
+      } catch (updateErr: any) {
+        console.warn("Direct updatePassword notice (session requires refresh):", updateErr);
+        try {
+          const { sendPasswordResetEmail } = await import('firebase/auth');
+          await sendPasswordResetEmail(auth, user.email);
+          setUserNotification("Security code verified! Since your login session is old, an instant password update link has been confirmed and sent to your email.");
+        } catch (err: any) {
+          setUserNotification(`Password change notification: ${err.message || err}`);
+        }
+      }
+    } else {
+      try {
+        const { sendPasswordResetEmail } = await import('firebase/auth');
+        await sendPasswordResetEmail(auth, user.email);
+        setUserNotification("Security code verified! Password reset link sent to your inbox.");
+      } catch (err: any) {
+        setUserNotification(`Failed to send reset email: ${err.message || err}`);
+      }
+    }
+  };
+
   const profileName = profileFormData ? (profileFormData.fullName || '') : propName;
   const setProfileName = (val: string) => {
     if (setProfileFormData) setProfileFormData((prev: any) => ({ ...prev, fullName: val }));
@@ -154,7 +213,8 @@ export const EditProfilePage: React.FC<EditProfilePageProps> = ({
     propSetCountry(val);
   };
   return (
-    <AnimatePresence>
+    <>
+      <AnimatePresence>
       {isEditingProfile && (
           <motion.div 
             initial={{ opacity: 0, y: 15 }} 
@@ -459,19 +519,12 @@ export const EditProfilePage: React.FC<EditProfilePageProps> = ({
                   <div className="grid grid-cols-2 gap-2">
                     <button 
                       type="button"
-                      onClick={async () => {
-                        if (!user?.email) return;
-                        try {
-                          const { sendPasswordResetEmail } = await import('firebase/auth');
-                          await sendPasswordResetEmail(auth, user.email);
-                          setUserNotification("Password reset email sent!");
-                        } catch (err: any) {
-                          setUserNotification(`Error sending reset email: ${err.message || err}`);
-                        }
-                      }}
-                      className="px-3 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-white transition-all text-center cursor-pointer"
+                      onClick={handleChangePasswordClick}
+                      disabled={isSendingOtp}
+                      className="px-3 py-2.5 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-xs font-semibold text-purple-200 transition-all text-center cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
                     >
-                      Reset Password
+                      <KeyRound size={13} className="text-purple-400" />
+                      <span>{isSendingOtp ? 'Sending Code...' : 'Change Password'}</span>
                     </button>
                     <button 
                       type="button"
@@ -499,5 +552,17 @@ export const EditProfilePage: React.FC<EditProfilePageProps> = ({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* 6-Digit OTP Verification Modal for Profile Password Update */}
+      <OtpVerificationModal
+        isOpen={showOtpModal}
+        onClose={() => setShowOtpModal(false)}
+        email={(user?.email || '').toLowerCase().trim()}
+        type="profile-change"
+        initialExpiresAt={otpExpiresAt}
+        onSuccess={handleOtpSuccess}
+        setUserNotification={setUserNotification}
+      />
+    </>
   );
 };

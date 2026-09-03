@@ -14,6 +14,7 @@ import {
   handleFirestoreError, FirestoreOperation
 } from '../firebase';
 import { DEPARTMENTS } from '../constants/academic';
+import { sendCustomAdminEmail } from '../services/authService';
 
 export interface GodModePanelProps {
   showGodMode: boolean;
@@ -249,11 +250,13 @@ export const GodModePanel: React.FC<GodModePanelProps> = ({
   const [isSubmittingCourse, setIsSubmittingCourse] = useState(false);
 
   // Form States for Direct Email / In-App Broadcast
-  const [emailAudience, setEmailAudience] = useState<'all' | 'premium' | 'free' | 'admins' | 'custom'>('all');
+  const [emailChannel, setEmailChannel] = useState<'resend_email' | 'in_app'>('resend_email');
+  const [emailAudience, setEmailAudience] = useState<'all' | 'premium' | 'free' | 'admins' | 'custom'>('custom');
   const [customRecipient, setCustomRecipient] = useState('');
   const [emailSubject, setEmailSubject] = useState('');
   const [emailContent, setEmailContent] = useState('');
   const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [previewCustomEmail, setPreviewCustomEmail] = useState(false);
 
   // Form States for Blog Posts
   const [blogTitle, setBlogTitle] = useState('');
@@ -492,53 +495,70 @@ export const GodModePanel: React.FC<GodModePanelProps> = ({
     }
   };
 
-  // 9. Dispatch Broadcast Email / In-App Notification
+  // 9. Dispatch Custom Admin Email (Resend) / In-App Notification
   const handleBroadcastDispatch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!emailSubject.trim() || !emailContent.trim()) {
-      showToast('Subject and broadcast message body are required');
+      showToast('Subject and email message body are required');
       return;
     }
 
     setIsSendingEmail(true);
     try {
-      // Determine target users
-      let targets = usersList;
-      if (emailAudience === 'premium') {
-        targets = usersList.filter(u => u.isPremium || u.bypassAllPayments);
-      } else if (emailAudience === 'free') {
-        targets = usersList.filter(u => !u.isPremium && !u.bypassAllPayments);
-      } else if (emailAudience === 'admins') {
-        targets = usersList.filter(u => u.isAdmin || u.role === 'admin');
-      } else if (emailAudience === 'custom' && customRecipient.trim()) {
-        targets = usersList.filter(u => u.email?.toLowerCase().trim() === customRecipient.toLowerCase().trim());
-      }
-
-      // Add dispatch notification to Firestore for active in-app popup
-      for (const target of targets.slice(0, 30)) {
-        if (target.id) {
-          const personalizedContent = emailContent
-            .replace(/\{name\}/g, target.name || target.displayName || 'Scholar')
-            .replace(/\{email\}/g, target.email || '');
-
-          await addDoc(collection(db, 'notifications'), {
-            to: target.id,
-            userId: target.id,
-            title: emailSubject,
-            message: personalizedContent,
-            timestamp: serverTimestamp(),
-            type: 'broadcast',
-            read: false
-          });
+      if (emailChannel === 'resend_email') {
+        const recipient = customRecipient.trim();
+        if (!recipient || !recipient.includes('@')) {
+          showToast('A valid recipient email address is required');
+          setIsSendingEmail(false);
+          return;
         }
-      }
 
-      showToast(`Broadcast successfully dispatched to ${targets.length} scholar accounts!`);
-      setEmailSubject('');
-      setEmailContent('');
+        const res = await sendCustomAdminEmail(recipient, emailSubject.trim(), emailContent.trim());
+        if (res.success) {
+          showToast(`Official NSG email successfully dispatched to ${recipient}!`);
+          setEmailSubject('');
+          setEmailContent('');
+        } else {
+          showToast(`Email relay failed: ${res.error || 'Check server configuration'}`);
+        }
+      } else {
+        // In-App Notification Broadcast
+        let targets = usersList;
+        if (emailAudience === 'premium') {
+          targets = usersList.filter(u => u.isPremium || u.bypassAllPayments);
+        } else if (emailAudience === 'free') {
+          targets = usersList.filter(u => !u.isPremium && !u.bypassAllPayments);
+        } else if (emailAudience === 'admins') {
+          targets = usersList.filter(u => u.isAdmin || u.role === 'admin');
+        } else if (emailAudience === 'custom' && customRecipient.trim()) {
+          targets = usersList.filter(u => u.email?.toLowerCase().trim() === customRecipient.toLowerCase().trim());
+        }
+
+        for (const target of targets.slice(0, 30)) {
+          if (target.id) {
+            const personalizedContent = emailContent
+              .replace(/\{name\}/g, target.name || target.displayName || 'Scholar')
+              .replace(/\{email\}/g, target.email || '');
+
+            await addDoc(collection(db, 'notifications'), {
+              to: target.id,
+              userId: target.id,
+              title: emailSubject,
+              message: personalizedContent,
+              timestamp: serverTimestamp(),
+              type: 'broadcast',
+              read: false
+            });
+          }
+        }
+
+        showToast(`In-app notification broadcast dispatched to ${targets.length} scholar accounts!`);
+        setEmailSubject('');
+        setEmailContent('');
+      }
     } catch (err: any) {
       console.error(err);
-      showToast(`Broadcast error: ${err.message}`);
+      showToast(`Dispatch error: ${err.message}`);
     } finally {
       setIsSendingEmail(false);
     }
@@ -1253,85 +1273,220 @@ export const GodModePanel: React.FC<GodModePanelProps> = ({
                 TAB: BROADCAST EMAIL & IN-APP NOTIFICATIONS
             ======================================================== */}
             {activeTab === 'emails' && (
-              <div className="p-6 rounded-3xl bg-white/[0.02] border border-white/10 max-w-3xl space-y-4">
-                <div>
-                  <h3 className="text-sm font-black uppercase tracking-wide text-white flex items-center gap-2">
-                    <Mail size={16} className="text-red-400" /> Direct Broadcast & Notification Center
-                  </h3>
-                  <p className="text-xs text-white/50">Send mass announcements and system messages to registered students.</p>
+              <div className="p-6 rounded-3xl bg-white/[0.02] border border-white/10 max-w-3xl space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-4 border-b border-white/10">
+                  <div>
+                    <h3 className="text-sm font-black uppercase tracking-wide text-white flex items-center gap-2">
+                      <Mail size={16} className="text-red-400" /> NSG Communication & Email Center
+                    </h3>
+                    <p className="text-xs text-white/50">Send direct branded emails via Resend or broadcast in-app messages.</p>
+                  </div>
+
+                  {/* Channel Switcher */}
+                  <div className="flex bg-white/5 p-1 rounded-2xl border border-white/10 self-start sm:self-auto">
+                    <button
+                      type="button"
+                      onClick={() => setEmailChannel('resend_email')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                        emailChannel === 'resend_email'
+                          ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30'
+                          : 'text-white/50 hover:text-white'
+                      }`}
+                    >
+                      <Sparkles size={12} />
+                      <span>Resend Email</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEmailChannel('in_app')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                        emailChannel === 'in_app'
+                          ? 'bg-red-600 text-white shadow-md shadow-red-600/30'
+                          : 'text-white/50 hover:text-white'
+                      }`}
+                    >
+                      <MessageSquare size={12} />
+                      <span>In-App Broadcast</span>
+                    </button>
+                  </div>
                 </div>
 
                 <form onSubmit={handleBroadcastDispatch} className="space-y-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-black uppercase text-white/50">Target Audience</label>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      {[
-                        { id: 'all', label: `All Users (${usersList.length})` },
-                        { id: 'premium', label: `Premium Only (${stats.premiumUsers})` },
-                        { id: 'free', label: `Free Tier (${stats.totalUsers - stats.premiumUsers})` },
-                        { id: 'custom', label: 'Single Recipient' },
-                      ].map(aud => (
-                        <button
-                          key={aud.id}
-                          type="button"
-                          onClick={() => setEmailAudience(aud.id as any)}
-                          className={`py-2 px-3 rounded-xl text-xs font-bold transition-all border ${
-                            emailAudience === aud.id 
-                              ? 'bg-red-600/20 border-red-500 text-white' 
-                              : 'bg-white/5 border-white/10 text-white/50 hover:text-white'
-                          }`}
-                        >
-                          {aud.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  {emailChannel === 'resend_email' ? (
+                    <>
+                      {/* RECIPIENT EMAIL */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[10px] font-black uppercase tracking-wider text-purple-400">
+                            Recipient Email (Single Scholar / Instructor)
+                          </label>
+                          <span className="text-[9px] text-white/40 font-mono">Powered by Resend Relay</span>
+                        </div>
+                        <input 
+                          type="email" 
+                          value={customRecipient} 
+                          onChange={(e) => setCustomRecipient(e.target.value)}
+                          placeholder="e.g. scholar@gmail.com"
+                          className="w-full px-4 py-3 bg-[#0A0C14] border border-purple-500/30 rounded-2xl text-xs text-white outline-none focus:border-purple-400 transition-all font-mono"
+                          required
+                        />
 
-                  {emailAudience === 'custom' && (
-                    <input 
-                      type="email" 
-                      value={customRecipient} 
-                      onChange={(e) => setCustomRecipient(e.target.value)}
-                      placeholder="Scholar Email (e.g. student@gmail.com)"
-                      className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-xs text-white outline-none focus:border-red-500/50"
-                      required
-                    />
+                        {/* Quick-fill pills from users list */}
+                        {usersList && usersList.length > 0 && (
+                          <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                            <span className="text-[9px] text-white/40">Quick pick:</span>
+                            {usersList.filter(u => u.email).slice(0, 4).map(u => (
+                              <button
+                                key={u.id}
+                                type="button"
+                                onClick={() => setCustomRecipient(u.email)}
+                                className="text-[9px] px-2 py-0.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/70 border border-white/10 transition-colors truncate max-w-[150px]"
+                              >
+                                {u.email}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {/* AUDIENCE SELECTOR FOR IN-APP BROADCAST */}
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-black uppercase text-white/50">Target Audience</label>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          {[
+                            { id: 'all', label: `All Users (${usersList.length})` },
+                            { id: 'premium', label: `Premium Only (${stats.premiumUsers})` },
+                            { id: 'free', label: `Free Tier (${stats.totalUsers - stats.premiumUsers})` },
+                            { id: 'custom', label: 'Single Recipient' },
+                          ].map(aud => (
+                            <button
+                              key={aud.id}
+                              type="button"
+                              onClick={() => setEmailAudience(aud.id as any)}
+                              className={`py-2 px-3 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                                emailAudience === aud.id 
+                                  ? 'bg-red-600/20 border-red-500 text-white' 
+                                  : 'bg-white/5 border-white/10 text-white/50 hover:text-white'
+                              }`}
+                            >
+                              {aud.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {emailAudience === 'custom' && (
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-black uppercase text-white/50">Target Email</label>
+                          <input 
+                            type="email" 
+                            value={customRecipient} 
+                            onChange={(e) => setCustomRecipient(e.target.value)}
+                            placeholder="Scholar Email (e.g. student@gmail.com)"
+                            className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-xs text-white outline-none focus:border-red-500/50"
+                            required
+                          />
+                        </div>
+                      )}
+                    </>
                   )}
 
+                  {/* SUBJECT */}
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-black uppercase text-white/50">Subject Line</label>
                     <input 
                       type="text" 
                       value={emailSubject} 
                       onChange={(e) => setEmailSubject(e.target.value)}
-                      placeholder="Important Semester Update / Exam Preparation Week..."
-                      className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-xs text-white outline-none focus:border-red-500/50"
+                      placeholder={emailChannel === 'resend_email' ? "Official Academic Advisory: Semester Readiness" : "Important Semester Update..."}
+                      className="w-full px-4 py-3 bg-[#0A0C14] border border-white/10 rounded-2xl text-xs text-white outline-none focus:border-purple-500/60 transition-all"
                       required
                     />
                   </div>
 
+                  {/* MESSAGE BODY */}
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
-                      <label className="text-[10px] font-black uppercase text-white/50">Message Body (Supports merge tags: {"{name}"}, {"{email}"})</label>
-                      <span className="text-[10px] text-white/40">Markdown / Text</span>
+                      <label className="text-[10px] font-black uppercase text-white/50">
+                        {emailChannel === 'resend_email' ? 'Email Message (Supports HTML or plain text)' : 'Message Body'}
+                      </label>
+                      {emailChannel === 'resend_email' && (
+                        <button
+                          type="button"
+                          onClick={() => setPreviewCustomEmail(!previewCustomEmail)}
+                          className="text-[10px] text-purple-400 hover:text-purple-300 font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                        >
+                          <Eye size={12} />
+                          <span>{previewCustomEmail ? 'Hide Preview' : 'Show Branded Preview'}</span>
+                        </button>
+                      )}
                     </div>
                     <textarea 
                       value={emailContent} 
                       onChange={(e) => setEmailContent(e.target.value)}
                       rows={6}
-                      placeholder="Hello {name}, welcome to the new semester! We've uploaded complete exam preparation materials for your department..."
-                      className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-xs text-white outline-none resize-none focus:border-red-500/50"
+                      placeholder={emailChannel === 'resend_email' 
+                        ? "<p>Dear Scholar,</p><p>We are pleased to inform you that your course access has been upgraded. If you have questions, reply directly to this notification.</p>" 
+                        : "Hello {name}, welcome to the new semester! Complete exam materials are now ready..."}
+                      className="w-full px-4 py-3 bg-[#0A0C14] border border-white/10 rounded-2xl text-xs text-white outline-none resize-none focus:border-purple-500/60 font-sans leading-relaxed transition-all"
                       required
                     />
                   </div>
 
+                  {/* LIVE BRANDED PREVIEW */}
+                  {emailChannel === 'resend_email' && previewCustomEmail && (
+                    <div className="p-4 rounded-2xl bg-[#090B10] border border-purple-500/20 space-y-3">
+                      <div className="flex items-center justify-between pb-2 border-b border-white/10">
+                        <span className="text-[10px] font-bold text-purple-400 uppercase tracking-wider flex items-center gap-1">
+                          <Sparkles size={11} /> Live NSG Template Preview
+                        </span>
+                        <span className="text-[10px] text-white/40">From: NSG Admin &lt;security@nuellstudyguide.name.ng&gt;</span>
+                      </div>
+                      
+                      <div className="bg-[#11141E] p-4 rounded-xl border border-white/5 text-white/90 text-xs font-sans space-y-3">
+                        <div className="flex items-center gap-2 pb-2 border-b border-white/10">
+                          <span className="font-black text-purple-400 tracking-wider">NSG</span>
+                          <span className="text-[10px] text-white/40">Nuell Study Guide Platform</span>
+                        </div>
+                        <h4 className="font-bold text-sm text-white">{emailSubject || 'Subject preview'}</h4>
+                        <div 
+                          className="text-white/80 leading-relaxed space-y-2 pt-1" 
+                          dangerouslySetInnerHTML={{ __html: emailContent || '<p>Your message body will appear here...</p>' }}
+                        />
+                        <div className="pt-3 border-t border-white/5 text-[10px] text-white/40">
+                          © 2025 Nuell Study Guide (NSG). All rights reserved.
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* SUBMIT BUTTON */}
                   <button
                     type="submit"
-                    disabled={isSendingEmail || !emailSubject.trim() || !emailContent.trim()}
-                    className="w-full py-3 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer"
+                    disabled={isSendingEmail || !emailSubject.trim() || !emailContent.trim() || (emailChannel === 'resend_email' && !customRecipient.trim())}
+                    className={`w-full py-3.5 rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 ${
+                      emailChannel === 'resend_email'
+                        ? 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-purple-900/30'
+                        : 'bg-red-600 hover:bg-red-500 text-white shadow-red-900/30'
+                    }`}
                   >
-                    <SendHorizontal size={16} />
-                    <span>{isSendingEmail ? 'Dispatching Broadcast...' : 'Dispatch Broadcast Message'}</span>
+                    {isSendingEmail ? (
+                      <>
+                        <RefreshCw size={16} className="animate-spin" />
+                        <span>Transmitting Email via Resend Relay...</span>
+                      </>
+                    ) : (
+                      <>
+                        <SendHorizontal size={16} />
+                        <span>
+                          {emailChannel === 'resend_email' 
+                            ? 'Dispatch Official Custom Email (Resend)' 
+                            : 'Dispatch Broadcast Message'}
+                        </span>
+                      </>
+                    )}
                   </button>
                 </form>
               </div>

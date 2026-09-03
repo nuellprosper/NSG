@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   X, Sparkles, User, ShieldCheck, Mail, Lock, Eye, EyeOff, 
@@ -6,6 +6,8 @@ import {
   BookOpen, Layers, Hash, XCircle, Loader2
 } from 'lucide-react';
 import { UNIVERSITIES, FACULTIES, DEPARTMENTS } from '../constants/academic';
+import { OtpVerificationModal } from './OtpVerificationModal';
+import { sendOtpEmail } from '../services/authService';
 
 export interface AuthModalProps {
   showAuthModal: boolean;
@@ -110,8 +112,110 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   passwordStrength = { score: 2, color: 'bg-emerald-500', feedback: 'Strong' },
   pendingQuizId = '',
 }) => {
+  const [showOtpModal, setShowOtpModal] = useState(false);
+  const [otpModalType, setOtpModalType] = useState<'signup' | 'forgot-password' | 'profile-change'>('signup');
+  const [otpExpiresAt, setOtpExpiresAt] = useState<number | undefined>(undefined);
+  const [isPreparingOtp, setIsPreparingOtp] = useState(false);
+
+  // Intercept sign-up form submit to mandate 6-digit OTP verification via Resend
+  const handleAuthSubmitWithOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    // In Login mode, process directly
+    if (authMode === 'login') {
+      handleAuth(e);
+      return;
+    }
+
+    // In Signup mode, validate inputs first
+    const cleanEmail = (authEmail || '').toLowerCase().trim();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setUserNotification('Please enter a valid email address.');
+      return;
+    }
+    if (!authPassword || authPassword.length < 6) {
+      setUserNotification('Password must be at least 6 characters.');
+      return;
+    }
+    if (!authFullName) {
+      setUserNotification('Full Official Name is required.');
+      return;
+    }
+    if (validationErrors && Object.keys(validationErrors).length > 0) {
+      setUserNotification('Please address the highlighted form errors before continuing.');
+      return;
+    }
+
+    setIsPreparingOtp(true);
+    try {
+      // 1. Dispatch 6-digit OTP to user's email via Resend secure backend relay
+      const res = await sendOtpEmail(cleanEmail, 'signup');
+      if (res.success && res.expiresAt) {
+        setOtpExpiresAt(res.expiresAt);
+        setOtpModalType('signup');
+        setShowOtpModal(true);
+        setUserNotification(`A 6-digit security code has been sent to ${cleanEmail}. Enter it to activate your account.`);
+      } else {
+        setUserNotification(`Failed to send verification code: ${res.error || 'Check your network connection.'}`);
+      }
+    } catch (err: any) {
+      setUserNotification(`Error sending verification code: ${err.message || err}`);
+    } finally {
+      setIsPreparingOtp(false);
+    }
+  };
+
+  // Forgot password OTP flow
+  const handleForgotPasswordWithOtp = async () => {
+    const cleanEmail = (authEmail || '').toLowerCase().trim();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setUserNotification('Please type your registered email into the Email field first.');
+      return;
+    }
+
+    setIsPreparingOtp(true);
+    try {
+      const res = await sendOtpEmail(cleanEmail, 'forgot-password');
+      if (res.success && res.expiresAt) {
+        setOtpExpiresAt(res.expiresAt);
+        setOtpModalType('forgot-password');
+        setShowOtpModal(true);
+        setUserNotification(`A 6-digit password reset code was sent to ${cleanEmail}.`);
+      } else {
+        setUserNotification(`Failed to send reset code: ${res.error || 'Check your network connection.'}`);
+      }
+    } catch (err: any) {
+      setUserNotification(`Error sending reset code: ${err.message || err}`);
+    } finally {
+      setIsPreparingOtp(false);
+    }
+  };
+
+  // Called when user successfully verifies the 6-digit OTP
+  const handleOtpVerified = async (data?: { newPassword?: string; otp?: string }) => {
+    setShowOtpModal(false);
+
+    if (otpModalType === 'signup') {
+      // Finalize Firebase user registration
+      setUserNotification('Code verified! Finalizing account registration...');
+      handleAuth({ preventDefault: () => {} } as any);
+    } else if (otpModalType === 'forgot-password') {
+      // Verified password reset
+      try {
+        const cleanEmail = (authEmail || '').toLowerCase().trim();
+        const { sendPasswordResetEmail } = await import('firebase/auth');
+        await sendPasswordResetEmail(auth, cleanEmail);
+        setUserNotification('Code verified! A secure password reset link has been confirmed and sent to your email.');
+        setAuthMode('login');
+      } catch (err: any) {
+        setUserNotification(`Password reset notification: ${err.message || err}`);
+      }
+    }
+  };
+
   return (
-    <AnimatePresence>
+    <>
+      <AnimatePresence>
       {showAuthModal && (
           <motion.div 
             initial={{ opacity: 0 }} 
@@ -158,7 +262,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </p>
               </div>
 
-              <form onSubmit={handleAuth} className="space-y-4 text-left">
+              <form onSubmit={handleAuthSubmitWithOtp} className="space-y-4 text-left">
                 {authMode === 'signup' ? (
                   <>
                     <div className="space-y-1">
@@ -333,22 +437,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     {authMode === 'login' && (
                       <button 
                         type="button" 
-                        onClick={async () => {
-                          if (!authEmail) {
-                            setUserNotification("Please enter your email address in the input above first.");
-                            return;
-                          }
-                          try {
-                            const { sendPasswordResetEmail } = await import('firebase/auth');
-                            await sendPasswordResetEmail(auth, authEmail);
-                            setUserNotification("Password reset email sent! Check your inbox.");
-                          } catch (err: any) {
-                            setUserNotification(`Failed to send password reset: ${err.message || err}`);
-                          }
-                        }}
-                        className="text-xs font-medium text-orange-400 hover:text-orange-300 transition-colors cursor-pointer"
+                        onClick={handleForgotPasswordWithOtp}
+                        disabled={isPreparingOtp}
+                        className="text-xs font-medium text-orange-400 hover:text-orange-300 disabled:opacity-50 transition-colors cursor-pointer"
                       >
-                        Forgot password?
+                        {isPreparingOtp ? 'Sending code...' : 'Forgot password?'}
                       </button>
                     )}
                   </div>
@@ -390,10 +483,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 {/* CONTINUE / CREATE ACCOUNT BUTTON */}
                 <button 
                   type="submit" 
-                  disabled={isAuthLoading} 
-                  className="w-full bg-[#7C3AED] hover:bg-[#6D28D9] text-white font-bold py-3.5 rounded-2xl text-sm sm:text-base transition-all shadow-lg shadow-purple-900/30 active:scale-[0.99] flex items-center justify-center gap-2 mt-4 cursor-pointer"
+                  disabled={isAuthLoading || isPreparingOtp} 
+                  className="w-full bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-60 text-white font-bold py-3.5 rounded-2xl text-sm sm:text-base transition-all shadow-lg shadow-purple-900/30 active:scale-[0.99] flex items-center justify-center gap-2 mt-4 cursor-pointer"
                 >
-                  {isAuthLoading ? <RefreshCcw className="animate-spin" size={18} /> : (authMode === 'login' ? 'Continue' : 'Create Account')}
+                  {isPreparingOtp ? (
+                    <>
+                      <RefreshCcw className="animate-spin" size={18} />
+                      <span>Sending Security Code...</span>
+                    </>
+                  ) : isAuthLoading ? (
+                    <RefreshCcw className="animate-spin" size={18} />
+                  ) : (
+                    authMode === 'login' ? 'Continue' : 'Create Account'
+                  )}
                 </button>
               </form>
 
@@ -478,5 +580,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* 6-Digit OTP Verification Modal (Integrated with Resend secure backend relay) */}
+      <OtpVerificationModal
+        isOpen={showOtpModal}
+        onClose={() => setShowOtpModal(false)}
+        email={(authEmail || '').toLowerCase().trim()}
+        type={otpModalType}
+        initialExpiresAt={otpExpiresAt}
+        onSuccess={handleOtpVerified}
+        setUserNotification={setUserNotification}
+      />
+    </>
   );
 };
