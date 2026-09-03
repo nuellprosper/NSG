@@ -5,6 +5,9 @@ import {
   formatQwenChatML, 
   executeNativeInference,
   executeOfflineQwenChat,
+  runOfflineInference,
+  NativeLLM,
+  NativeLLMPlugin,
   OMNI_OFFLINE_SYSTEM_PROMPT,
   OMNI_SYSTEM_PERSONA,
   getQwenProgressState,
@@ -12,7 +15,8 @@ import {
 } from '../../services/aiEngine';
 import { isOmniBrainDownloaded } from '../../services/omniBrain';
 
-export { getQwenProgressState, subscribeQwenProgress };
+export { getQwenProgressState, subscribeQwenProgress, runOfflineInference, NativeLLM };
+export type { NativeLLMPlugin };
 
 export interface AIRequestPayload {
   prompt: string;

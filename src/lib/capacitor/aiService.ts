@@ -78,8 +78,17 @@ export async function fetchCloudAIWithTimeout(
     if (reply && reply.trim()) {
       return reply.trim();
     }
-  } catch (proxyErr) {
-    // Server proxy unreached - continue to client-side direct fallbacks
+  } catch (proxyErr: any) {
+    let exactErrorMessage = '';
+    if (proxyErr instanceof Error) {
+      exactErrorMessage = proxyErr.message;
+    } else if (typeof proxyErr === 'object' && proxyErr !== null) {
+      exactErrorMessage = JSON.stringify(proxyErr, null, 2);
+    } else {
+      exactErrorMessage = String(proxyErr);
+    }
+    console.error("CLOUD AI EXACT ERROR:", exactErrorMessage);
+    return `[DEBUG ERROR]: ${exactErrorMessage}`;
   }
 
   // 2. Direct Gemini REST call via native CapacitorHttp if API Key is available
@@ -216,22 +225,24 @@ export async function executeAITask(
       engine: 'cloud-gemini'
     };
   } catch (networkErr: any) {
-    console.warn("⚠️ Cloud AI fetch failed, checking local Qwen fallback...", networkErr?.message || networkErr);
+    console.warn("⚠️ Cloud AI fetch failed:", networkErr?.message || networkErr);
     
-    if (isModelReady) {
-      try {
-        console.log("⚡ [AI Service] Falling back to On-Device Qwen Native Engine...");
-        const fallbackText = await runLocalQwenInference(payload);
-        return {
-          text: fallbackText,
-          isLocalInference: true,
-          engine: 'on-device-qwen'
-        };
-      } catch (localErr) {}
+    let exactErrorMessage = '';
+   
+    if (networkErr instanceof Error) {
+      exactErrorMessage = networkErr.message;
+    } else if (typeof networkErr === 'object' && networkErr !== null) {
+      // If it's a CapacitorHttp error response containing status and data
+      exactErrorMessage = JSON.stringify(networkErr, null, 2);
+    } else {
+      exactErrorMessage = String(networkErr);
     }
 
+    console.error("CLOUD AI EXACT ERROR:", exactErrorMessage);
+   
+    // Return or display the literal error string in the chat UI so we can read it on screen
     return {
-      text: "I'm having trouble connecting to the cloud AI service right now. Please check your internet connection or download Omni Brain in settings for offline support.",
+      text: `[DEBUG ERROR]: ${exactErrorMessage}`,
       isLocalInference: false,
       engine: 'cloud-gemini'
     };
