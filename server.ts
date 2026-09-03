@@ -17,6 +17,8 @@ import fs from "fs";
 import webPush from "web-push";
 import crypto from "crypto";
 import PDFDocument from "pdfkit";
+import sendOtpHandler from "./api/send-otp";
+import sendCustomHandler from "./api/send-custom";
 
 const currentDir = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
 
@@ -2251,6 +2253,10 @@ app.post("/api/send-premium-thank-you", async (req, res) => {
     res.status(500).json({ error: error.message || "Failed to send email" });
   }
 });
+
+// Secure Resend serverless relays (also available as standalone Vercel functions at /api/send-otp and /api/send-custom)
+app.all("/api/send-otp", sendOtpHandler);
+app.all("/api/send-custom", sendCustomHandler);
 
 app.post("/api/admin/broadcast-list", async (req, res) => {
   const { secret, recipients, subjectTemplate, bodyTemplate } = req.body;
