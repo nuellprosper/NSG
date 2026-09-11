@@ -44,6 +44,7 @@
     "firebase": "^11.3.1",
     "firebase-admin": "^13.1.0",
     "framer-motion": "^12.38.0",
+    "googleapis": "^178.0.0",
     "groq-sdk": "^1.1.2",
     "html-to-image": "^1.11.13",
     "jszip": "^3.10.1",

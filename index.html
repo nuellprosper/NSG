@@ -7,6 +7,16 @@
     <meta name="google-signin-client_id" content="780956680320-g2gripd8rmlalln7flapch5el5bijpbb.apps.googleusercontent.com" />
     
     <script>
+      // Native Android & Capacitor Mobile Environment Detection
+      (function() {
+        var ua = navigator.userAgent || '';
+        var isAndroid = /Android/i.test(ua);
+        var isCapacitor = window.Capacitor !== undefined || /Capacitor/i.test(ua) || window.location.href.indexOf('capacitor://') === 0 || window.location.href.indexOf('http://localhost') === 0;
+        if (isAndroid || isCapacitor) {
+          document.documentElement.classList.add('is-native-android');
+        }
+      })();
+
       // Global suppression for cross-origin or third-party (AdSense, extensions) script errors
       window.onerror = function(message, source, lineno, colno, error) {
         if (!message || message === 'Script error.' || (source && !source.includes(window.location.host) && !source.startsWith('/'))) {

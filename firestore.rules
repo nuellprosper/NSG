@@ -262,10 +262,26 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // Courses Collection
+    // Courses Collection (OpenStax and Approved Materials)
     match /courses/{courseId} {
       allow read, list: if true;
-      allow create, update, delete: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin() || (isSignedIn() && existing().get('uploaderUid', '') == request.auth.uid);
+    }
+
+    // Community Uploads (Moderation Queue)
+    match /community_uploads/{uploadId} {
+      allow list, get: if isAdmin() || (isSignedIn() && resource.data.uploaderUid == request.auth.uid) || resource.data.get('status', 'pending') == 'approved';
+      allow create: if isSignedIn() && request.resource.data.uploaderUid == request.auth.uid;
+      allow update: if isAdmin() || (isSignedIn() && existing().uploaderUid == request.auth.uid);
+      allow delete: if isAdmin() || (isSignedIn() && existing().uploaderUid == request.auth.uid);
+    }
+
+    // User Download Permissions (Account-locked Offline Storage)
+    match /user_download_permissions/{permissionId} {
+      allow list, get: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && (request.resource.data.userId == request.auth.uid || request.resource.data.lockedToUserUid == request.auth.uid);
+      allow update, delete: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
     }
   }
 }

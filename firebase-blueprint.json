@@ -195,6 +195,77 @@
         "participants": { "type": "array" },
         "isActive": { "type": "boolean" }
       }
+    },
+    "Course": {
+      "title": "Course Material",
+      "description": "Curated OpenStax or approved community academic course material.",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string" },
+        "title": { "type": "string" },
+        "faculty": { "type": "string" },
+        "department": { "type": "string" },
+        "level": { "type": "string" },
+        "semester": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "source": { "type": "string", "enum": ["openstax", "community", "admin"] },
+        "license": { "type": "string" },
+        "isNonCommercial": { "type": "boolean" },
+        "lastVerified": { "type": "string" },
+        "verifiedPdfUrl": { "type": "string" },
+        "uploaderUid": { "type": "string" },
+        "uploaderName": { "type": "string" },
+        "uploaderEmail": { "type": "string" },
+        "driveFileId": { "type": "string" },
+        "totalSizeBytes": { "type": "integer" },
+        "attachedDocs": { "type": "array" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["code", "title", "faculty", "status"]
+    },
+    "CommunityUpload": {
+      "title": "Community Material Upload",
+      "description": "Student-submitted course material awaiting admin moderation.",
+      "type": "object",
+      "properties": {
+        "fileId": { "type": "string" },
+        "title": { "type": "string" },
+        "code": { "type": "string" },
+        "faculty": { "type": "string" },
+        "department": { "type": "string" },
+        "level": { "type": "string" },
+        "uploaderUid": { "type": "string" },
+        "uploaderEmail": { "type": "string" },
+        "uploaderName": { "type": "string" },
+        "driveFileId": { "type": "string" },
+        "driveDownloadUrl": { "type": "string" },
+        "size": { "type": "integer" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "rejectionReason": { "type": "string" },
+        "reviewedBy": { "type": "string" },
+        "reviewedAt": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["title", "uploaderUid", "status"]
+    },
+    "UserDownloadPermission": {
+      "title": "User Download Permission",
+      "description": "Account-locked local storage download permission for academic materials.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "courseId": { "type": "string" },
+        "courseCode": { "type": "string" },
+        "courseTitle": { "type": "string" },
+        "lockedToUserUid": { "type": "string" },
+        "license": { "type": "string" },
+        "source": { "type": "string" },
+        "status": { "type": "string" },
+        "downloadedAt": { "type": "string" }
+      },
+      "required": ["userId", "courseId", "lockedToUserUid"]
     }
   },
   "firestore": {
@@ -253,6 +324,18 @@
     "/classes/{classId}": {
       "schema": "Class",
       "description": "Live class sessions with board and participants."
+    },
+    "/courses/{courseId}": {
+      "schema": "Course",
+      "description": "Catalog of courses and materials."
+    },
+    "/community_uploads/{uploadId}": {
+      "schema": "CommunityUpload",
+      "description": "Student submitted materials awaiting moderation."
+    },
+    "/user_download_permissions/{permissionId}": {
+      "schema": "UserDownloadPermission",
+      "description": "Permissions verifying authorized offline storage access."
     }
   }
 }
