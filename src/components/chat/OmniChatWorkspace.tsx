@@ -726,7 +726,7 @@ export const OmniChatWorkspace: React.FC<OmniChatWorkspaceProps> = ({
       
       {/* 1. HEADER BAR (GEMINI MOBILE CLONE) */}
       <div 
-        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 8px)' }}
+        style={{ paddingTop: 'max(28px, calc(env(safe-area-inset-top, 0px) + 14px))' }}
         className="px-4 pb-3 bg-[#0F0E17]/95 backdrop-blur-md border-b border-white/5 flex items-center justify-between shrink-0 z-30"
       >
         {/* Left Icon: Two-stroke / double-line menu button (=) */}
