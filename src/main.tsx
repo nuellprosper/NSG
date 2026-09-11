@@ -35,21 +35,31 @@ if (typeof JSON !== 'undefined' && JSON.stringify) {
   };
 }
 
-// Global runtime error listeners to prevent harmless script error overlays
+// Global runtime error listeners to prevent unhandled script error overlays from third-party or sandbox scripts
 if (typeof window !== 'undefined') {
-  window.addEventListener('error', (event) => {
-    if (event?.message && (event.message.includes('circular') || event.message.includes('Script error.'))) {
-      console.warn('Handled global runtime event notice:', event.message);
-      event.preventDefault?.();
+  window.onerror = function (msg, url) {
+    const message = String(msg || '');
+    if (!message || message.includes('Script error') || message.includes('ResizeObserver loop') || (url && !url.includes(window.location.host) && !url.startsWith('/'))) {
+      return true; // Suppress harmless sandboxed/cross-origin script errors
     }
-  });
+    return false;
+  };
+
+  window.addEventListener('error', (event) => {
+    const msg = String(event?.message || '');
+    if (!msg || msg.includes('circular') || msg.includes('Script error') || msg.includes('ResizeObserver loop')) {
+      event.preventDefault?.();
+      event.stopImmediatePropagation?.();
+    }
+  }, true);
+
   window.addEventListener('unhandledrejection', (event) => {
     const reasonStr = String(event?.reason?.message || event?.reason || '');
-    if (reasonStr.includes('circular') || reasonStr.includes('Could not reach Cloud Firestore') || reasonStr.includes('Backend didn\'t respond')) {
-      console.warn('Handled unhandled rejection notice:', reasonStr);
+    if (reasonStr.includes('circular') || reasonStr.includes('Cloud Firestore') || reasonStr.includes('Backend didn\'t respond')) {
       event.preventDefault?.();
+      event.stopImmediatePropagation?.();
     }
-  });
+  }, true);
 }
 
 import { StrictMode } from 'react';

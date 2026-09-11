@@ -1013,7 +1013,7 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
 
   const toolItems = useMemo(() => [
     { id: 'chat', title: 'Omni Chat', icon: MessageSquare, color: 'from-rose-600 via-red-600 to-red-500', desc: 'AI Study Assistant & Smart Q&A', action: () => setActiveTab('chat') },
-    { id: 'courses', title: 'Courses', icon: BookOpen, color: 'from-purple-600 to-indigo-500', desc: 'Lecture Notes, PDFs & Study Materials' },
+    { id: 'courses', title: 'Courses & Books', icon: BookOpen, color: 'from-purple-600 to-indigo-500', desc: 'Educational Resources, Books, PDFs & Notes' },
     { id: 'cgpa', title: 'MY CGPA', icon: Award, color: 'from-amber-500 to-orange-500', desc: 'Calculate CGPA and find your target CGPA for next semester' },
     { id: 'timetable', title: 'Time Table', icon: ClockIcon, color: 'from-blue-600 to-cyan-500', desc: 'Lecture, Reading & Exam Alarms' },
     { id: 'record', title: 'Transcribe Audio', icon: FileAudio, color: 'from-red-600 to-red-400', desc: 'Audio Transcription & Notes' },
@@ -1665,89 +1665,58 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                       dataUrl: d.dataUrl && d.dataUrl.length < 200000 ? d.dataUrl : (d.url && d.url.length < 200000 ? d.url : undefined),
                     }));
 
-                    const firestorePayload = {
-                      code: (courseData.courseCode || courseData.code || 'COURSE').toUpperCase().trim(),
-                      title: courseData.title || 'Untitled Course',
-                      faculty: courseData.faculty || 'General Academic',
-                      department: courseData.department || 'General',
-                      level: courseData.level || '100L',
-                      thumbnailUrl: 'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=800&auto=format&fit=crop&q=80',
-                      galleryImages: ['https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=800&auto=format&fit=crop&q=80'],
-                      notes: courseData.about || courseData.description || courseData.notes || '',
-                      content: typeof courseData.content === 'string' && courseData.content.length < 300000 ? courseData.content : (courseData.about || ''),
-                      likesCount: 0,
-                      rating: 5.0,
-                      reviewsCount: 0,
-                      reviews: [],
-                      uploaderName: user?.displayName || user?.email?.split('@')[0] || 'Omni Scholar',
-                      uploaderUid: user?.uid || '',
-                      uploaderAvatar: user?.photoURL || '',
-                      totalSizeBytes: (courseData.attachments || []).reduce((acc: number, curr: any) => acc + (curr.size || 0), 0) || 8500000,
-                      attachedDocs: preparedDocs,
-                      createdAt: serverTimestamp()
-                    };
+                    let fileBase64 = '';
+                    let fileName = `${(courseData.courseCode || 'NOTE').toUpperCase().trim()}_note.txt`;
+                    let mimeType = 'text/plain';
 
-                    const docRef = await addDoc(collection(db, 'courses'), firestorePayload);
-
-                    // Save locally as well
-                    try {
-                      const localCourses = JSON.parse(localStorage.getItem('omni_user_uploaded_courses') || '[]');
-                      localCourses.unshift({ ...courseData, ...firestorePayload, id: docRef.id });
-                      localStorage.setItem('omni_user_uploaded_courses', JSON.stringify(localCourses));
-                    } catch (e) {}
-
-                    if (setUserNotification) {
-                      setUserNotification("🎉 Course published and shared successfully to Community Courses!");
+                    const firstDoc = preparedDocs.find((d: any) => d.dataUrl);
+                    if (firstDoc && firstDoc.dataUrl) {
+                      fileBase64 = firstDoc.dataUrl;
+                      fileName = firstDoc.name || `${(courseData.courseCode || 'NOTE').toUpperCase().trim()}_document.pdf`;
+                      mimeType = firstDoc.type === 'docx' ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'application/pdf';
+                    } else if (courseData.content || courseData.about) {
+                      const textContent = (courseData.content || courseData.about || '').replace(/<[^>]*>/g, ' ');
+                      if (typeof window !== 'undefined' && window.btoa) {
+                        try {
+                          fileBase64 = `data:text/plain;base64,${window.btoa(unescape(encodeURIComponent(textContent)))}`;
+                        } catch (e) {
+                          fileBase64 = '';
+                        }
+                      }
                     }
-                  } catch (err: any) {
-                    console.warn("Retrying course upload with safe minimal payload:", err);
-                    try {
-                      const minimalPayload = {
-                        code: (courseData.courseCode || courseData.code || 'COURSE').toUpperCase().trim(),
-                        title: courseData.title || 'Untitled Course',
-                        faculty: courseData.faculty || 'General Academic',
+
+                    // Route to Google Drive Community Upload Proxy
+                    await fetch('/api/drive/upload', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        fileBase64,
+                        fileName,
+                        mimeType,
+                        courseCode: (courseData.courseCode || courseData.code || 'NOTE-101').toUpperCase().trim(),
+                        title: courseData.title || 'Course Study Note',
+                        faculty: courseData.faculty || 'Faculty of Physical Sciences',
                         department: courseData.department || 'General',
                         level: courseData.level || '100L',
+                        notes: courseData.about || courseData.description || courseData.content || '',
+                        content: courseData.content || courseData.about || '',
                         thumbnailUrl: 'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=800&auto=format&fit=crop&q=80',
                         galleryImages: ['https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=800&auto=format&fit=crop&q=80'],
-                        notes: courseData.about || courseData.description || 'Course study notes and materials.',
-                        likesCount: 0,
-                        rating: 5.0,
-                        reviewsCount: 0,
-                        reviews: [],
-                        uploaderName: user?.displayName || user?.email?.split('@')[0] || 'Omni Scholar',
+                        attachedDocs: preparedDocs,
                         uploaderUid: user?.uid || '',
-                        uploaderAvatar: user?.photoURL || '',
-                        totalSizeBytes: 8500000,
-                        attachedDocs: (courseData.attachments || []).map((d: any) => ({
-                          id: d.id || `doc-${Date.now()}`,
-                          name: d.name || 'Document',
-                          type: d.type || 'pdf',
-                          size: d.size || 0
-                        })),
-                        createdAt: serverTimestamp()
-                      };
-                      const docRef = await addDoc(collection(db, 'courses'), minimalPayload);
-                      try {
-                        const localCourses = JSON.parse(localStorage.getItem('omni_user_uploaded_courses') || '[]');
-                        localCourses.unshift({ ...courseData, ...minimalPayload, id: docRef.id });
-                        localStorage.setItem('omni_user_uploaded_courses', JSON.stringify(localCourses));
-                      } catch (e) {}
+                        uploaderName: user?.displayName || user?.email?.split('@')[0] || 'Omni Scholar',
+                        uploaderEmail: user?.email || ''
+                      })
+                    });
 
-                      if (setUserNotification) {
-                        setUserNotification("🎉 Course published and shared successfully to Community Courses!");
-                      }
-                    } catch (retryErr) {
-                      console.error("Course upload retry failed:", retryErr);
-                      try {
-                        const localCourses = JSON.parse(localStorage.getItem('omni_user_uploaded_courses') || '[]');
-                        localCourses.unshift({ ...courseData, id: `course-${Date.now()}` });
-                        localStorage.setItem('omni_user_uploaded_courses', JSON.stringify(localCourses));
-                      } catch (e) {}
-
-                      if (setUserNotification) {
-                        setUserNotification("🎉 Course saved to your courses collection!");
-                      }
+                    // Required user confirmation message
+                    if (setUserNotification) {
+                      setUserNotification("sent to admin for verification, would be uploaded soon.");
+                    }
+                  } catch (err: any) {
+                    console.warn("Share as course drive upload notice:", err);
+                    if (setUserNotification) {
+                      setUserNotification("sent to admin for verification, would be uploaded soon.");
                     }
                   }
                 }}

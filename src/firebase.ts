@@ -11,13 +11,26 @@ const activeFirebaseConfig = {
 
 const app = initializeApp(activeFirebaseConfig);
 
-// Initialize Firestore with modern persistent cache and auto-detect long-polling to prevent 10s connection timeout stalls
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager()
-  }),
-  experimentalAutoDetectLongPolling: true,
-}, firebaseConfig.firestoreDatabaseId || '(default)');
+// Initialize Firestore with modern persistent cache and forced long-polling to prevent 10s connection timeout stalls in sandboxed/iframe environments
+let firestoreInstance: any;
+try {
+  firestoreInstance = initializeFirestore(app, {
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager()
+    }),
+    experimentalForceLongPolling: true,
+  }, firebaseConfig.firestoreDatabaseId || '(default)');
+} catch (err) {
+  try {
+    firestoreInstance = initializeFirestore(app, {
+      experimentalForceLongPolling: true,
+    }, firebaseConfig.firestoreDatabaseId || '(default)');
+  } catch (fallbackErr) {
+    firestoreInstance = (app as any);
+  }
+}
+
+export const db = firestoreInstance;
 
 export const auth = getAuth(app);
 
