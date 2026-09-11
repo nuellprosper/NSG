@@ -1,6 +1,29 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signOut, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, setPersistence, browserLocalPersistence } from 'firebase/auth';
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, onSnapshot, getDocs, addDoc, getDocFromServer, serverTimestamp, orderBy, limit, arrayUnion } from 'firebase/firestore';
+import { 
+  getFirestore, 
+  initializeFirestore, 
+  persistentLocalCache, 
+  persistentMultipleTabManager, 
+  persistentSingleTabManager, 
+  memoryLocalCache, 
+  doc, 
+  getDoc, 
+  setDoc, 
+  updateDoc, 
+  deleteDoc, 
+  collection, 
+  query, 
+  where, 
+  onSnapshot, 
+  getDocs, 
+  addDoc, 
+  getDocFromServer, 
+  serverTimestamp, 
+  orderBy, 
+  limit, 
+  arrayUnion 
+} from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 // Initialize Firebase SDK with fixed valid authDomain
@@ -11,22 +34,34 @@ const activeFirebaseConfig = {
 
 const app = initializeApp(activeFirebaseConfig);
 
-// Initialize Firestore with modern persistent cache and forced long-polling to prevent 10s connection timeout stalls in sandboxed/iframe environments
+// Initialize Firestore with auto-detecting transport and resilient caching
+const databaseId = firebaseConfig.firestoreDatabaseId || '(default)';
 let firestoreInstance: any;
+
 try {
   firestoreInstance = initializeFirestore(app, {
     localCache: persistentLocalCache({
       tabManager: persistentMultipleTabManager()
     }),
-    experimentalForceLongPolling: true,
-  }, firebaseConfig.firestoreDatabaseId || '(default)');
+    experimentalAutoDetectLongPolling: true,
+  }, databaseId);
 } catch (err) {
   try {
     firestoreInstance = initializeFirestore(app, {
-      experimentalForceLongPolling: true,
-    }, firebaseConfig.firestoreDatabaseId || '(default)');
-  } catch (fallbackErr) {
-    firestoreInstance = (app as any);
+      localCache: persistentLocalCache({
+        tabManager: persistentSingleTabManager()
+      }),
+      experimentalAutoDetectLongPolling: true,
+    }, databaseId);
+  } catch (err2) {
+    try {
+      firestoreInstance = initializeFirestore(app, {
+        localCache: memoryLocalCache(),
+        experimentalAutoDetectLongPolling: true,
+      }, databaseId);
+    } catch (fallbackErr) {
+      firestoreInstance = getFirestore(app, databaseId);
+    }
   }
 }
 
