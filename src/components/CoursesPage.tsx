@@ -3,15 +3,24 @@ import {
   Search, SlidersHorizontal, Plus, Heart, Star, BookOpen, Download, 
   FileText, Image as ImageIcon, X, ChevronDown, ArrowLeft, RefreshCw,
   Sparkles, Share2, Send, MessageSquare, ChevronRight, CheckCircle2,
-  Paperclip, FileCheck, Layers, Eye, Check, Zap, Trash2, AlertCircle
+  Paperclip, FileCheck, Layers, Eye, Check, Zap, Trash2, AlertCircle,
+  ExternalLink, Globe, ShieldCheck, Lock, Clock, BookMarked
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { FACULTIES, DEPARTMENTS } from '../constants/academic';
 import { 
-  collection, addDoc, doc, updateDoc, increment, deleteDoc,
+  collection, addDoc, doc, setDoc, updateDoc, increment, deleteDoc,
   serverTimestamp, onSnapshot, query, orderBy 
 } from 'firebase/firestore';
 import { db } from '../firebase';
+import { getOpenStaxCoursesForCatalog, matchOrSynthesizeOpenStaxCourse } from '../data/openstaxCatalog';
+import { fetchAndStreamBinaryFile, saveBinaryAsset, triggerFileDownload, getBinaryAsset } from '../utils/assetStorage';
+import { parseCourseAssets } from '../utils/courseAssetParser';
+import { resourceSearchOrchestrator } from '../services/resources/orchestrator';
+import { downloadService } from '../services/download/downloadService';
+import { localManifest } from '../services/resources/localManifest';
+import { ResourceResult, ResourceAsset } from '../services/resources/types';
+import { getSafeHeaderPaddingTop, getSafeBottomPadding } from '../utils/safeArea';
 
 export interface CourseReview {
   id: string;
@@ -26,10 +35,13 @@ export interface CourseReview {
 export interface AttachedDoc {
   id: string;
   name: string;
-  type: 'pdf' | 'image' | 'doc';
+  type: 'pdf' | 'image' | 'doc' | string;
   size: number;
   dataUrl?: string;
   url?: string;
+  verifiedPdfUrl?: string;
+  license?: string;
+  lastVerified?: string;
 }
 
 export interface CourseMaterial {
@@ -39,6 +51,7 @@ export interface CourseMaterial {
   faculty: string;
   department: string;
   level?: string;
+  semester?: string;
   thumbnailUrl?: string;
   galleryImages?: string[];
   notes: string;
@@ -52,6 +65,23 @@ export interface CourseMaterial {
   createdAt?: any;
   attachedDocs?: AttachedDoc[];
   reviews?: CourseReview[];
+  source?: 'openstax' | 'community' | 'admin' | 'gutendex' | 'openlibrary';
+  isOpenStax?: boolean;
+  license?: string;
+  isNonCommercial?: boolean;
+  lastVerified?: string;
+  verifiedPdfUrl?: string;
+  openstaxPageUrl?: string;
+  rexReaderUrl?: string;
+  rexWebUrl?: string;
+  status?: 'pending' | 'approved' | 'rejected';
+  driveFileId?: string;
+  capabilities?: {
+    downloadable: boolean;
+    readableOnline: boolean;
+    borrowable: boolean;
+  };
+  assets?: ResourceAsset[];
 }
 
 export interface CoursesPageProps {
@@ -89,13 +119,14 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
   initialFacultyFilter = null,
   initialDepartmentFilter = null
 }) => {
-  // Course List State (populated from local storage and real-time Firestore)
+  // Course List State (populated from OpenStax starter catalog, local storage and real-time Firestore)
   const [courses, setCourses] = useState<CourseMaterial[]>(() => {
     try {
+      const openstaxCourses = getOpenStaxCoursesForCatalog();
       const localSaved = JSON.parse(localStorage.getItem('omni_user_uploaded_courses') || '[]');
       const sharedSaved = JSON.parse(localStorage.getItem('shared_user_courses') || '[]');
       const cached = JSON.parse(localStorage.getItem('omni_cached_courses') || '[]');
-      const combined = [...localSaved, ...sharedSaved, ...cached];
+      const combined = [...openstaxCourses, ...localSaved, ...sharedSaved, ...cached];
       const seen = new Set<string>();
       return combined.filter((c: any) => {
         if (!c || !c.id) return false;
@@ -104,10 +135,12 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
         return true;
       });
     } catch (e) {
-      return [];
+      return getOpenStaxCoursesForCatalog();
     }
   });
   const [searchQuery, setSearchQuery] = useState('');
+  const [isLiveSearching, setIsLiveSearching] = useState(false);
+  const [hasDiscoveredLive, setHasDiscoveredLive] = useState(false);
   const [likedCourseIds, setLikedCourseIds] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem('omni_liked_courses');
@@ -130,15 +163,37 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
   const [isDeletingCourse, setIsDeletingCourse] = useState(false);
   const [activeDeleteCardId, setActiveDeleteCardId] = useState<string | null>(null);
 
-  // Long press timer refs for 0.5s tap and hold
+  // Long press timer refs for 0.5s tap and hold & scroll detection
   const longPressTimerRef = useRef<{ [key: string]: NodeJS.Timeout }>({});
   const longPressFiredRef = useRef<{ [key: string]: boolean }>({});
   const touchStartPosRef = useRef<{ [key: string]: { x: number; y: number } }>({});
+  const touchStartTimeRef = useRef<{ [key: string]: number }>({});
+  const touchMovedRef = useRef<{ [key: string]: boolean }>({});
+  const suppressClickUntilRef = useRef<number>(0);
+  const isPageScrollingRef = useRef<boolean>(false);
+  const scrollTimeoutRef = useRef<any>(null);
   const selectedCourseRef = useRef<CourseMaterial | null>(selectedCourse);
 
   useEffect(() => {
     selectedCourseRef.current = selectedCourse;
   }, [selectedCourse]);
+
+  // Global scroll listener to ensure scrolling gestures never trigger accidental card preview opens
+  useEffect(() => {
+    const onScroll = () => {
+      isPageScrollingRef.current = true;
+      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+      scrollTimeoutRef.current = setTimeout(() => {
+        isPageScrollingRef.current = false;
+      }, 180);
+    };
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+    };
+  }, []);
 
   const triggerHaptic = () => {
     if (typeof window !== 'undefined' && 'vibrate' in navigator) {
@@ -148,68 +203,161 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
     }
   };
 
+  const openCoursePreview = (course: CourseMaterial) => {
+    setSelectedCourse(course);
+    setCourseDetailTab('about');
+    setActiveImageIndex(0);
+    setIsReadMore(false);
+  };
+
   const handleCardTouchStart = (course: CourseMaterial, e?: React.TouchEvent | React.MouseEvent) => {
     longPressFiredRef.current[course.id] = false;
+    touchMovedRef.current[course.id] = false;
+    touchStartTimeRef.current[course.id] = Date.now();
+
     if (e && 'touches' in e && e.touches.length > 0) {
       touchStartPosRef.current[course.id] = {
         x: e.touches[0].clientX,
         y: e.touches[0].clientY
       };
+    } else if (e && 'clientX' in e) {
+      touchStartPosRef.current[course.id] = {
+        x: (e as React.MouseEvent).clientX,
+        y: (e as React.MouseEvent).clientY
+      };
     }
+
     if (longPressTimerRef.current[course.id]) {
       clearTimeout(longPressTimerRef.current[course.id]);
     }
+
     longPressTimerRef.current[course.id] = setTimeout(() => {
-      longPressFiredRef.current[course.id] = true;
-      triggerHaptic();
-      
-      const canDelete = course.uploaderUid === user?.uid || 
-        user?.email === 'nuellkelechi@gmail.com' ||
-        !course.uploaderUid;
+      // Only fire long press if the user has not moved or scrolled
+      if (!touchMovedRef.current[course.id] && !isPageScrollingRef.current) {
+        longPressFiredRef.current[course.id] = true;
+        triggerHaptic();
         
-      if (canDelete) {
-        setActiveDeleteCardId(course.id);
-      } else {
-        if (setUserNotification) {
-          setUserNotification("🔒 Only the uploader can delete this course.");
+        const canDelete = course.uploaderUid === user?.uid || 
+          user?.email === 'nuellkelechi@gmail.com' ||
+          !course.uploaderUid;
+          
+        if (canDelete) {
+          setActiveDeleteCardId(course.id);
+        } else {
+          if (setUserNotification) {
+            setUserNotification("🔒 Only the uploader can delete this course.");
+          }
         }
       }
-    }, 500); // 0.5 seconds requirement
+    }, 500);
   };
 
-  const handleCardTouchMove = (courseId: string, e: React.TouchEvent) => {
-    if (e.touches.length > 0 && touchStartPosRef.current[courseId]) {
-      const dx = Math.abs(e.touches[0].clientX - touchStartPosRef.current[courseId].x);
-      const dy = Math.abs(e.touches[0].clientY - touchStartPosRef.current[courseId].y);
-      if (dx > 10 || dy > 10) {
-        handleCardTouchCancel(courseId);
+  const handleCardTouchMove = (courseId: string, e: React.TouchEvent | React.MouseEvent) => {
+    let clientX = 0;
+    let clientY = 0;
+
+    if ('touches' in e && e.touches.length > 0) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else if ('clientX' in e) {
+      clientX = (e as React.MouseEvent).clientX;
+      clientY = (e as React.MouseEvent).clientY;
+    }
+
+    if (touchStartPosRef.current[courseId]) {
+      const dx = Math.abs(clientX - touchStartPosRef.current[courseId].x);
+      const dy = Math.abs(clientY - touchStartPosRef.current[courseId].y);
+      // Increased threshold to 12px to clearly distinguish deliberate taps from scroll gestures
+      if (dx > 12 || dy > 12) {
+        touchMovedRef.current[courseId] = true;
+        if (longPressTimerRef.current[courseId]) {
+          clearTimeout(longPressTimerRef.current[courseId]);
+          delete longPressTimerRef.current[courseId];
+        }
       }
     }
   };
 
-  const handleCardTouchEnd = (course: CourseMaterial) => {
+  const handleCardTouchEnd = (course: CourseMaterial, e?: React.TouchEvent | React.MouseEvent) => {
     if (longPressTimerRef.current[course.id]) {
       clearTimeout(longPressTimerRef.current[course.id]);
       delete longPressTimerRef.current[course.id];
     }
-    if (!longPressFiredRef.current[course.id]) {
-      if (activeDeleteCardId === course.id) {
-        setActiveDeleteCardId(null);
-        return;
-      }
-      // Normal tap -> view course details
-      setSelectedCourse(course);
-      setCourseDetailTab('about');
-      setActiveImageIndex(0);
-      setIsReadMore(false);
+
+    // If the page was scrolling or user moved finger, DO NOT open the preview
+    if (isPageScrollingRef.current) {
+      touchMovedRef.current[course.id] = true;
+      return;
     }
+
+    if (longPressFiredRef.current[course.id]) {
+      return;
+    }
+
+    if (touchMovedRef.current[course.id]) {
+      return;
+    }
+
+    // Verify touch duration: a crisp tap is quick (under 400ms)
+    const startTime = touchStartTimeRef.current[course.id] || 0;
+    const duration = Date.now() - startTime;
+    if (duration > 450) {
+      return;
+    }
+
+    // Dismiss active delete overlay if present
+    if (activeDeleteCardId === course.id) {
+      setActiveDeleteCardId(null);
+      return;
+    }
+    if (activeDeleteCardId) {
+      setActiveDeleteCardId(null);
+      return;
+    }
+
+    // Genuine stationary tap confirmed: open preview and suppress secondary synthetic click
+    suppressClickUntilRef.current = Date.now() + 500;
+    openCoursePreview(course);
   };
 
   const handleCardTouchCancel = (courseId: string) => {
+    touchMovedRef.current[courseId] = true;
     if (longPressTimerRef.current[courseId]) {
       clearTimeout(longPressTimerRef.current[courseId]);
       delete longPressTimerRef.current[courseId];
     }
+  };
+
+  const handleCardClick = (course: CourseMaterial, e: React.MouseEvent) => {
+    // If touch was already handled or click should be suppressed, ignore
+    if (Date.now() < suppressClickUntilRef.current) {
+      return;
+    }
+
+    if (isPageScrollingRef.current) {
+      return;
+    }
+
+    if (longPressFiredRef.current[course.id]) {
+      longPressFiredRef.current[course.id] = false;
+      return;
+    }
+
+    if (touchMovedRef.current[course.id]) {
+      touchMovedRef.current[course.id] = false;
+      return;
+    }
+
+    if (activeDeleteCardId === course.id) {
+      setActiveDeleteCardId(null);
+      return;
+    }
+    if (activeDeleteCardId) {
+      setActiveDeleteCardId(null);
+      return;
+    }
+
+    openCoursePreview(course);
   };
 
   const handleDeleteCourse = async () => {
@@ -315,9 +463,10 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
     id: string;
     file: File;
     name: string;
-    type: 'pdf' | 'image' | 'doc';
+    type: 'pdf' | 'image' | 'doc' | 'docx';
     size: number;
     previewUrl?: string;
+    dataUrl?: string;
   }[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isGeneratingAiNotes, setIsGeneratingAiNotes] = useState(false);
@@ -436,6 +585,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
               faculty: data.faculty || 'General Academic',
               department: data.department || 'General',
               level: data.level || '100L',
+              semester: data.semester || 'First Semester',
               thumbnailUrl: primaryThumb,
               galleryImages: finalGallery,
               notes: data.notes || data.description || '',
@@ -443,16 +593,38 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
               rating: avgRating,
               reviewsCount: reviewsList.length || data.reviewsCount || 0,
               reviews: reviewsList,
-              uploaderName: data.uploaderName || 'Omni Scholar',
+              uploaderName: data.uploaderName || (data.source === 'openstax' ? 'openstax.org' : 'Omni Scholar'),
               uploaderUid: data.uploaderUid,
               uploaderAvatar: data.uploaderAvatar,
               totalSizeBytes: data.totalSizeBytes || calculatedSize || 8500000,
               attachedDocs: docs,
+              source: data.source || (data.uploaderName === 'openstax.org' ? 'openstax' : 'community'),
+              status: data.status || 'approved',
+              isOpenStax: data.isOpenStax || data.source === 'openstax' || data.uploaderName === 'openstax.org',
+              license: data.license || (data.source === 'openstax' ? 'CC BY-NC-SA 4.0' : 'Community Educational Share'),
+              isNonCommercial: data.isNonCommercial !== undefined ? data.isNonCommercial : true,
+              lastVerified: data.lastVerified,
+              verifiedPdfUrl: data.verifiedPdfUrl,
+              openstaxPageUrl: data.openstaxPageUrl,
+              rexReaderUrl: data.rexReaderUrl,
+              driveFileId: data.driveFileId,
               createdAt: data.createdAt
             };
           });
-          // Merge with any locally uploaded courses from localStorage so user content never vanishes
-          let mergedCourses = [...firestoreCourses];
+
+          // Merge OpenStax starter catalog + Firestore courses + locally uploaded courses
+          const openstaxCatalog = getOpenStaxCoursesForCatalog();
+          let mergedCourses: any[] = [...openstaxCatalog];
+
+          // Override or append Firestore courses
+          firestoreCourses.forEach(fc => {
+            const existingIdx = mergedCourses.findIndex(c => c.code.toUpperCase() === fc.code.toUpperCase());
+            if (existingIdx >= 0) {
+              mergedCourses[existingIdx] = { ...mergedCourses[existingIdx], ...fc };
+            } else {
+              mergedCourses.push(fc);
+            }
+          });
           try {
             const localSaved = JSON.parse(localStorage.getItem('omni_user_uploaded_courses') || '[]');
             const sharedSaved = JSON.parse(localStorage.getItem('shared_user_courses') || '[]');
@@ -558,6 +730,133 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
       console.warn("Could not attach firestore courses listener:", err);
     }
   }, []);
+
+  // Live dynamic multi-provider search against OpenStax, Gutenberg, Open Library & Community Drive
+  const executeLiveSearch = async (queryStr: string) => {
+    if (!queryStr || queryStr.trim().length < 2) return;
+    const cleanQ = queryStr.trim();
+    setIsLiveSearching(true);
+
+    try {
+      // 1. Run multi-provider discovery through ResourceSearchOrchestrator
+      const orchestratedResults = await resourceSearchOrchestrator.search(cleanQ, {
+        faculty: selectedFaculty !== 'ALL' ? selectedFaculty : undefined
+      });
+
+      let discoveredCourses: CourseMaterial[] = [];
+      if (orchestratedResults && orchestratedResults.length > 0) {
+        discoveredCourses = orchestratedResults.map((r: ResourceResult): CourseMaterial => ({
+          id: r.id,
+          code: r.code,
+          title: r.title,
+          faculty: r.faculty,
+          department: r.department,
+          level: r.level || '100L',
+          thumbnailUrl: r.thumbnailUrl,
+          galleryImages: r.galleryImages,
+          notes: r.notes || `${r.title} — educational resource.`,
+          likesCount: r.likesCount || 0,
+          rating: r.rating || 5.0,
+          reviewsCount: r.reviewsCount || 0,
+          uploaderName: r.uploaderName,
+          uploaderAvatar: r.uploaderAvatar,
+          uploaderUid: r.uploaderUid,
+          totalSizeBytes: r.totalSizeBytes || 12400000,
+          attachedDocs: r.attachedDocs,
+          reviews: r.reviews || [],
+          source: r.source,
+          isOpenStax: r.isOpenStax,
+          license: r.license,
+          isNonCommercial: r.isNonCommercial,
+          verifiedPdfUrl: r.verifiedPdfUrl,
+          openstaxPageUrl: r.openstaxPageUrl,
+          rexReaderUrl: r.rexReaderUrl,
+          rexWebUrl: r.rexWebUrl,
+          status: r.status,
+          driveFileId: r.driveFileId,
+          capabilities: r.capabilities,
+          assets: r.assets
+        }));
+      }
+
+      // 2. Server-side live-search fallback if needed
+      if (discoveredCourses.length === 0) {
+        try {
+          const res = await fetch(`/api/courses/live-search?q=${encodeURIComponent(cleanQ)}`);
+          const data = await res.json();
+          if (data && data.success && Array.isArray(data.courses) && data.courses.length > 0) {
+            discoveredCourses = data.courses;
+          }
+        } catch (e) {}
+      }
+
+      // 3. Fallback: matchOrSynthesizeOpenStaxCourse
+      if (discoveredCourses.length === 0) {
+        const synth = matchOrSynthesizeOpenStaxCourse(cleanQ);
+        if (synth) {
+          discoveredCourses = [synth as any];
+        }
+      }
+
+      if (discoveredCourses.length > 0) {
+        setCourses(prev => {
+          const prevMap = new Map(prev.map(c => [c.id, c]));
+          discoveredCourses.forEach(dc => {
+            if (!prevMap.has(dc.id)) {
+              prevMap.set(dc.id, dc);
+            }
+          });
+          const merged = Array.from(prevMap.values());
+          try {
+            localStorage.setItem('omni_cached_courses', JSON.stringify(merged));
+            localStorage.setItem('omni_openstax_courses_manifest', JSON.stringify(merged));
+          } catch (e) {}
+          return merged;
+        });
+
+        // Automatically save and cache newly discovered OpenStax courses into Firestore database
+        try {
+          discoveredCourses.filter(dc => dc.isOpenStax || dc.source === 'openstax').forEach(async (dc) => {
+            await setDoc(doc(db, 'courses', dc.id), {
+              ...dc,
+              status: 'approved',
+              source: 'openstax',
+              isOpenStax: true,
+              autoCachedAt: new Date().toISOString()
+            }, { merge: true });
+          });
+        } catch (fsErr) {}
+
+        setHasDiscoveredLive(true);
+        if (setUserNotification) {
+          setUserNotification(`Found "${discoveredCourses[0].code} — ${discoveredCourses[0].title}"!`);
+        }
+      }
+    } catch (err: any) {
+      console.warn('[CoursesPage] Multi-provider search notice:', err);
+    } finally {
+      setIsLiveSearching(false);
+    }
+  };
+
+  // Debounced auto-trigger: when user searches for something not in local catalog, execute live search immediately
+  useEffect(() => {
+    if (!searchQuery || searchQuery.trim().length < 2) return;
+    const timer = setTimeout(() => {
+      const q = searchQuery.toLowerCase().trim();
+      const hasLocalMatch = courses.some(c => 
+        c.code.toLowerCase().includes(q) || 
+        c.title.toLowerCase().includes(q) ||
+        (c.faculty && c.faculty.toLowerCase().includes(q)) ||
+        (c.department && c.department.toLowerCase().includes(q))
+      );
+      if (!hasLocalMatch) {
+        executeLiveSearch(searchQuery);
+      }
+    }, 450);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery, courses]);
 
   // Handle Like / Unlike
   const toggleLike = async (e: React.MouseEvent, courseId: string) => {
@@ -684,9 +983,13 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
     setUserNotification("⭐ Thank you! Your review has been published.");
   };
 
-  // Helper to check if a course is currently stored in Notes
+  // Helper to check if a course is currently stored in Notes or offline manifest
   const isCourseDownloaded = (courseId?: string, courseCode?: string, courseTitle?: string) => {
     if (!courseId) return false;
+    // Check local offline manifest
+    if (localManifest.isResourceOffline(courseId)) {
+      return true;
+    }
     // Check in-memory userNotes prop
     if (userNotes && Array.isArray(userNotes) && userNotes.length > 0) {
       const inProps = userNotes.some(n => 
@@ -760,40 +1063,147 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
     setIsDownloading(true);
 
     try {
-      // 1. Trigger client download of attached documents if available
-      if (selectedCourse.attachedDocs && selectedCourse.attachedDocs.length > 0) {
-        selectedCourse.attachedDocs.forEach((docItem, idx) => {
-          setTimeout(() => {
+      // 1. Account-Locked Local Storage & Permission Management
+      const userUid = user?.uid || 'guest';
+      const storageKey = `omni_locked_downloads_${userUid}`;
+      try {
+        const stored = localStorage.getItem(storageKey);
+        const list = stored ? JSON.parse(stored) : [];
+        if (!list.includes(selectedCourse.id)) {
+          list.push(selectedCourse.id);
+          localStorage.setItem(storageKey, JSON.stringify(list));
+        }
+      } catch (err) {}
+
+      // Audit log & user permission record (both local client Firestore and server API)
+      try {
+        const permId = `${userUid}_${selectedCourse.id}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+        setDoc(doc(db, 'user_download_permissions', permId), {
+          userId: userUid,
+          userEmail: user?.email || '',
+          courseId: selectedCourse.id,
+          courseCode: selectedCourse.code,
+          courseTitle: selectedCourse.title,
+          lockedToUserUid: userUid,
+          source: selectedCourse.isOpenStax ? 'openstax' : (selectedCourse.source || 'community'),
+          license: 'Creative Commons License',
+          status: 'authorized',
+          downloadedAt: new Date().toISOString()
+        }, { merge: true }).catch(() => {});
+      } catch (err) {}
+
+      try {
+        fetch('/api/user/record-download-permission', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: userUid,
+            userEmail: user?.email || '',
+            courseId: selectedCourse.id,
+            courseCode: selectedCourse.code,
+            courseTitle: selectedCourse.title,
+            source: selectedCourse.isOpenStax ? 'openstax' : (selectedCourse.source || 'community')
+          })
+        }).catch(() => {});
+      } catch (err) {}
+
+      // 2. Direct Binary Resource Download via PlatformDownloadService
+      let downloadedBlob: Blob | null = null;
+      let targetAsset: ResourceAsset | null = null;
+
+      if (selectedCourse.assets && selectedCourse.assets.length > 0) {
+        targetAsset = selectedCourse.assets.find(a => a.isDirectDownload) || selectedCourse.assets[0];
+      } else if (selectedCourse.isOpenStax && selectedCourse.verifiedPdfUrl) {
+        targetAsset = {
+          id: `asset-${selectedCourse.id}-pdf`,
+          resourceId: selectedCourse.id,
+          type: 'pdf',
+          url: selectedCourse.verifiedPdfUrl,
+          downloadUrl: selectedCourse.verifiedPdfUrl,
+          mimeType: 'application/pdf',
+          filename: `${selectedCourse.code}_${selectedCourse.title.replace(/[^a-zA-Z0-9]/g, '_')}_OpenStax.pdf`,
+          isDirectDownload: true,
+          accessType: 'free'
+        };
+      } else if (selectedCourse.driveFileId) {
+        targetAsset = {
+          id: `asset-${selectedCourse.id}-drive`,
+          resourceId: selectedCourse.id,
+          type: 'pdf',
+          url: `/api/drive/download/${selectedCourse.driveFileId}`,
+          downloadUrl: `/api/drive/download/${selectedCourse.driveFileId}`,
+          mimeType: 'application/pdf',
+          filename: `${selectedCourse.code}_study_guide.pdf`,
+          isDirectDownload: true,
+          accessType: 'free'
+        };
+      }
+
+      if (targetAsset) {
+        try {
+          const dlRes = await downloadService.download(
+            selectedCourse.id,
+            targetAsset,
+            selectedCourse.title
+          );
+
+          if (dlRes.success && dlRes.blob) {
+            downloadedBlob = dlRes.blob;
+            await saveBinaryAsset(`course-pdf-${selectedCourse.id}`, downloadedBlob, {
+              name: targetAsset.filename,
+              mimeType: targetAsset.mimeType || 'application/pdf',
+              courseId: selectedCourse.id
+            });
+            triggerFileDownload(downloadedBlob, targetAsset.filename);
+          } else if (targetAsset.downloadUrl) {
+            // Direct download fallback
             const link = document.createElement('a');
-            link.href = docItem.dataUrl || docItem.url || '#';
-            link.download = docItem.name || `${selectedCourse.code}_material_${idx + 1}.pdf`;
+            link.href = targetAsset.downloadUrl;
+            link.download = targetAsset.filename;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-          }, idx * 300);
-        });
+          }
+        } catch (dlErr) {
+          console.warn('[CoursesPage] Platform download notice:', dlErr);
+          if (targetAsset.downloadUrl) {
+            const link = document.createElement('a');
+            link.href = targetAsset.downloadUrl;
+            link.download = targetAsset.filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          }
+        }
       }
 
-      // 2. Save note content into localStorage Notes collection & Firestore if available
-      const docItems = (selectedCourse.attachedDocs || []).map((att: any, idx: number) => ({
-        id: att.id || `doc-${Date.now()}-${idx}`,
-        name: att.name || `${selectedCourse.code}_doc_${idx + 1}.pdf`,
-        type: att.type || 'pdf',
-        size: att.size || 0,
-        url: att.url || att.dataUrl || '',
-        dataUrl: att.dataUrl || att.url || '',
-        extractedText: selectedCourse.notes || ''
-      }));
+      // 3. Multi-Asset Parsing: Check if course contains PDF, text notes, audio notes, or video notes
+      const parsedAssets = parseCourseAssets(selectedCourse);
 
+      // If we downloaded a binary blob, cache it for the primary attached doc
+      if (downloadedBlob && parsedAssets.attachedPdfs.length > 0) {
+        try {
+          const primaryDoc = parsedAssets.attachedPdfs[0];
+          await saveBinaryAsset(primaryDoc.id, downloadedBlob, {
+            name: primaryDoc.name,
+            mimeType: 'application/pdf',
+            courseId: selectedCourse.id
+          });
+        } catch (cacheErr) {}
+      }
+
+      // 4. Save note content into localStorage Notes collection & Firestore with multi-media assets
       const downloadedNote = {
         id: `downloaded-course-${selectedCourse.id}-${Date.now()}`,
         courseId: selectedCourse.id,
         sourceCourseId: selectedCourse.id,
         title: `${selectedCourse.code} — ${selectedCourse.title}`,
         category: selectedCourse.faculty,
-        tags: [selectedCourse.code, selectedCourse.department, selectedCourse.level || '100L', 'Downloaded Course'],
-        content: `# ${selectedCourse.code}: ${selectedCourse.title}\n**Faculty**: ${selectedCourse.faculty} | **Department**: ${selectedCourse.department}\n**Uploaded By**: ${selectedCourse.uploaderName || 'Omni Scholar'}\n\n---\n\n${selectedCourse.notes || 'Course materials and lecture notes.'}`,
-        attachments: docItems,
+        tags: [selectedCourse.code, selectedCourse.department, selectedCourse.level || '100L', 'Downloaded Course', selectedCourse.isOpenStax ? 'OpenStax Textbook' : 'Peer Study Guide'],
+        content: parsedAssets.textContent,
+        attachments: parsedAssets.attachedPdfs,
+        audioRecordings: parsedAssets.audioNotes,
+        videoNotes: parsedAssets.videoNotes,
         createdAt: new Date().toISOString(),
         isPinned: false
       };
@@ -835,7 +1245,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  // Handle File Upload Validation (PDF <= 50MB, Image <= 5MB)
+  // Handle File Upload Validation (PDF & DOCX capped at 25MB, Image preview <= 5MB)
   const handleFileSelection = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
@@ -844,23 +1254,25 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
 
     for (const file of files) {
       const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+      const isDocx = file.name.toLowerCase().endsWith('.docx') || file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
       const isImg = file.type.startsWith('image/');
 
-      if (isPdf) {
-        if (file.size > 50 * 1024 * 1024) {
-          setUserNotification(`⚠️ "${file.name}" exceeds the 50MB limit for PDF files.`);
+      if (isPdf || isDocx) {
+        // Strict requirement: All file uploads are capped at 25MB
+        if (file.size > 25 * 1024 * 1024) {
+          setUserNotification(`⚠️ "${file.name}" exceeds the strict 25MB upload limit.`);
           continue;
         }
         newAttachments.push({
           id: `doc-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
           file,
           name: file.name,
-          type: 'pdf',
+          type: isPdf ? 'pdf' : 'docx',
           size: file.size
         });
       } else if (isImg) {
         if (file.size > 5 * 1024 * 1024) {
-          setUserNotification(`⚠️ "${file.name}" exceeds the 5MB limit for images.`);
+          setUserNotification(`⚠️ "${file.name}" exceeds the 5MB thumbnail image limit.`);
           continue;
         }
         
@@ -885,7 +1297,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
           setUploadFormData(prev => ({ ...prev, thumbnailUrl: dataUrl }));
         }
       } else {
-        setUserNotification(`⚠️ Only PDF documents and images are supported.`);
+        setUserNotification(`⚠️ Only PDF and DOCX academic course materials are permitted.`);
       }
     }
 
@@ -1008,61 +1420,92 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
         ? galleryImgs.slice(0, 4) 
         : [primaryThumb];
 
-      const newCourse: CourseMaterial = {
-        id: `course-${Date.now()}`,
-        code: uploadFormData.code.toUpperCase().trim(),
-        title: uploadFormData.title.trim(),
-        faculty: uploadFormData.faculty,
-        department: uploadFormData.department.trim() || 'General',
-        level: uploadFormData.level,
-        thumbnailUrl: primaryThumb,
-        galleryImages: finalGalleryImages,
-        notes: uploadFormData.notes || 'Course notes and lecture study guide.',
-        likesCount: 0,
-        rating: 5.0,
-        reviewsCount: 0,
-        reviews: [],
-        uploaderName: user?.displayName || user?.email?.split('@')[0] || 'Omni Scholar',
-        uploaderUid: user?.uid,
-        uploaderAvatar: user?.photoURL || undefined,
-        totalSizeBytes: totalSize || 8500000,
-        attachedDocs: preparedDocs,
-        createdAt: new Date().toISOString()
-      };
+      // Secure Server-Side Google Drive Community Upload Proxy
+      let driveFileId: string | undefined = undefined;
+      let primaryFileBase64: string | undefined = undefined;
+      let primaryFileName: string | undefined = undefined;
+      let primaryMimeType: string | undefined = undefined;
 
-      // Save to Firestore with guaranteed success
+      const primaryDoc = attachedFiles.find(f => f.type === 'pdf' || f.type === 'docx');
+      if (primaryDoc && primaryDoc.file) {
+        primaryFileName = primaryDoc.name;
+        primaryMimeType = primaryDoc.file.type || (primaryDoc.type === 'docx' ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'application/pdf');
+        try {
+          primaryFileBase64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(primaryDoc.file as File);
+          });
+        } catch (convErr) {
+          console.warn("Could not encode file to base64:", convErr);
+        }
+      } else if (primaryDoc && primaryDoc.dataUrl) {
+        primaryFileBase64 = primaryDoc.dataUrl;
+        primaryFileName = primaryDoc.name;
+        primaryMimeType = 'application/pdf';
+      }
+
       try {
-        const firestorePayload = {
-          code: newCourse.code,
-          title: newCourse.title,
-          faculty: newCourse.faculty,
-          department: newCourse.department,
-          level: newCourse.level,
-          thumbnailUrl: newCourse.thumbnailUrl,
-          galleryImages: newCourse.galleryImages.slice(0, 4),
-          notes: newCourse.notes,
+        const driveRes = await fetch('/api/drive/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fileBase64: primaryFileBase64,
+            fileName: primaryFileName || `${uploadFormData.code.toUpperCase().trim()}_notes.pdf`,
+            mimeType: primaryMimeType || 'application/pdf',
+            courseCode: uploadFormData.code.toUpperCase().trim(),
+            title: uploadFormData.title.trim(),
+            faculty: uploadFormData.faculty,
+            department: uploadFormData.department.trim() || 'General',
+            level: uploadFormData.level,
+            notes: uploadFormData.notes || '',
+            content: uploadFormData.notes || '',
+            thumbnailUrl: primaryThumb,
+            galleryImages: finalGalleryImages,
+            attachedDocs: preparedDocs,
+            uploaderUid: user?.uid || '',
+            uploaderName: user?.displayName || user?.email?.split('@')[0] || 'Omni Scholar',
+            uploaderEmail: user?.email || ''
+          })
+        });
+        const driveData = await driveRes.json();
+        if (driveData && driveData.fileId) {
+          driveFileId = driveData.fileId;
+        }
+      } catch (uploadErr) {
+        console.warn("Drive proxy upload notice:", uploadErr);
+      }
+
+      const isAdminUser = user?.email === 'nuellkelechi@gmail.com' || user?.role === 'admin';
+
+      // If the admin themselves uploaded it, they can immediately publish to live courses
+      if (isAdminUser) {
+        const newCourse: CourseMaterial = {
+          id: `course-${Date.now()}`,
+          code: uploadFormData.code.toUpperCase().trim(),
+          title: uploadFormData.title.trim(),
+          faculty: uploadFormData.faculty,
+          department: uploadFormData.department.trim() || 'General',
+          level: uploadFormData.level,
+          thumbnailUrl: primaryThumb,
+          galleryImages: finalGalleryImages,
+          notes: uploadFormData.notes || 'Course notes and lecture study guide.',
           likesCount: 0,
           rating: 5.0,
           reviewsCount: 0,
           reviews: [],
-          uploaderName: newCourse.uploaderName,
-          uploaderUid: newCourse.uploaderUid || '',
-          uploaderAvatar: newCourse.uploaderAvatar || '',
-          totalSizeBytes: newCourse.totalSizeBytes,
-          attachedDocs: preparedDocs.map(d => ({
-            id: d.id,
-            name: d.name,
-            type: d.type,
-            size: d.size,
-            dataUrl: d.dataUrl && d.dataUrl.length < 200000 ? d.dataUrl : undefined
-          })),
-          createdAt: serverTimestamp() || new Date()
+          uploaderName: user?.displayName || user?.email?.split('@')[0] || 'Omni Scholar',
+          uploaderUid: user?.uid,
+          uploaderAvatar: user?.photoURL || undefined,
+          totalSizeBytes: totalSize || 8500000,
+          attachedDocs: preparedDocs,
+          source: 'community',
+          status: 'approved',
+          driveFileId,
+          createdAt: new Date().toISOString()
         };
 
-        const docRef = await addDoc(collection(db, 'courses'), firestorePayload);
-        newCourse.id = docRef.id;
-      } catch (fsErr: any) {
-        console.warn("Firestore full payload retry with minimal attachment references:", fsErr);
         try {
           const minimalPayload = {
             code: newCourse.code,
@@ -1070,7 +1513,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
             faculty: newCourse.faculty,
             department: newCourse.department,
             level: newCourse.level,
-            thumbnailUrl: newCourse.thumbnailUrl.startsWith('data:') && newCourse.thumbnailUrl.length > 100000 ? defaultThumbnails[0] : newCourse.thumbnailUrl,
+            thumbnailUrl: newCourse.thumbnailUrl,
             galleryImages: [newCourse.thumbnailUrl],
             notes: newCourse.notes,
             likesCount: 0,
@@ -1081,25 +1524,25 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
             uploaderUid: newCourse.uploaderUid || '',
             uploaderAvatar: newCourse.uploaderAvatar || '',
             totalSizeBytes: newCourse.totalSizeBytes,
+            source: 'community',
+            status: 'approved',
+            driveFileId: driveFileId || '',
             attachedDocs: preparedDocs.map(d => ({ id: d.id, name: d.name, type: d.type, size: d.size })),
             createdAt: serverTimestamp() || new Date()
           };
           const docRef = await addDoc(collection(db, 'courses'), minimalPayload);
           newCourse.id = docRef.id;
-        } catch (retryErr) {
-          console.error("Firestore course upload failed:", retryErr);
+        } catch (fsErr) {
+          console.warn("Admin direct publish error:", fsErr);
         }
+
+        setCourses(prev => [newCourse, ...prev.filter(c => c.id !== newCourse.id)]);
+        setUserNotification(`🎉 Successfully published ${newCourse.code}!`);
+      } else {
+        // Required exact user notification for standard student uploads
+        setUserNotification("sent to admin for verification, would be uploaded soon.");
       }
 
-      // Add to local state and localStorage for instant persistence across sessions and offline APK
-      setCourses(prev => [newCourse, ...prev.filter(c => c.id !== newCourse.id)]);
-      try {
-        const localCourses = JSON.parse(localStorage.getItem('omni_user_uploaded_courses') || '[]');
-        const updated = [newCourse, ...localCourses.filter((c: any) => c.id !== newCourse.id)];
-        localStorage.setItem('omni_user_uploaded_courses', JSON.stringify(updated));
-      } catch (e) {}
-
-      setUserNotification(`🎉 Successfully published ${newCourse.code}!`);
       setIsUploadModalOpen(false);
       
       // Reset form
@@ -1124,6 +1567,19 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
   // Filtered Courses
   const filteredCourses = useMemo(() => {
     let result = [...courses];
+
+    // STRICT REQUIREMENT: OpenStax, Gutenberg and Open Library resources are always visible to all students.
+    // Community uploads must NOT appear in student searches automatically unless status is 'approved'
+    // (Pending / rejected uploads are only visible to the original uploader or an admin).
+    result = result.filter(c => {
+      if (c.isOpenStax || c.source === 'openstax' || c.source === 'gutendex' || c.source === 'openlibrary') return true;
+      if (c.status === 'pending' || c.status === 'rejected') {
+        const isOwner = user?.uid && c.uploaderUid === user.uid;
+        const isAdmin = user?.email === 'nuellkelechi@gmail.com' || user?.role === 'admin';
+        return isOwner || isAdmin;
+      }
+      return true;
+    });
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
@@ -1191,7 +1647,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
           <div 
             className="sticky top-0 z-30 px-3 sm:px-6 pb-3 backdrop-blur-xl border-b transition-colors duration-300"
             style={{
-              paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)',
+              paddingTop: getSafeHeaderPaddingTop(16),
               backgroundColor: theme === 'dark' ? 'rgba(19, 17, 28, 0.92)' : 'rgba(255, 255, 255, 0.92)',
               borderColor: theme === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(226, 232, 240, 0.9)'
             }}
@@ -1214,7 +1670,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
                 )}
                 
                 <h1 className={`text-xl sm:text-2xl font-black tracking-tight text-center ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
-                  Courses
+                  Courses & Books
                 </h1>
               </div>
 
@@ -1225,18 +1681,27 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
                     ? 'bg-[#18132A] border-purple-500/20 text-white focus-within:border-purple-500/60' 
                     : 'bg-white border-slate-200 text-slate-900 focus-within:border-purple-500/60'
                 }`}>
-                  <Search size={17} className={theme === 'dark' ? 'text-purple-400' : 'text-purple-600'} />
+                  {isLiveSearching ? (
+                    <RefreshCw size={17} className="text-purple-400 animate-spin shrink-0" />
+                  ) : (
+                    <Search size={17} className={`shrink-0 ${theme === 'dark' ? 'text-purple-400' : 'text-purple-600'}`} />
+                  )}
                   <input 
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="what course are you looking for?"
+                    placeholder="Search courses, textbooks, public-domain books..."
                     className={`w-full bg-transparent border-none outline-none text-xs sm:text-sm font-medium ${
                       theme === 'dark' 
                         ? 'text-white placeholder:text-white/30' 
                         : 'text-slate-900 placeholder:text-slate-400'
                     }`}
                   />
+                  {isLiveSearching && (
+                    <span className="text-[10px] font-bold text-purple-400 animate-pulse whitespace-nowrap hidden sm:inline">
+                      Searching providers...
+                    </span>
+                  )}
                   {searchQuery && (
                     <button 
                       onClick={() => setSearchQuery('')}
@@ -1308,27 +1773,75 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
           {/* Compact 2-Column Responsive Grid */}
           <div className="max-w-6xl mx-auto px-3 sm:px-6 pt-4">
             {filteredCourses.length === 0 ? (
-              <div className={`p-8 rounded-3xl border text-center space-y-3 my-8 max-w-sm mx-auto ${
-                theme === 'dark' ? 'bg-[#18132A] border-white/10' : 'bg-white border-slate-200 shadow-sm'
-              }`}>
-                <div className="w-12 h-12 rounded-2xl bg-purple-500/10 text-purple-400 flex items-center justify-center mx-auto border border-purple-500/20">
-                  <BookOpen size={24} />
+              isLiveSearching ? (
+                <div className={`p-8 rounded-3xl border text-center space-y-3 my-8 max-w-sm mx-auto ${
+                  theme === 'dark' ? 'bg-[#18132A] border-purple-500/30' : 'bg-white border-purple-200 shadow-sm'
+                }`}>
+                  <div className="w-12 h-12 rounded-2xl bg-purple-500/20 text-purple-400 flex items-center justify-center mx-auto border border-purple-500/30">
+                    <RefreshCw size={24} className="animate-spin text-purple-400" />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className={`text-sm font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                      Searching OpenStax Library...
+                    </h3>
+                    <p className={`text-xs ${theme === 'dark' ? 'text-white/60' : 'text-slate-500'}`}>
+                      Matching academic textbooks, study guides, and multi-media assets for "{searchQuery}"...
+                    </p>
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <h3 className={`text-sm font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
-                    No courses available yet
-                  </h3>
-                  <p className={`text-xs ${theme === 'dark' ? 'text-white/60' : 'text-slate-500'}`}>
-                    Tap the purple + button below to upload lecture notes or materials.
-                  </p>
+              ) : searchQuery.trim().length > 0 ? (
+                <div className={`p-8 rounded-3xl border text-center space-y-3 my-8 max-w-sm mx-auto ${
+                  theme === 'dark' ? 'bg-[#18132A] border-white/10' : 'bg-white border-slate-200 shadow-sm'
+                }`}>
+                  <div className="w-12 h-12 rounded-2xl bg-purple-500/10 text-purple-400 flex items-center justify-center mx-auto border border-purple-500/20">
+                    <Sparkles size={24} />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className={`text-sm font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                      Course "{searchQuery}" not found locally
+                    </h3>
+                    <p className={`text-xs ${theme === 'dark' ? 'text-white/60' : 'text-slate-500'}`}>
+                      Search OpenStax open educational curriculum to auto-generate and expand your course catalog.
+                    </p>
+                  </div>
+                  <div className="flex flex-col gap-2 pt-1">
+                    <button
+                      onClick={() => executeLiveSearch(searchQuery)}
+                      className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white rounded-xl text-xs font-bold shadow-md cursor-pointer transition-all inline-flex items-center justify-center gap-1.5 active:scale-95"
+                    >
+                      <Sparkles size={14} /> Search &amp; Add OpenStax Course
+                    </button>
+                    <button
+                      onClick={() => setIsUploadModalOpen(true)}
+                      className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white/80 rounded-xl text-xs font-semibold cursor-pointer transition-all inline-flex items-center justify-center gap-1.5"
+                    >
+                      <Plus size={14} /> Upload Custom Course
+                    </button>
+                  </div>
                 </div>
-                <button
-                  onClick={() => setIsUploadModalOpen(true)}
-                  className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold shadow-md cursor-pointer transition-all inline-flex items-center gap-1.5"
-                >
-                  <Plus size={14} /> Upload Course
-                </button>
-              </div>
+              ) : (
+                <div className={`p-8 rounded-3xl border text-center space-y-3 my-8 max-w-sm mx-auto ${
+                  theme === 'dark' ? 'bg-[#18132A] border-white/10' : 'bg-white border-slate-200 shadow-sm'
+                }`}>
+                  <div className="w-12 h-12 rounded-2xl bg-purple-500/10 text-purple-400 flex items-center justify-center mx-auto border border-purple-500/20">
+                    <BookOpen size={24} />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className={`text-sm font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                      No courses available yet
+                    </h3>
+                    <p className={`text-xs ${theme === 'dark' ? 'text-white/60' : 'text-slate-500'}`}>
+                      Tap the purple + button below to upload lecture notes or materials.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setIsUploadModalOpen(true)}
+                    className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold shadow-md cursor-pointer transition-all inline-flex items-center gap-1.5"
+                  >
+                    <Plus size={14} /> Upload Course
+                  </button>
+                </div>
+              )
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5 sm:gap-3.5">
                 {filteredCourses.map((course, courseIdx) => {
@@ -1341,13 +1854,15 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
                       animate={{ opacity: 1, scale: 1 }}
                       exit={{ opacity: 0, scale: 0.9 }}
                       onMouseDown={(e) => handleCardTouchStart(course, e)}
-                      onMouseUp={() => handleCardTouchEnd(course)}
+                      onMouseUp={(e) => handleCardTouchEnd(course, e)}
+                      onMouseMove={(e) => handleCardTouchMove(course.id, e)}
                       onMouseLeave={() => handleCardTouchCancel(course.id)}
                       onTouchStart={(e) => handleCardTouchStart(course, e)}
-                      onTouchEnd={() => handleCardTouchEnd(course)}
+                      onTouchEnd={(e) => handleCardTouchEnd(course, e)}
                       onTouchCancel={() => handleCardTouchCancel(course.id)}
                       onTouchMove={(e) => handleCardTouchMove(course.id, e)}
-                      className={`relative group rounded-2xl border p-2 sm:p-2.5 flex flex-col justify-between transition-all duration-200 cursor-pointer select-none hover:shadow-lg hover:-translate-y-0.5 active:scale-98 ${
+                      onClick={(e) => handleCardClick(course, e)}
+                      className={`relative group rounded-2xl border p-2 sm:p-2.5 flex flex-col justify-between transition-all duration-200 cursor-pointer select-none hover:shadow-lg hover:-translate-y-0.5 active:scale-98 touch-pan-y ${
                         theme === 'dark'
                           ? 'bg-[#171328] border-purple-500/20 hover:border-purple-500/50'
                           : 'bg-white border-slate-200 hover:border-purple-400 shadow-sm'
@@ -1446,7 +1961,36 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
                       </div>
 
                       {/* Clean Text Details without container boxes */}
-                      <div className="pt-2 space-y-0.5">
+                      <div className="pt-2 space-y-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {course.isOpenStax || course.source === 'openstax' ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 text-[9px] font-bold">
+                              <CheckCircle2 size={10} className="text-emerald-400" />
+                              <span>OpenStax</span>
+                            </span>
+                          ) : course.source === 'gutendex' ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/25 text-[9px] font-bold">
+                              <BookOpen size={10} className="text-amber-400" />
+                              <span>Gutenberg</span>
+                            </span>
+                          ) : course.source === 'openlibrary' ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-sky-500/15 text-sky-400 border border-sky-500/25 text-[9px] font-bold">
+                              <Globe size={10} className="text-sky-400" />
+                              <span>Open Library</span>
+                            </span>
+                          ) : course.status === 'pending' ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] font-bold">
+                              <Clock size={10} className="text-amber-400" />
+                              <span>Pending Review</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-blue-500/15 text-blue-400 border border-blue-500/25 text-[9px] font-bold">
+                              <ShieldCheck size={10} className="text-blue-400" />
+                              <span>Community</span>
+                            </span>
+                          )}
+                        </div>
+
                         <h3 className={`text-xs font-bold leading-tight line-clamp-1 ${
                           theme === 'dark' ? 'text-white' : 'text-slate-900'
                         }`}>
@@ -1459,11 +2003,16 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
                           {course.faculty}
                         </p>
 
-                        <p className={`text-[10px] truncate ${
-                          theme === 'dark' ? 'text-white/40' : 'text-slate-400'
-                        }`}>
-                          {course.uploaderName ? `By ${course.uploaderName}` : 'Omni Scholar'}
-                        </p>
+                        <div className="flex items-center justify-between text-[10px] pt-0.5">
+                          <span className={theme === 'dark' ? 'text-white/40' : 'text-slate-400'}>
+                            {course.source === 'gutendex' ? 'gutenberg.org' : course.source === 'openlibrary' ? 'openlibrary.org' : course.isOpenStax ? 'openstax.org' : (course.uploaderName ? `By ${course.uploaderName}` : 'NSG Community')}
+                          </span>
+                          {(course.isOpenStax || course.license) && (
+                            <span className="text-[9px] font-mono text-purple-400/80">
+                              {course.license ? course.license.slice(0, 10) : 'CC BY-NC'}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </motion.div>
                   );
@@ -1512,7 +2061,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
             {/* Overlaid Header Controls (Back, Share, Like) */}
             <div 
               className="absolute left-4 right-4 flex items-center justify-between z-20"
-              style={{ top: 'max(16px, calc(env(safe-area-inset-top, 0px) + 12px))' }}
+              style={{ top: 'max(28px, calc(env(safe-area-inset-top, 0px) + 16px))' }}
             >
               {/* Back Button */}
               <button 
@@ -1715,28 +2264,159 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
                   </p>
                 </div>
 
-                {/* Uploaded By Profile Section (Operated by becomes Uploaded by) */}
+                {/* Uploaded By Profile Section / Publisher Attribution */}
                 <div className="space-y-2 pt-2 border-t border-white/10">
                   <h3 className={`text-xs font-bold uppercase tracking-wider ${theme === 'dark' ? 'text-white/50' : 'text-slate-400'}`}>
-                    Uploaded by
+                    {selectedCourse.isOpenStax || selectedCourse.source === 'openstax' || selectedCourse.source === 'gutendex' || selectedCourse.source === 'openlibrary'
+                      ? 'Official Academic Publisher' 
+                      : 'Uploaded by'}
                   </h3>
                   <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-full bg-purple-600/20 text-purple-300 border border-purple-500/30 flex items-center justify-center font-black text-sm overflow-hidden">
-                      {selectedCourse.uploaderAvatar ? (
+                    <div className={`w-11 h-11 rounded-full flex items-center justify-center font-black text-sm overflow-hidden ${
+                      selectedCourse.isOpenStax || selectedCourse.source === 'openstax'
+                        ? 'bg-emerald-600/20 text-emerald-300 border border-emerald-500/30'
+                        : selectedCourse.source === 'gutendex'
+                        ? 'bg-amber-600/20 text-amber-300 border border-amber-500/30'
+                        : selectedCourse.source === 'openlibrary'
+                        ? 'bg-sky-600/20 text-sky-300 border border-sky-500/30'
+                        : 'bg-purple-600/20 text-purple-300 border border-purple-500/30'
+                    }`}>
+                      {selectedCourse.isOpenStax || selectedCourse.source === 'openstax' ? (
+                        <Globe size={22} className="text-emerald-400" />
+                      ) : selectedCourse.source === 'gutendex' ? (
+                        <BookOpen size={22} className="text-amber-400" />
+                      ) : selectedCourse.source === 'openlibrary' ? (
+                        <Globe size={22} className="text-sky-400" />
+                      ) : selectedCourse.uploaderAvatar ? (
                         <img src={selectedCourse.uploaderAvatar} alt={selectedCourse.uploaderName} className="w-full h-full object-cover" />
                       ) : (
                         <span>{selectedCourse.uploaderName ? selectedCourse.uploaderName[0].toUpperCase() : 'O'}</span>
                       )}
                     </div>
                     <div>
-                      <p className={`text-sm font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
-                        {selectedCourse.uploaderName || 'Omni Scholar'}
-                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <p className={`text-sm font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                          {selectedCourse.isOpenStax || selectedCourse.source === 'openstax' 
+                            ? 'OpenStax (Rice University)' 
+                            : selectedCourse.source === 'gutendex'
+                            ? 'Project Gutenberg Archive'
+                            : selectedCourse.source === 'openlibrary'
+                            ? 'Open Library (Internet Archive)'
+                            : (selectedCourse.uploaderName || 'NSG Community')}
+                        </p>
+                        {(selectedCourse.isOpenStax || selectedCourse.source === 'openstax') && (
+                          <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-bold border border-emerald-500/30 flex items-center gap-0.5">
+                            <ShieldCheck size={10} />
+                            Verified OER
+                          </span>
+                        )}
+                        {selectedCourse.source === 'gutendex' && (
+                          <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 text-[10px] font-bold border border-amber-500/30 flex items-center gap-0.5">
+                            <ShieldCheck size={10} />
+                            Public Domain
+                          </span>
+                        )}
+                        {selectedCourse.source === 'openlibrary' && (
+                          <span className="px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-400 text-[10px] font-bold border border-sky-500/30 flex items-center gap-0.5">
+                            <ShieldCheck size={10} />
+                            Lending Library
+                          </span>
+                        )}
+                      </div>
                       <p className={`text-xs ${theme === 'dark' ? 'text-white/50' : 'text-slate-500'}`}>
-                        {selectedCourse.department || 'Academic Department'}
+                        {selectedCourse.license || (selectedCourse.isOpenStax ? 'Creative Commons Attribution 4.0 (CC BY 4.0)' : selectedCourse.department || 'Academic Department')}
                       </p>
                     </div>
                   </div>
+
+                  {/* OpenStax Attribution details */}
+                  {(selectedCourse.isOpenStax || selectedCourse.source === 'openstax') && (
+                    <div className="p-3 rounded-2xl bg-emerald-950/25 border border-emerald-500/25 text-xs space-y-1.5 mt-2">
+                      <p className="text-emerald-300 font-bold flex items-center gap-1.5 text-xs">
+                        <ShieldCheck size={14} className="text-emerald-400" />
+                        Zero-Cost Hybrid Open Educational Resource (OER)
+                      </p>
+                      <p className="text-white/70 text-[11px] leading-relaxed">
+                        This peer-reviewed college textbook is authored and reviewed by educators under a Creative Commons Attribution license. Students can freely read online via the Rex web reader or download high-resolution PDF course editions.
+                      </p>
+                      {selectedCourse.rexReaderUrl && (
+                        <div className="pt-1 flex items-center gap-3">
+                          <a 
+                            href={selectedCourse.rexReaderUrl} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 hover:text-emerald-300 underline"
+                          >
+                            <span>Open in OpenStax Rex Reader</span>
+                            <ExternalLink size={11} />
+                          </a>
+                          {(selectedCourse.openstaxPageUrl || (selectedCourse as any).openStaxWebUrl) && (
+                            <a 
+                              href={selectedCourse.openstaxPageUrl || (selectedCourse as any).openStaxWebUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[11px] font-medium text-white/50 hover:text-white/80"
+                            >
+                              <span>Book Details</span>
+                              <ExternalLink size={10} />
+                            </a>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Project Gutenberg Details */}
+                  {selectedCourse.source === 'gutendex' && (
+                    <div className="p-3 rounded-2xl bg-amber-950/25 border border-amber-500/25 text-xs space-y-1.5 mt-2">
+                      <p className="text-amber-300 font-bold flex items-center gap-1.5 text-xs">
+                        <BookOpen size={14} className="text-amber-400" />
+                        Project Gutenberg Public Domain Book
+                      </p>
+                      <p className="text-white/70 text-[11px] leading-relaxed">
+                        This work is in the public domain and free to read, download, and study. Produced by thousands of volunteers to digitize world literature and knowledge.
+                      </p>
+                      {selectedCourse.rexReaderUrl && (
+                        <div className="pt-1 flex items-center gap-3">
+                          <a 
+                            href={selectedCourse.rexReaderUrl} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-400 hover:text-amber-300 underline"
+                          >
+                            <span>Read Online (HTML Edition)</span>
+                            <ExternalLink size={11} />
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Open Library Details */}
+                  {selectedCourse.source === 'openlibrary' && (
+                    <div className="p-3 rounded-2xl bg-sky-950/25 border border-sky-500/25 text-xs space-y-1.5 mt-2">
+                      <p className="text-sky-300 font-bold flex items-center gap-1.5 text-xs">
+                        <Globe size={14} className="text-sky-400" />
+                        Open Library Catalog & Digital Lending
+                      </p>
+                      <p className="text-white/70 text-[11px] leading-relaxed">
+                        Open Library is an initiative of the Internet Archive. Readers can borrow books digitally or view bibliographic records and summaries.
+                      </p>
+                      {selectedCourse.openstaxPageUrl && (
+                        <div className="pt-1 flex items-center gap-3">
+                          <a 
+                            href={selectedCourse.openstaxPageUrl} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-400 hover:text-sky-300 underline"
+                          >
+                            <span>View on Open Library</span>
+                            <ExternalLink size={11} />
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -1796,9 +2476,60 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
                             </div>
                           </div>
                           
-                          <span className="text-[10px] font-bold px-2 py-1 rounded-lg bg-purple-600/20 text-purple-300 shrink-0">
-                            Included
-                          </span>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-[10px] font-bold px-2 py-1 rounded-lg bg-purple-600/20 text-purple-300 hidden sm:inline-block">
+                              Included
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const cleanDocName = docItem.name || `${selectedCourse.code}_document.pdf`;
+                                const docUrl = (docItem as any).verifiedPdfUrl || docItem.url || (docItem as any).dataUrl;
+                                if (docUrl && (docUrl.startsWith('http://') || docUrl.startsWith('https://'))) {
+                                  const directDocUrl = `/api/courses/direct-download?url=${encodeURIComponent(docUrl)}&filename=${encodeURIComponent(cleanDocName)}`;
+                                  const link = document.createElement('a');
+                                  link.href = directDocUrl;
+                                  link.download = cleanDocName;
+                                  document.body.appendChild(link);
+                                  link.click();
+                                  document.body.removeChild(link);
+                                  setUserNotification(`📥 Downloading "${cleanDocName}" directly to device...`);
+                                } else if (docUrl && docUrl.startsWith('data:')) {
+                                  const link = document.createElement('a');
+                                  link.href = docUrl;
+                                  link.download = cleanDocName;
+                                  document.body.appendChild(link);
+                                  link.click();
+                                  document.body.removeChild(link);
+                                  setUserNotification(`📥 Downloading "${cleanDocName}" directly to device...`);
+                                } else if (selectedCourse.driveFileId) {
+                                  const link = document.createElement('a');
+                                  link.href = `/api/drive/download/${selectedCourse.driveFileId}`;
+                                  link.download = cleanDocName;
+                                  document.body.appendChild(link);
+                                  link.click();
+                                  document.body.removeChild(link);
+                                  setUserNotification(`📥 Downloading "${cleanDocName}" directly to device...`);
+                                } else if (selectedCourse.isOpenStax && selectedCourse.verifiedPdfUrl) {
+                                  const directDocUrl = `/api/courses/direct-download?url=${encodeURIComponent(selectedCourse.verifiedPdfUrl)}&filename=${encodeURIComponent(cleanDocName)}`;
+                                  const link = document.createElement('a');
+                                  link.href = directDocUrl;
+                                  link.download = cleanDocName;
+                                  document.body.appendChild(link);
+                                  link.click();
+                                  document.body.removeChild(link);
+                                  setUserNotification(`📥 Downloading "${cleanDocName}" directly to device...`);
+                                } else {
+                                  setUserNotification(`📥 Document content included in course study notes.`);
+                                }
+                              }}
+                              className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1.5 rounded-xl bg-purple-600/20 text-purple-300 hover:bg-purple-600 hover:text-white transition-all cursor-pointer shrink-0"
+                              title="Download this document directly to your device"
+                            >
+                              <Download size={12} />
+                              <span>Download</span>
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1913,28 +2644,53 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
             )}
           </div>
 
-          {/* Sticky Bottom Footer Bar (Exact Match: Total Size / Download) */}
+          {/* Sticky Bottom Footer Bar (Exact Match: Total Size / Download or Borrow) */}
           <div 
-            className="fixed bottom-0 left-0 right-0 z-30 px-5 py-3.5 backdrop-blur-xl border-t transition-colors duration-300"
+            className="fixed bottom-0 left-0 right-0 z-30 px-5 pt-3.5 backdrop-blur-xl border-t transition-colors duration-300"
             style={{
+              paddingBottom: getSafeBottomPadding(12),
               backgroundColor: theme === 'dark' ? 'rgba(19, 17, 28, 0.96)' : 'rgba(255, 255, 255, 0.96)',
               borderColor: theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(226, 232, 240, 0.9)'
             }}
           >
             <div className="max-w-md mx-auto flex items-center justify-between gap-4">
-              {/* Total Size (Replacing Total Price) */}
+              {/* Total Size / Access Mode */}
               <div className="space-y-0.5">
                 <span className={`text-[11px] font-medium block ${theme === 'dark' ? 'text-white/50' : 'text-slate-400'}`}>
-                  Total Size
+                  {selectedCourse.capabilities?.borrowable && !selectedCourse.capabilities?.downloadable ? 'Access Mode' : 'Total Size'}
                 </span>
                 <p className="text-base font-black text-purple-500 dark:text-purple-400 leading-none">
-                  {formatBytes(selectedCourse.totalSizeBytes)} <span className={`text-[10px] font-normal ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'}`}>(&le;60MB)</span>
+                  {selectedCourse.capabilities?.borrowable && !selectedCourse.capabilities?.downloadable ? (
+                    <span>Digital Lending</span>
+                  ) : (
+                    <>
+                      {formatBytes(selectedCourse.totalSizeBytes)}{' '}
+                      <span className={`text-[10px] font-normal ${theme === 'dark' ? 'text-white/40' : 'text-slate-400'}`}>(&le;60MB)</span>
+                    </>
+                  )}
                 </p>
               </div>
 
-              {/* Download Button (Switches to Downloaded if course in notes) */}
+              {/* Action Button: Download OR Borrow on Open Library */}
               {(() => {
                 const isDownloaded = isCourseDownloaded(selectedCourse.id, selectedCourse.code, selectedCourse.title);
+                const isBorrowOnly = selectedCourse.capabilities?.borrowable && !selectedCourse.capabilities?.downloadable;
+
+                if (isBorrowOnly) {
+                  const borrowUrl = selectedCourse.openstaxPageUrl || selectedCourse.rexReaderUrl || `https://openlibrary.org/search?q=${encodeURIComponent(selectedCourse.title)}`;
+                  return (
+                    <a
+                      href={borrowUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 py-3.5 px-6 rounded-full font-black text-sm shadow-xl flex items-center justify-center gap-2 transition-all active:scale-95 bg-sky-600 hover:bg-sky-500 text-white shadow-sky-600/30 cursor-pointer"
+                    >
+                      <ExternalLink size={16} />
+                      <span>Borrow on Open Library</span>
+                    </a>
+                  );
+                }
+
                 return (
                   <button
                     onClick={isDownloaded ? undefined : handleDownloadCourse}

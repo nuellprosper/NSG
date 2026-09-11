@@ -485,7 +485,7 @@ export const HomePage: React.FC<HomePageProps> = ({
     >
       {/* 1. SIGNATURE LIGHT PURPLE TOP PATCH (Sticky header with content scrolling underneath) */}
       <div 
-        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)' }}
+        style={{ paddingTop: 'max(28px, calc(env(safe-area-inset-top, 0px) + 14px))' }}
         className="sticky top-0 z-40 bg-gradient-to-b from-purple-600 via-purple-600 to-purple-500 text-white pb-6 px-4 sm:px-6 rounded-b-[2.5rem] shadow-xl overflow-visible"
       >
         {/* Subtle decorative background topography contour lines */}

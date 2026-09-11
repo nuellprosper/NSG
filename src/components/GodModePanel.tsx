@@ -269,6 +269,116 @@ export const GodModePanel: React.FC<GodModePanelProps> = ({
   // User Edit Modal State
   const [selectedUserToEdit, setSelectedUserToEdit] = useState<any | null>(null);
 
+  // Drive Community Moderation Queue State
+  const [moderationQueue, setModerationQueue] = useState<any[]>([]);
+  const [moderationLoading, setModerationLoading] = useState(false);
+  const [moderationFilter, setModerationFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
+  const [actionInProgressId, setActionInProgressId] = useState<string | null>(null);
+  const [selectedUploadForReview, setSelectedUploadForReview] = useState<any | null>(null);
+
+  const fetchModerationQueue = async () => {
+    setModerationLoading(true);
+    try {
+      const res = await fetch('/api/admin/moderation-queue', {
+        headers: { 
+          'x-admin-secret': 'GOD_MODE',
+          'x-user-email': user?.email || 'nuellkelechi@gmail.com' 
+        }
+      });
+      const data = await res.json();
+      if (data.success && data.items) {
+        setModerationQueue(data.items);
+      }
+    } catch (err) {
+      console.warn("Failed to load moderation queue via API:", err);
+    } finally {
+      setModerationLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchModerationQueue();
+    // Also attach Firestore listener to community_uploads for instant updates
+    try {
+      const q = query(collection(db, 'community_uploads'), orderBy('uploadedAt', 'desc'), limit(50));
+      const unsub = onSnapshot(q, (snap) => {
+        const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        if (items.length > 0) {
+          setModerationQueue(items);
+        }
+      }, () => {
+        fetchModerationQueue();
+      });
+      return () => unsub();
+    } catch (e) {
+      fetchModerationQueue();
+    }
+  }, []);
+
+  const handleModerateUpload = async (uploadId: string, action: 'approve' | 'reject' | 'delete', customReason?: string) => {
+    setActionInProgressId(uploadId);
+    try {
+      let rejectionReason = customReason;
+      if (action === 'reject' && !rejectionReason) {
+        const input = window.prompt(
+          "Reason for rejecting this upload (will be sent to student):", 
+          "due to some issues, the uploaded course was rejected. Please review the course content and re-upload. Thank you."
+        );
+        if (input === null) {
+          setActionInProgressId(null);
+          return;
+        }
+        rejectionReason = input;
+      }
+
+      if (action === 'delete') {
+        if (!window.confirm("Permanently delete this course submission and all attached materials from the system?")) {
+          setActionInProgressId(null);
+          return;
+        }
+      }
+
+      const res = await fetch('/api/admin/moderate-upload', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-admin-secret': 'GOD_MODE',
+          'x-user-email': user?.email || 'nuellkelechi@gmail.com'
+        },
+        body: JSON.stringify({
+          uploadId,
+          action,
+          rejectionReason,
+          adminEmail: user?.email || 'nuellkelechi@gmail.com',
+          adminUid: user?.uid || 'admin'
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (action === 'approve') {
+          showToast('Course accepted and published to student library!');
+          setModerationQueue(prev => prev.map(item => item.id === uploadId ? { ...item, status: 'approved' } : item));
+        } else if (action === 'reject') {
+          showToast('Course upload rejected & student notified via email.');
+          setModerationQueue(prev => prev.map(item => item.id === uploadId ? { ...item, status: 'rejected' } : item));
+        } else if (action === 'delete') {
+          showToast('Course submission permanently deleted.');
+          setModerationQueue(prev => prev.filter(item => item.id !== uploadId));
+        }
+
+        if (selectedUploadForReview?.id === uploadId) {
+          setSelectedUploadForReview(null);
+        }
+      } else {
+        showToast(data.error || 'Failed to update moderation state');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Moderation network error');
+    } finally {
+      setActionInProgressId(null);
+    }
+  };
+
   // --- ACTIONS ---
 
   // 1. Promote / Demote Admin
@@ -745,6 +855,13 @@ export const GodModePanel: React.FC<GodModePanelProps> = ({
               { id: 'dashboard', label: 'Overview', icon: LayoutDashboard, badge: null },
               { id: 'users', label: 'Users', icon: Users, badge: usersList.length },
               { id: 'courses', label: 'Courses', icon: BookOpen, badge: coursesList.length },
+              { 
+                id: 'moderation', 
+                label: 'Drive Moderation', 
+                icon: ShieldCheck, 
+                badge: moderationQueue.filter(m => m.status === 'pending').length || null, 
+                alert: moderationQueue.some(m => m.status === 'pending') 
+              },
               { id: 'safety', label: 'Safety & Reports', icon: AlertTriangle, badge: reportsList.length > 0 ? reportsList.length : null, alert: reportsList.length > 0 },
               { id: 'emails', label: 'Broadcast Center', icon: Mail, badge: null },
               { id: 'marketing', label: 'AI Persuasions', icon: Sparkles, badge: null },
@@ -1203,6 +1320,235 @@ export const GodModePanel: React.FC<GodModePanelProps> = ({
                     )}
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* ========================================================
+                TAB: GOOGLE DRIVE COMMUNITY MODERATION QUEUE
+            ======================================================== */}
+            {activeTab === 'moderation' && (
+              <div className="space-y-4">
+                {/* Header & Filter Controls */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-3xl bg-white/[0.02] border border-white/10">
+                  <div>
+                    <h3 className="text-sm font-black uppercase tracking-wide text-white flex items-center gap-2">
+                      <ShieldCheck size={18} className="text-emerald-400" />
+                      Google Drive Community Moderation Queue
+                    </h3>
+                    <p className="text-xs text-white/50 mt-0.5">
+                      Zero-Cost Hybrid Library: uploads are securely held in Google Drive until approved by an administrator.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={fetchModerationQueue}
+                      disabled={moderationLoading}
+                      className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-white/70 hover:text-white border border-white/10 transition-all cursor-pointer disabled:opacity-50"
+                      title="Refresh Moderation Queue"
+                    >
+                      <RefreshCw size={14} className={moderationLoading ? "animate-spin" : ""} />
+                    </button>
+
+                    <div className="flex items-center gap-1 bg-black/40 p-1 rounded-xl border border-white/10">
+                      {[
+                        { id: 'pending', label: 'Pending', count: moderationQueue.filter(m => m.status === 'pending').length },
+                        { id: 'approved', label: 'Approved', count: moderationQueue.filter(m => m.status === 'approved').length },
+                        { id: 'rejected', label: 'Rejected', count: moderationQueue.filter(m => m.status === 'rejected').length },
+                        { id: 'all', label: 'All', count: moderationQueue.length }
+                      ].map(f => (
+                        <button
+                          key={f.id}
+                          onClick={() => setModerationFilter(f.id as any)}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 ${
+                            moderationFilter === f.id
+                              ? 'bg-red-600 text-white shadow-md'
+                              : 'text-white/50 hover:text-white hover:bg-white/5'
+                          }`}
+                        >
+                          <span>{f.label}</span>
+                          <span className="px-1 py-0.2 rounded bg-black/30 text-[9px] font-mono">
+                            {f.count}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Queue Cards */}
+                {(() => {
+                  const filtered = moderationQueue.filter(item => {
+                    if (moderationFilter === 'all') return true;
+                    return item.status === moderationFilter;
+                  });
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="text-center py-16 rounded-3xl bg-white/[0.02] border border-white/10 text-white/40 text-xs space-y-2">
+                        <CheckCircle2 size={36} className="mx-auto text-emerald-400/50 mb-1" />
+                        <p className="text-sm font-bold text-white">No {moderationFilter} uploads found</p>
+                        <p className="text-white/40 text-xs">
+                          {moderationFilter === 'pending' 
+                            ? 'All community-submitted course materials have been reviewed.' 
+                            : 'Uploads will appear here when submitted by students.'}
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-3">
+                      {filtered.map(upload => {
+                        const isPending = upload.status === 'pending';
+                        const isApproved = upload.status === 'approved';
+                        const isRejected = upload.status === 'rejected';
+                        const isActioning = actionInProgressId === upload.id;
+
+                        return (
+                          <div 
+                            key={upload.id} 
+                            onClick={() => setSelectedUploadForReview(upload)}
+                            className="p-4 sm:p-5 rounded-3xl bg-white/[0.02] border border-white/10 space-y-4 hover:border-red-500/40 hover:bg-white/[0.04] transition-all cursor-pointer group"
+                          >
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="px-2 py-0.5 rounded-lg bg-red-600/20 border border-red-500/40 text-red-400 font-mono font-black text-xs">
+                                    {upload.courseCode || 'COURSE'}
+                                  </span>
+                                  <h4 className="text-sm font-bold text-white group-hover:text-red-300 transition-colors">
+                                    {upload.title || 'Course Material'}
+                                  </h4>
+                                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${
+                                    isPending 
+                                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' 
+                                      : isApproved 
+                                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' 
+                                      : 'bg-red-500/20 text-red-300 border border-red-500/30'
+                                  }`}>
+                                    {upload.status || 'pending'}
+                                  </span>
+                                </div>
+
+                                <p className="text-xs text-white/50">
+                                  {upload.faculty || 'General Academic'} • {upload.department || 'General'} • {upload.level || '100L'}
+                                </p>
+                              </div>
+
+                              {/* Action Buttons */}
+                              <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                {/* Review Content Button */}
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedUploadForReview(upload)}
+                                  className="px-3 py-1.5 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                                  title="View complete course content and moderate"
+                                >
+                                  <Eye size={13} />
+                                  <span>Review Content</span>
+                                </button>
+
+                                {/* Preview File Download */}
+                                <a
+                                  href={`/api/drive/download/${upload.driveFileId || upload.id}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-white/70 hover:text-white border border-white/10 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                                  title="Download or preview attached file"
+                                >
+                                  <FileText size={13} />
+                                  <span>File</span>
+                                </a>
+
+                                {/* Approve */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleModerateUpload(upload.id, 'approve')}
+                                  disabled={isActioning || isApproved}
+                                  className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
+                                    isApproved 
+                                      ? 'bg-emerald-950/40 text-emerald-400/50 border border-emerald-500/20 cursor-default' 
+                                      : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/30 active:scale-95 disabled:opacity-50'
+                                  }`}
+                                  title="Accept & publish to course library"
+                                >
+                                  <CheckCircle2 size={13} />
+                                  <span>{isApproved ? 'Approved' : 'Accept'}</span>
+                                </button>
+
+                                {/* Reject */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleModerateUpload(upload.id, 'reject')}
+                                  disabled={isActioning || isRejected}
+                                  className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
+                                    isRejected
+                                      ? 'bg-red-950/40 text-red-400/50 border border-red-500/20 cursor-default'
+                                      : 'bg-amber-600/20 hover:bg-amber-600 text-amber-300 hover:text-white border border-amber-500/30 active:scale-95 disabled:opacity-50'
+                                  }`}
+                                  title="Reject submission and notify student"
+                                >
+                                  <XCircle size={13} />
+                                  <span>{isRejected ? 'Rejected' : 'Reject'}</span>
+                                </button>
+
+                                {/* Delete */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleModerateUpload(upload.id, 'delete')}
+                                  disabled={isActioning}
+                                  className="p-1.5 rounded-xl bg-red-600/10 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/20 transition-all cursor-pointer disabled:opacity-50"
+                                  title="Permanently delete course"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Details Grid */}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-white/5 text-[11px]">
+                              <div>
+                                <span className="text-white/40 block">Uploader</span>
+                                <span className="text-white font-medium truncate block">{upload.uploaderName || 'Student'}</span>
+                                <span className="text-white/30 text-[10px] truncate block">{upload.uploaderEmail || 'No email provided'}</span>
+                              </div>
+                              <div>
+                                <span className="text-white/40 block">File Name</span>
+                                <span className="text-white font-mono truncate block">{upload.fileName || 'document.pdf'}</span>
+                                <span className="text-white/30 text-[10px] truncate block">MIME: {upload.mimeType || 'application/pdf'}</span>
+                              </div>
+                              <div>
+                                <span className="text-white/40 block">Storage Vault</span>
+                                <span className="text-purple-300 font-mono text-[10px] truncate block">
+                                  Drive ID: {upload.driveFileId ? upload.driveFileId.slice(0, 16) + '...' : 'Local Vault'}
+                                </span>
+                                <span className="text-white/30 text-[10px]">Max 25MB Enforced</span>
+                              </div>
+                              <div>
+                                <span className="text-white/40 block">Submission Date</span>
+                                <span className="text-white/70">
+                                  {upload.uploadedAt ? new Date(upload.uploadedAt).toLocaleDateString() : 'Recent'}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Rejection notice if present */}
+                            {upload.rejectionReason && (
+                              <div className="p-2.5 rounded-xl bg-red-950/30 border border-red-500/20 text-xs text-red-300 flex items-start gap-2">
+                                <AlertCircle size={14} className="shrink-0 mt-0.5 text-red-400" />
+                                <div>
+                                  <span className="font-bold">Rejection Note: </span>
+                                  <span>{upload.rejectionReason}</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -1804,6 +2150,175 @@ export const GodModePanel: React.FC<GodModePanelProps> = ({
                 </button>
               </div>
             </form>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Course Content & Moderation Decision Modal */}
+      {selectedUploadForReview && (
+        <div className="fixed inset-0 z-[220] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="w-full max-w-2xl max-h-[90vh] bg-[#120F20] border border-white/15 rounded-3xl p-6 shadow-2xl text-white flex flex-col space-y-4 overflow-hidden"
+          >
+            {/* Modal Header */}
+            <div className="flex items-start justify-between border-b border-white/10 pb-4 shrink-0">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="px-2.5 py-1 rounded-lg bg-red-600/20 border border-red-500/40 text-red-400 font-mono font-black text-xs">
+                    {selectedUploadForReview.courseCode || selectedUploadForReview.code || 'COURSE'}
+                  </span>
+                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${
+                    selectedUploadForReview.status === 'pending'
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                      : selectedUploadForReview.status === 'approved'
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                      : 'bg-red-500/20 text-red-300 border border-red-500/30'
+                  }`}>
+                    {selectedUploadForReview.status || 'pending review'}
+                  </span>
+                </div>
+                <h3 className="text-lg font-bold text-white leading-snug">
+                  {selectedUploadForReview.title || 'Course Material'}
+                </h3>
+                <p className="text-xs text-white/50">
+                  {selectedUploadForReview.faculty || 'Faculty of Sciences'} • {selectedUploadForReview.department || 'General'} • {selectedUploadForReview.level || '100L'}
+                </p>
+              </div>
+
+              <button 
+                onClick={() => setSelectedUploadForReview(null)} 
+                className="p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-white/50 hover:text-white transition-colors cursor-pointer"
+                title="Close review"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body - Scrollable */}
+            <div className="flex-1 overflow-y-auto space-y-4 pr-1 text-xs">
+              {/* Contributor Information */}
+              <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/10 grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div>
+                  <span className="text-white/40 block text-[10px] uppercase font-bold tracking-wider">Submitted By</span>
+                  <span className="text-white font-medium block truncate">{selectedUploadForReview.uploaderName || 'Student'}</span>
+                  <span className="text-white/40 text-[11px] block truncate">{selectedUploadForReview.uploaderEmail || 'No email attached'}</span>
+                </div>
+                <div>
+                  <span className="text-white/40 block text-[10px] uppercase font-bold tracking-wider">Submission Date</span>
+                  <span className="text-white font-medium block">
+                    {selectedUploadForReview.uploadedAt ? new Date(selectedUploadForReview.uploadedAt).toLocaleString() : 'Recent'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-white/40 block text-[10px] uppercase font-bold tracking-wider">Google Drive Vault</span>
+                  <span className="text-purple-300 font-mono text-[11px] block truncate">
+                    {selectedUploadForReview.driveFileId ? `ID: ${selectedUploadForReview.driveFileId.slice(0, 14)}...` : 'Local Storage'}
+                  </span>
+                  <span className="text-emerald-400 text-[10px] block font-bold">25MB Max Resilient Vault</span>
+                </div>
+              </div>
+
+              {/* Attached Files & Direct Download */}
+              <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/10 space-y-2">
+                <span className="text-white/40 block text-[10px] uppercase font-bold tracking-wider">Attached File Material</span>
+                <div className="flex items-center justify-between gap-3 bg-black/40 p-3 rounded-xl border border-white/10 flex-wrap">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <FileText size={20} className="text-red-400 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-white font-bold truncate text-xs">
+                        {selectedUploadForReview.fileName || `${selectedUploadForReview.courseCode || 'COURSE'}_Document.pdf`}
+                      </p>
+                      <p className="text-white/40 text-[10px]">
+                        MIME: {selectedUploadForReview.mimeType || 'application/pdf'} • {selectedUploadForReview.size ? `${(selectedUploadForReview.size / 1024 / 1024).toFixed(2)} MB` : 'Included in payload'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <a
+                    href={`/api/drive/download/${selectedUploadForReview.driveFileId || selectedUploadForReview.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3.5 py-1.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs flex items-center gap-1.5 transition-all shadow-md cursor-pointer shrink-0"
+                  >
+                    <FileDown size={14} />
+                    <span>Download / View File</span>
+                  </a>
+                </div>
+              </div>
+
+              {/* Course Content / Notes */}
+              <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/10 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-white/40 block text-[10px] uppercase font-bold tracking-wider">Course Syllabus / Notes Content</span>
+                  <span className="text-[10px] text-white/30 font-mono">
+                    {selectedUploadForReview.content?.length || selectedUploadForReview.notes?.length || 0} characters
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-xl bg-black/50 border border-white/10 text-white/80 leading-relaxed font-sans text-xs max-h-56 overflow-y-auto whitespace-pre-wrap selection:bg-red-600 selection:text-white">
+                  {selectedUploadForReview.content || selectedUploadForReview.notes ? (
+                    selectedUploadForReview.content || selectedUploadForReview.notes
+                  ) : (
+                    <span className="text-white/40 italic">No additional note text provided. Course material is contained in the attached file above.</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Prior Rejection Reason if any */}
+              {selectedUploadForReview.rejectionReason && (
+                <div className="p-3 rounded-xl bg-red-950/40 border border-red-500/30 text-xs text-red-200 flex items-start gap-2">
+                  <AlertCircle size={15} className="shrink-0 mt-0.5 text-red-400" />
+                  <div>
+                    <span className="font-bold">Prior Rejection Notice: </span>
+                    <span>{selectedUploadForReview.rejectionReason}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer: The 3 Decisions (Accept, Reject, Delete) */}
+            <div className="border-t border-white/10 pt-4 shrink-0 flex flex-col sm:flex-row items-center justify-between gap-2.5">
+              {/* Delete Button */}
+              <button
+                type="button"
+                onClick={() => handleModerateUpload(selectedUploadForReview.id, 'delete')}
+                disabled={actionInProgressId === selectedUploadForReview.id}
+                className="w-full sm:w-auto px-4 py-2 rounded-xl bg-red-950/60 hover:bg-red-900 text-red-300 hover:text-white border border-red-500/30 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                title="Permanently delete submission"
+              >
+                <Trash2 size={14} />
+                <span>Delete Course</span>
+              </button>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                {/* Reject Button */}
+                <button
+                  type="button"
+                  onClick={() => handleModerateUpload(selectedUploadForReview.id, 'reject')}
+                  disabled={actionInProgressId === selectedUploadForReview.id}
+                  className="flex-1 sm:flex-initial px-4 py-2 rounded-xl bg-amber-600/20 hover:bg-amber-600 text-amber-300 hover:text-white border border-amber-500/40 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 shadow-sm"
+                  title="Reject course and send explanation email to student"
+                >
+                  <XCircle size={14} />
+                  <span>Reject Course</span>
+                </button>
+
+                {/* Accept Button */}
+                <button
+                  type="button"
+                  onClick={() => handleModerateUpload(selectedUploadForReview.id, 'approve')}
+                  disabled={actionInProgressId === selectedUploadForReview.id}
+                  className="flex-1 sm:flex-initial px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-emerald-600/30 active:scale-95 disabled:opacity-50"
+                  title="Accept course, publish to student curriculum, and notify student"
+                >
+                  <CheckCircle2 size={14} />
+                  <span>Accept & Publish</span>
+                </button>
+              </div>
+            </div>
           </motion.div>
         </div>
       )}

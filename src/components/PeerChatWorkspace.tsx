@@ -334,7 +334,7 @@ export const PeerChatWorkspace: React.FC<PeerChatWorkspaceProps> = ({
         
         {/* Sticky Active WhatsApp Header */}
         <div 
-          style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)' }}
+          style={{ paddingTop: 'max(28px, calc(env(safe-area-inset-top, 0px) + 14px))' }}
           className="px-4 pb-3 bg-[#181628]/95 backdrop-blur-md border-b border-white/5 flex items-center justify-between shrink-0 z-10"
         >
           <div className="flex items-center gap-2.5 min-w-0">

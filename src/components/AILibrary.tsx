@@ -473,7 +473,7 @@ export const AILibrary: React.FC<{
     <div className={`flex flex-col h-full ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
       {/* FIXED HEADER */}
       <header 
-        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 14px)' }}
+        style={{ paddingTop: 'max(28px, calc(env(safe-area-inset-top, 0px) + 14px))' }}
         className="sticky top-0 z-50 backdrop-blur-xl bg-white/5 border-b border-white/10 px-4 pb-4 flex items-center justify-between"
       >
         <div className="flex items-center gap-2">

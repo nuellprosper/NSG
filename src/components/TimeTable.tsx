@@ -984,7 +984,7 @@ export const TimeTable: React.FC<TimeTableProps> = ({
 
       {/* Top Header */}
       <div 
-        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 8px)' }}
+        style={{ paddingTop: 'max(28px, calc(env(safe-area-inset-top, 0px) + 14px))' }}
         className="flex items-center justify-between px-2"
       >
         <div className="flex items-center gap-3">

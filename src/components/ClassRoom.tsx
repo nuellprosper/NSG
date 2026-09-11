@@ -192,7 +192,7 @@ export const ClassRoom: React.FC<ClassRoomProps> = ({
       
       {/* Upper Professional Header */}
       <div 
-        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 14px)' }}
+        style={{ paddingTop: 'max(28px, calc(env(safe-area-inset-top, 0px) + 14px))' }}
         className="p-4 bg-[#120F1F]/90 backdrop-blur-md border-b border-white/5 flex items-center justify-between z-20"
       >
         <div className="flex items-center gap-3">

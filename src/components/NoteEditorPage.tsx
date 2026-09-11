@@ -6,10 +6,12 @@ import {
   FileText, Download, Check, Upload, Palette, Type,
   Folder, Sparkles, Volume2, Move, Scissors, Link, Users,
   GraduationCap, Settings, HelpCircle, Undo, Redo, Eraser, Eye,
-  Quote, Strikethrough, Subscript, Superscript
+  Quote, Strikethrough, Subscript, Superscript, Film, ExternalLink,
+  PlayCircle, Video, FileDown, BookOpen
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { NoteItem } from './NotesVaultHome';
+import { getBinaryAsset, triggerFileDownload, fetchAndStreamBinaryFile, saveBinaryAsset } from '../utils/assetStorage';
 
 export interface NoteEditorPageProps {
   note: NoteItem;
@@ -44,6 +46,19 @@ interface DocumentBlock {
   size: number;
   type: string;
   url?: string;
+  verifiedPdfUrl?: string;
+  isVerified?: boolean;
+  license?: string;
+  dataUrl?: string;
+}
+
+interface VideoBlock {
+  id: string;
+  title: string;
+  videoUrl: string;
+  duration?: number;
+  thumbnailUrl?: string;
+  source?: string;
 }
 
 // Convert any legacy or raw markdown syntax into pure rendered HTML nodes
@@ -106,7 +121,12 @@ export const NoteEditorPage: React.FC<NoteEditorPageProps> = ({
   const [drawings, setDrawings] = useState<DrawingBlock[]>(note.drawings || []);
   const [audioRecordings, setAudioRecordings] = useState<AudioBlock[]>(note.audioRecordings || []);
   const [documents, setDocuments] = useState<DocumentBlock[]>(note.attachments || []);
+  const [videoNotes, setVideoNotes] = useState<VideoBlock[]>(note.videoNotes || []);
   const [images, setImages] = useState<string[]>(note.images || []);
+
+  // Multi-Media & PDF Viewer Modal State
+  const [previewingPdf, setPreviewingPdf] = useState<{ name: string; url: string } | null>(null);
+  const [downloadingDocId, setDownloadingDocId] = useState<string | null>(null);
 
   // UI Menus & Popups
   const [showPlusMenu, setShowPlusMenu] = useState(false);
@@ -150,6 +170,7 @@ export const NoteEditorPage: React.FC<NoteEditorPageProps> = ({
     setDrawings(note.drawings || []);
     setAudioRecordings(note.audioRecordings || []);
     setDocuments(note.attachments || []);
+    setVideoNotes(note.videoNotes || []);
     setImages(note.images || []);
 
     if (editorRef.current) {
@@ -211,10 +232,68 @@ export const NoteEditorPage: React.FC<NoteEditorPageProps> = ({
       drawings,
       audioRecordings,
       attachments: documents,
+      videoNotes,
       images,
       updatedAt: new Date().toISOString(),
     };
     onSaveNote(updated);
+  };
+
+  // Robust Binary PDF / Document Downloader
+  // Streams the real multi-megabyte binary PDF directly into local storage and triggers browser file save
+  const handleDownloadDocument = async (docItem: DocumentBlock) => {
+    setDownloadingDocId(docItem.id);
+    if (setUserNotification) setUserNotification(`Downloading ${docItem.name}...`);
+
+    try {
+      // 1. Check if binary blob is already cached in IndexedDB
+      const cached = (await getBinaryAsset(docItem.id)) || (note.courseId ? await getBinaryAsset(`course-pdf-${note.courseId}`) : null);
+      if (cached && cached.blob) {
+        triggerFileDownload(cached.blob, docItem.name || 'document.pdf');
+        if (setUserNotification) setUserNotification('Saved to your downloads!');
+        setDownloadingDocId(null);
+        return;
+      }
+
+      // 2. Stream binary asset via our server proxy
+      const targetUrl = docItem.verifiedPdfUrl || docItem.url;
+      if (targetUrl && (targetUrl.startsWith('http://') || targetUrl.startsWith('https://'))) {
+        const blob = await fetchAndStreamBinaryFile(targetUrl, docItem.name, note.courseId);
+        await saveBinaryAsset(docItem.id, blob, {
+          name: docItem.name,
+          mimeType: 'application/pdf',
+          courseId: note.courseId
+        });
+        triggerFileDownload(blob, docItem.name);
+        if (setUserNotification) setUserNotification('PDF downloaded successfully!');
+        setDownloadingDocId(null);
+        return;
+      }
+
+      // 3. Fallback to direct anchor if data URL
+      if (docItem.dataUrl || (docItem.url && docItem.url.startsWith('data:'))) {
+        const a = document.createElement('a');
+        a.href = docItem.dataUrl || docItem.url!;
+        a.download = docItem.name || 'document.pdf';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        if (setUserNotification) setUserNotification('File saved!');
+      }
+    } catch (err: any) {
+      console.warn('[NoteEditorPage] Stream download fallback:', err);
+      if (docItem.url) {
+        const directUrl = `/api/courses/direct-download?url=${encodeURIComponent(docItem.url)}&filename=${encodeURIComponent(docItem.name)}`;
+        const a = document.createElement('a');
+        a.href = directUrl;
+        a.download = docItem.name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+    } finally {
+      setDownloadingDocId(null);
+    }
   };
 
   // Keyboard shortcut handler (Ctrl/Cmd + B, I, U)
@@ -249,6 +328,7 @@ export const NoteEditorPage: React.FC<NoteEditorPageProps> = ({
         drawings,
         audioRecordings,
         attachments: documents,
+        videoNotes,
         images,
         updatedAt: new Date().toISOString(),
       };
@@ -256,7 +336,7 @@ export const NoteEditorPage: React.FC<NoteEditorPageProps> = ({
     }, 500);
 
     return () => clearTimeout(handler);
-  }, [title, folder, drawings, audioRecordings, documents, images]);
+  }, [title, folder, drawings, audioRecordings, documents, videoNotes, images]);
 
   // Insert node at the exact caret position in the document
   const insertNodeAtCaret = (node: Node) => {
@@ -723,18 +803,10 @@ export const NoteEditorPage: React.FC<NoteEditorPageProps> = ({
       onShareAsCourse(coursePayload);
     }
 
-    try {
-      const existingShared = JSON.parse(localStorage.getItem('shared_user_courses') || '[]');
-      existingShared.push(coursePayload);
-      localStorage.setItem('shared_user_courses', JSON.stringify(existingShared));
-    } catch (e) {
-      console.warn('LocalStorage course cache', e);
-    }
-
     setShowCourseFormModal(false);
     setShowShareBottomSheet(false);
     if (setUserNotification) {
-      setUserNotification(`Successfully shared note as course to ${courseDepartment}!`);
+      setUserNotification("sent to admin for verification, would be uploaded soon.");
     }
   };
 
@@ -753,7 +825,7 @@ export const NoteEditorPage: React.FC<NoteEditorPageProps> = ({
     }`}>
       {/* 1. TOP BAR */}
       <div 
-        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 10px)' }}
+        style={{ paddingTop: 'max(24px, calc(env(safe-area-inset-top, 0px) + 14px))' }}
         className={`sticky top-0 z-30 px-3 sm:px-6 pb-2.5 flex items-center justify-between border-b shrink-0 backdrop-blur-md ${
           theme === 'dark' ? 'bg-[#181920]/95 border-white/10 text-white' : 'bg-white/95 border-slate-200 text-slate-900'
         }`}
@@ -940,6 +1012,176 @@ export const NoteEditorPage: React.FC<NoteEditorPageProps> = ({
             <span>Insert Image</span>
           </button>
         </div>
+
+        {/* Multi-Media Assets Workspace: Attached PDFs, Audio Notes & Video Notes */}
+        {(documents.length > 0 || audioRecordings.length > 0 || videoNotes.length > 0) && (
+          <div className={`p-4 rounded-2xl border space-y-4 shrink-0 transition-all ${
+            theme === 'dark' ? 'bg-[#1F222D]/90 border-white/10' : 'bg-slate-50 border-slate-200 shadow-sm'
+          }`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <BookOpen size={16} className="text-blue-400" />
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                  Course Materials & Media Assets
+                </span>
+              </div>
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                {documents.length + audioRecordings.length + videoNotes.length} item{documents.length + audioRecordings.length + videoNotes.length > 1 ? 's' : ''}
+              </span>
+            </div>
+
+            {/* 1. Attached PDF Documents */}
+            {documents.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-[11px] font-bold text-slate-400 flex items-center gap-1.5">
+                  <FileText size={13} className="text-blue-400" />
+                  <span>Attached Textbooks & Documents ({documents.length})</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {documents.map((doc) => {
+                    const isDownloading = downloadingDocId === doc.id;
+                    const sizeStr = doc.size ? (doc.size > 1024 * 1024 ? `${(doc.size / (1024 * 1024)).toFixed(1)} MB` : `${(doc.size / 1024).toFixed(0)} KB`) : 'PDF Textbook';
+
+                    return (
+                      <div
+                        key={doc.id}
+                        className={`p-3 rounded-xl border flex flex-col justify-between gap-2.5 transition-all ${
+                          theme === 'dark' ? 'bg-[#262A37] border-white/10 hover:border-blue-500/40' : 'bg-white border-slate-200 hover:border-blue-400 shadow-sm'
+                        }`}
+                      >
+                        <div className="flex items-start gap-2.5 min-w-0">
+                          <div className="w-8 h-8 rounded-lg bg-red-500/15 border border-red-500/30 text-red-400 flex items-center justify-center shrink-0">
+                            <FileText size={16} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-bold text-slate-100 truncate" title={doc.name}>
+                              {doc.name}
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="text-[10px] text-slate-400">{sizeStr}</span>
+                              <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                                OpenStax / PDF
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 pt-1 border-t border-white/5">
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadDocument(doc)}
+                            disabled={isDownloading}
+                            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                              isDownloading
+                                ? 'bg-blue-600/50 text-white cursor-wait animate-pulse'
+                                : 'bg-blue-600 hover:bg-blue-500 text-white shadow-sm'
+                            }`}
+                          >
+                            <FileDown size={13} />
+                            <span>{isDownloading ? 'Streaming...' : 'Download PDF'}</span>
+                          </button>
+
+                          {(doc.verifiedPdfUrl || doc.url) && (
+                            <button
+                              type="button"
+                              onClick={() => setPreviewingPdf({
+                                name: doc.name,
+                                url: doc.verifiedPdfUrl || doc.url || ''
+                              })}
+                              className={`flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                                theme === 'dark' ? 'border-white/10 hover:bg-white/10 text-slate-200' : 'border-slate-200 hover:bg-slate-100 text-slate-700'
+                              }`}
+                              title="Read / Preview Document"
+                            >
+                              <Eye size={13} />
+                              <span className="hidden sm:inline">Preview</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* 2. Audio Notes & Lecture Podcasts */}
+            {audioRecordings.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-[11px] font-bold text-slate-400 flex items-center gap-1.5">
+                  <Volume2 size={13} className="text-amber-400" />
+                  <span>Audio Notes & Voice Lectures ({audioRecordings.length})</span>
+                </div>
+                <div className="grid grid-cols-1 gap-2">
+                  {audioRecordings.map((rec) => (
+                    <div
+                      key={rec.id}
+                      className={`p-3 rounded-xl border flex flex-col gap-2 ${
+                        theme === 'dark' ? 'bg-[#262A37] border-white/10' : 'bg-white border-slate-200 shadow-sm'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Mic size={14} className="text-amber-400 shrink-0" />
+                          <span className="text-xs font-bold text-slate-100 truncate">
+                            {rec.name || 'Voice Lecture Note'}
+                          </span>
+                        </div>
+                        {rec.duration ? (
+                          <span className="text-[10px] text-slate-400">
+                            {Math.floor(rec.duration / 60)}:{(rec.duration % 60).toString().padStart(2, '0')}
+                          </span>
+                        ) : null}
+                      </div>
+                      <audio
+                        src={rec.audioUrl}
+                        controls
+                        className="w-full h-8 rounded-lg accent-amber-500"
+                        preload="metadata"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 3. Video Notes & Video Lectures */}
+            {videoNotes.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-[11px] font-bold text-slate-400 flex items-center gap-1.5">
+                  <Film size={13} className="text-purple-400" />
+                  <span>Video Lectures & Visual Notes ({videoNotes.length})</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {videoNotes.map((vid) => (
+                    <div
+                      key={vid.id}
+                      className={`p-3 rounded-xl border flex flex-col gap-2 ${
+                        theme === 'dark' ? 'bg-[#262A37] border-white/10' : 'bg-white border-slate-200 shadow-sm'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Video size={14} className="text-purple-400 shrink-0" />
+                        <span className="text-xs font-bold text-slate-100 truncate">
+                          {vid.title || 'Video Lecture'}
+                        </span>
+                      </div>
+                      <div className="rounded-lg overflow-hidden bg-black aspect-video flex items-center justify-center">
+                        <video
+                          src={vid.videoUrl}
+                          poster={vid.thumbnailUrl}
+                          controls
+                          className="w-full h-full object-contain"
+                          preload="metadata"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* TRUE WYSIWYG LIVE RICH-TEXT NOTE CANVAS (Direct text formatting, no raw markdown symbols) */}
         <div
@@ -1552,6 +1794,59 @@ export const NoteEditorPage: React.FC<NoteEditorPageProps> = ({
                 >
                   Publish &amp; Share Course
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 5. FULL-SCREEN PDF VIEWER / READER MODAL */}
+      <AnimatePresence>
+        {previewingPdf && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              className={`w-full max-w-5xl h-[90vh] rounded-2xl flex flex-col overflow-hidden border shadow-2xl ${
+                theme === 'dark' ? 'bg-[#181920] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'
+              }`}
+            >
+              <div className="p-3.5 border-b border-white/10 flex items-center justify-between gap-3 shrink-0">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-lg bg-red-500/20 text-red-400 flex items-center justify-center shrink-0">
+                    <FileText size={18} />
+                  </div>
+                  <div className="min-w-0">
+                    <span className="text-sm font-bold truncate block">{previewingPdf.name}</span>
+                    <span className="text-[10px] text-slate-400 block">OpenStax / Course Material Reader</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <a
+                    href={`/api/courses/direct-download?url=${encodeURIComponent(previewingPdf.url)}&filename=${encodeURIComponent(previewingPdf.name)}`}
+                    download={previewingPdf.name}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all shadow-sm"
+                  >
+                    <Download size={14} />
+                    <span>Download PDF</span>
+                  </a>
+                  <button
+                    onClick={() => setPreviewingPdf(null)}
+                    className="p-1.5 rounded-xl hover:bg-white/10 text-slate-400 hover:text-white transition-all cursor-pointer"
+                    title="Close"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 min-h-0 w-full bg-slate-900 relative">
+                <iframe
+                  src={previewingPdf.url.startsWith('http') ? `/api/courses/direct-download?url=${encodeURIComponent(previewingPdf.url)}&inline=true` : previewingPdf.url}
+                  className="w-full h-full border-none"
+                  title={previewingPdf.name}
+                />
               </div>
             </motion.div>
           </div>

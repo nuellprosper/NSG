@@ -50,7 +50,7 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
 
   return (
 <div 
-          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)' }}
+          style={{ paddingBottom: 'max(14px, calc(env(safe-area-inset-bottom, 0px) + 8px))' }}
           className={`fixed bottom-0 left-0 right-0 z-[100] px-3 pt-2.5 flex items-center justify-around select-none transition-colors ${
           theme === 'dark' 
             ? 'bg-[#0B0813] border-t border-purple-500/20 shadow-[0_-10px_40px_rgba(0,0,0,0.8)]' 
