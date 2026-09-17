@@ -15,6 +15,7 @@ import {
 } from '../firebase';
 import { DEPARTMENTS } from '../constants/academic';
 import { sendCustomAdminEmail } from '../services/authService';
+import { apiUrl } from '../services/apiConfig';
 
 export interface GodModePanelProps {
   showGodMode: boolean;
@@ -279,7 +280,7 @@ export const GodModePanel: React.FC<GodModePanelProps> = ({
   const fetchModerationQueue = async () => {
     setModerationLoading(true);
     try {
-      const res = await fetch('/api/admin/moderation-queue', {
+      const res = await fetch(apiUrl('/api/admin/moderation-queue'), {
         headers: { 
           'x-admin-secret': 'GOD_MODE',
           'x-user-email': user?.email || 'nuellkelechi@gmail.com' 
@@ -338,7 +339,7 @@ export const GodModePanel: React.FC<GodModePanelProps> = ({
         }
       }
 
-      const res = await fetch('/api/admin/moderate-upload', {
+      const res = await fetch(apiUrl('/api/admin/moderate-upload'), {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -723,7 +724,7 @@ export const GodModePanel: React.FC<GodModePanelProps> = ({
     try {
       const prompt = `Write an inspiring and practical 3-paragraph study guide article for university students about mastering exams, active recall techniques, and maintaining focus in university. Give it a punchy title and markdown format.`;
       
-      const res = await fetch('/api/gemini/generate', {
+      const res = await fetch(apiUrl('/api/gemini/generate'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt })
@@ -1451,7 +1452,7 @@ export const GodModePanel: React.FC<GodModePanelProps> = ({
 
                                 {/* Preview File Download */}
                                 <a
-                                  href={`/api/drive/download/${upload.driveFileId || upload.id}`}
+                                  href={apiUrl(`/api/drive/download/${upload.driveFileId || upload.id}`)}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-white/70 hover:text-white border border-white/10 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
@@ -2238,7 +2239,7 @@ export const GodModePanel: React.FC<GodModePanelProps> = ({
                   </div>
 
                   <a
-                    href={`/api/drive/download/${selectedUploadForReview.driveFileId || selectedUploadForReview.id}`}
+                    href={apiUrl(`/api/drive/download/${selectedUploadForReview.driveFileId || selectedUploadForReview.id}`)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="px-3.5 py-1.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs flex items-center gap-1.5 transition-all shadow-md cursor-pointer shrink-0"

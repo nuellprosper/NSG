@@ -10,6 +10,7 @@ import { CourseMaterial } from './CoursesPage';
 import { FACULTIES, DEPARTMENTS } from '../constants/academic';
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
+import { getCleanNoteSnippet } from '../utils';
 
 export interface HomePageProps {
   theme: 'light' | 'dark';
@@ -261,19 +262,15 @@ export const HomePage: React.FC<HomePageProps> = ({
       });
     });
 
-    // 2. Notes from userNotes
+    // 2. Notes from userNotes (only root notes, not child folders)
     userNotes.forEach((n: any) => {
-      let contentStr = '';
-      if (typeof n.content === 'string') {
-        contentStr = n.content;
-      } else if (n.content && typeof n.content === 'object') {
-        contentStr = n.content.text || n.content.body || (Array.isArray(n.content) ? n.content.join(' ') : '');
-      }
+      if (n.parentId) return;
+      const contentStr = getCleanNoteSnippet(n.content, 60);
       list.push({
         id: `note-${n.id}`,
         type: 'notes',
         title: n.title || 'Untitled Note',
-        subtitle: `Note • Category: ${n.category || 'General'} • ${contentStr ? contentStr.substring(0, 60) + '...' : 'No text content'}`,
+        subtitle: `Note • ${contentStr ? contentStr : 'Empty note...'}`,
         timestamp: n.createdAt || n.updatedAt || new Date().toISOString(),
         raw: n
       });
@@ -344,6 +341,7 @@ export const HomePage: React.FC<HomePageProps> = ({
     });
 
     userNotes.forEach((n: any) => {
+      if (n.parentId) return;
       items.push({
         id: n.id,
         type: 'note',

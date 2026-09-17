@@ -12,15 +12,17 @@ import {
   collection, addDoc, doc, setDoc, updateDoc, increment, deleteDoc,
   serverTimestamp, onSnapshot, query, orderBy 
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, sanitizeForFirestore } from '../firebase';
 import { getOpenStaxCoursesForCatalog, matchOrSynthesizeOpenStaxCourse } from '../data/openstaxCatalog';
 import { fetchAndStreamBinaryFile, saveBinaryAsset, triggerFileDownload, getBinaryAsset } from '../utils/assetStorage';
 import { parseCourseAssets } from '../utils/courseAssetParser';
 import { resourceSearchOrchestrator } from '../services/resources/orchestrator';
 import { downloadService } from '../services/download/downloadService';
 import { localManifest } from '../services/resources/localManifest';
-import { ResourceResult, ResourceAsset } from '../services/resources/types';
+import { ResourceResult, ResourceAsset, ResourceAssetType } from '../services/resources/types';
 import { getSafeHeaderPaddingTop, getSafeBottomPadding } from '../utils/safeArea';
+import { apiUrl } from '../services/apiConfig';
+import { openExternalUrl } from '../utils/browser';
 
 export interface CourseReview {
   id: string;
@@ -48,8 +50,18 @@ export interface CourseMaterial {
   id: string;
   code: string;
   title: string;
-  faculty: string;
-  department: string;
+  faculty?: string;
+  department?: string;
+  author?: string;
+  category?: string;
+  providerId?: string;
+  providerName?: string;
+  providerBadgeClass?: string;
+  publisherUrl?: string;
+  readingUrl?: string;
+  borrowUrl?: string;
+  coverUrl?: string;
+  sourceUrl?: string;
   level?: string;
   semester?: string;
   thumbnailUrl?: string;
@@ -65,8 +77,9 @@ export interface CourseMaterial {
   createdAt?: any;
   attachedDocs?: AttachedDoc[];
   reviews?: CourseReview[];
-  source?: 'openstax' | 'community' | 'admin' | 'gutendex' | 'openlibrary';
+  source?: 'openstax' | 'community' | 'admin' | 'gutendex' | 'gutenberg' | 'openlibrary' | string;
   isOpenStax?: boolean;
+  slug?: string;
   license?: string;
   isNonCommercial?: boolean;
   lastVerified?: string;
@@ -101,6 +114,133 @@ export interface CoursesPageProps {
   initialFacultyFilter?: string | null;
   initialDepartmentFilter?: string | null;
 }
+
+const courseHasDownloadableDocument = (course: CourseMaterial | null | undefined): boolean => {
+  if (!course) return false;
+  if (course.capabilities && course.capabilities.downloadable === false) return false;
+  if (course.verifiedPdfUrl && course.verifiedPdfUrl.startsWith('http')) return true;
+  if (course.driveFileId) return true;
+  if (Array.isArray(course.attachedDocs) && course.attachedDocs.length > 0) {
+    const hasValidDoc = course.attachedDocs.some(d => d.url && (d.type === 'pdf' || d.type === 'docx'));
+    if (hasValidDoc) return true;
+  }
+  if (Array.isArray(course.assets) && course.assets.length > 0) {
+    const hasValidAsset = course.assets.some(a => (a.downloadable || (a as any).isDirectDownload) && a.type !== 'html' && (a.url || (a as any).downloadUrl));
+    if (hasValidAsset) return true;
+  }
+  return false;
+};
+
+const getCoursePublisherUrl = (course: CourseMaterial | null | undefined): string | undefined => {
+  if (!course) return undefined;
+  return course.publisherUrl || course.sourceUrl || course.openstaxPageUrl || undefined;
+};
+
+const getCourseReadingUrl = (course: CourseMaterial | null | undefined): string | undefined => {
+  if (!course) return undefined;
+  if (course.readingUrl) return course.readingUrl;
+  if (course.rexReaderUrl) return course.rexReaderUrl;
+  if (course.rexWebUrl) return course.rexWebUrl;
+  if (course.slug && (course.isOpenStax || course.source === 'openstax' || course.providerId === 'openstax')) {
+    return `https://openstax.org/books/${course.slug}/pages/1-introduction`;
+  }
+  return undefined;
+};
+
+const getCourseBorrowUrl = (course: CourseMaterial | null | undefined): string | undefined => {
+  if (!course) return undefined;
+  return course.borrowUrl || undefined;
+};
+
+const CourseCardThumbnail: React.FC<{
+  src?: string;
+  alt: string;
+  theme: 'dark' | 'light';
+  code?: string;
+  isLiked: boolean;
+  likesCount: number;
+  rating: number;
+  isDownloaded: boolean;
+  onToggleLike: (e: React.MouseEvent) => void;
+}> = ({
+  src,
+  alt,
+  theme,
+  code,
+  isLiked,
+  likesCount,
+  rating,
+  isDownloaded,
+  onToggleLike,
+}) => {
+  const [hasError, setHasError] = useState(false);
+  const showFallback = !src || hasError;
+
+  return (
+    <div className={`relative w-full aspect-[4/3] rounded-xl overflow-hidden transition-colors ${
+      showFallback
+        ? (theme === 'dark' ? 'bg-black text-white border border-white/10' : 'bg-white text-black border border-slate-200 shadow-sm')
+        : 'bg-purple-950/40'
+    }`}>
+      {showFallback ? (
+        <div className="w-full h-full flex items-center justify-center select-none">
+          <span className={`text-[11px] font-bold tracking-wider uppercase ${theme === 'dark' ? 'text-white' : 'text-black'}`}>
+            No image
+          </span>
+        </div>
+      ) : (
+        <>
+          <img 
+            src={src} 
+            alt={alt}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 pointer-events-none"
+            onError={() => setHasError(true)}
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none" />
+        </>
+      )}
+
+      {/* Level / Code Overlay Badge */}
+      {code && (
+        <div className="absolute top-1.5 left-1.5 pointer-events-none z-10">
+          <span className="px-1.5 py-0.5 rounded-md bg-purple-600/90 text-white text-[9px] font-black tracking-wider uppercase backdrop-blur-md">
+            {code}
+          </span>
+        </div>
+      )}
+
+      {/* Like Heart Button with Live Likes Counter */}
+      <button
+        type="button"
+        onClick={onToggleLike}
+        onMouseDown={(e) => e.stopPropagation()}
+        onTouchStart={(e) => e.stopPropagation()}
+        className={`pointer-events-auto absolute top-1.5 right-1.5 px-2 py-0.5 rounded-full backdrop-blur-md transition-all active:scale-90 cursor-pointer flex items-center gap-1 text-[10px] font-bold z-10 ${
+          isLiked 
+            ? 'bg-red-500 text-white shadow-md shadow-red-500/40' 
+            : 'bg-black/60 text-white/90 hover:text-white hover:bg-black/80'
+        }`}
+        title={isLiked ? "Unlike" : "Like"}
+      >
+        <Heart size={11} fill={isLiked ? "currentColor" : "none"} className={isLiked ? "text-white" : ""} />
+        <span>{likesCount}</span>
+      </button>
+
+      {/* Rating on bottom left of image */}
+      <div className="absolute bottom-1.5 left-1.5 flex items-center gap-1 text-white text-[10px] font-semibold bg-black/60 backdrop-blur-md px-1.5 py-0.5 rounded-md z-10">
+        <Star size={10} className="text-amber-400 fill-amber-400" />
+        <span>{rating}</span>
+      </div>
+
+      {/* Downloaded in Notes indicator badge */}
+      {isDownloaded && (
+        <div className="absolute bottom-1.5 right-1.5 bg-emerald-600/90 text-white p-1 rounded-full shadow backdrop-blur-md z-10" title="Downloaded">
+          <Check size={10} className="stroke-[3]" />
+        </div>
+      )}
+    </div>
+  );
+};
 
 export const CoursesPage: React.FC<CoursesPageProps> = ({
   theme,
@@ -155,6 +295,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
   const [courseDetailTab, setCourseDetailTab] = useState<'about' | 'gallery' | 'review'>('about');
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [isReadMore, setIsReadMore] = useState(false);
+  const [isVerifiedResourceExpanded, setIsVerifiedResourceExpanded] = useState(false);
   const [fullImageView, setFullImageView] = useState<string | null>(null);
 
   // Delete Course State (Unified Confirmation Dialog)
@@ -208,6 +349,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
     setCourseDetailTab('about');
     setActiveImageIndex(0);
     setIsReadMore(false);
+    setIsVerifiedResourceExpanded(false);
   };
 
   const handleCardTouchStart = (course: CourseMaterial, e?: React.TouchEvent | React.MouseEvent) => {
@@ -559,16 +701,15 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
             }
 
             // Final previews list
-            const fallbackUnsplash = 'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=800&auto=format&fit=crop&q=80';
             const finalGallery = userUploadedImages.length > 0
               ? userUploadedImages
               : (Array.isArray(data.galleryImages) && data.galleryImages.length > 0
                   ? data.galleryImages
-                  : (data.thumbnailUrl ? [data.thumbnailUrl] : [fallbackUnsplash]));
+                  : (data.thumbnailUrl ? [data.thumbnailUrl] : []));
 
             const primaryThumb = userUploadedImages.length > 0
               ? userUploadedImages[0]
-              : (data.thumbnailUrl || finalGallery[0]);
+              : (data.thumbnailUrl || finalGallery[0] || '');
 
             // Calculate rating dynamically from reviews
             const reviewsList: CourseReview[] = data.reviews || [];
@@ -608,7 +749,19 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
               openstaxPageUrl: data.openstaxPageUrl,
               rexReaderUrl: data.rexReaderUrl,
               driveFileId: data.driveFileId,
-              createdAt: data.createdAt
+              createdAt: data.createdAt,
+              author: data.author,
+              category: data.category,
+              providerId: data.providerId || (data.source === 'openstax' || data.isOpenStax ? 'openstax' : data.source === 'gutendex' || data.source === 'gutenberg' ? 'gutenberg' : data.source === 'openlibrary' ? 'openlibrary' : undefined),
+              providerName: data.providerName || (data.source === 'openstax' || data.isOpenStax ? 'OpenStax' : data.source === 'gutendex' || data.source === 'gutenberg' ? 'Project Gutenberg' : data.source === 'openlibrary' ? 'Open Library' : undefined),
+              providerBadgeClass: data.providerBadgeClass,
+              capabilities: data.capabilities,
+              assets: data.assets,
+              publisherUrl: data.publisherUrl,
+              readingUrl: data.readingUrl,
+              borrowUrl: data.borrowUrl,
+              sourceUrl: data.sourceUrl,
+              coverUrl: data.coverUrl
             };
           });
 
@@ -618,7 +771,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
 
           // Override or append Firestore courses
           firestoreCourses.forEach(fc => {
-            const existingIdx = mergedCourses.findIndex(c => c.code.toUpperCase() === fc.code.toUpperCase());
+            const existingIdx = mergedCourses.findIndex(c => (c?.code || '').toUpperCase() === (fc?.code || '').toUpperCase());
             if (existingIdx >= 0) {
               mergedCourses[existingIdx] = { ...mergedCourses[existingIdx], ...fc };
             } else {
@@ -634,8 +787,8 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
               if (localCourse && (localCourse.title || localCourse.code)) {
                 const normalizedCode = (localCourse.code || localCourse.courseCode || 'COURSE').toUpperCase();
                 const alreadyExists = mergedCourses.some(fc => 
-                  fc.id === localCourse.id || 
-                  (fc.code && fc.code.toUpperCase() === normalizedCode && fc.title.toLowerCase() === (localCourse.title || '').toLowerCase())
+                  fc?.id === localCourse.id || 
+                  (fc?.code && (fc.code || '').toUpperCase() === normalizedCode && (fc.title || '').toLowerCase() === (localCourse.title || '').toLowerCase())
                 );
                 if (!alreadyExists) {
                   mergedCourses.unshift({
@@ -645,8 +798,8 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
                     faculty: localCourse.faculty || 'General Academic',
                     department: localCourse.department || 'General',
                     level: localCourse.level || '100L',
-                    thumbnailUrl: localCourse.thumbnailUrl || 'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=800&auto=format&fit=crop&q=80',
-                    galleryImages: localCourse.galleryImages || [localCourse.thumbnailUrl || 'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=800&auto=format&fit=crop&q=80'],
+                    thumbnailUrl: localCourse.thumbnailUrl || '',
+                    galleryImages: localCourse.galleryImages || (localCourse.thumbnailUrl ? [localCourse.thumbnailUrl] : []),
                     notes: localCourse.notes || localCourse.about || localCourse.description || '',
                     likesCount: localCourse.likesCount || 0,
                     rating: localCourse.rating || 5.0,
@@ -675,10 +828,21 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
             return true;
           });
 
-          setCourses(dedupedCourses);
-          try {
-            localStorage.setItem('omni_cached_courses', JSON.stringify(dedupedCourses));
-          } catch (e) {}
+          setCourses(prevCourses => {
+            const courseMap = new Map<string, CourseMaterial>();
+            dedupedCourses.forEach(c => courseMap.set(c.id, c));
+            // Preserve any provider resources that were dynamically discovered
+            prevCourses.forEach(c => {
+              if (c && c.id && (c.providerId || c.source === 'openlibrary' || c.source === 'gutendex' || c.source === 'gutenberg' || (c.isOpenStax && !courseMap.has(c.id)))) {
+                courseMap.set(c.id, c);
+              }
+            });
+            const finalMerged = Array.from(courseMap.values());
+            try {
+              localStorage.setItem('omni_cached_courses', JSON.stringify(finalMerged));
+            } catch (e) {}
+            return finalMerged;
+          });
 
           // Update selected course in place if active
           if (selectedCourseRef.current) {
@@ -738,63 +902,167 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
     setIsLiveSearching(true);
 
     try {
-      // 1. Run multi-provider discovery through ResourceSearchOrchestrator
-      const orchestratedResults = await resourceSearchOrchestrator.search(cleanQ, {
-        faculty: selectedFaculty !== 'ALL' ? selectedFaculty : undefined
-      });
+      // Run both server-side multi-provider search and client-side orchestrator concurrently
+      const [backendSearchPromise, orchestratorPromise] = [
+        fetch(apiUrl(`/api/courses/live-search?q=${encodeURIComponent(cleanQ)}`))
+          .then(async res => {
+            if (!res.ok) return [];
+            const data = await res.json();
+            return data && data.success && Array.isArray(data.courses) ? data.courses : [];
+          })
+          .catch(() => []),
+        resourceSearchOrchestrator.search(cleanQ, {
+          faculty: selectedFaculty !== 'ALL' ? selectedFaculty : undefined
+        }).catch(() => [])
+      ];
 
-      let discoveredCourses: CourseMaterial[] = [];
-      if (orchestratedResults && orchestratedResults.length > 0) {
-        discoveredCourses = orchestratedResults.map((r: ResourceResult): CourseMaterial => ({
-          id: r.id,
-          code: r.code,
-          title: r.title,
-          faculty: r.faculty,
-          department: r.department,
-          level: r.level || '100L',
-          thumbnailUrl: r.thumbnailUrl,
-          galleryImages: r.galleryImages,
-          notes: r.notes || `${r.title} — educational resource.`,
-          likesCount: r.likesCount || 0,
-          rating: r.rating || 5.0,
-          reviewsCount: r.reviewsCount || 0,
-          uploaderName: r.uploaderName,
-          uploaderAvatar: r.uploaderAvatar,
-          uploaderUid: r.uploaderUid,
-          totalSizeBytes: r.totalSizeBytes || 12400000,
-          attachedDocs: r.attachedDocs,
-          reviews: r.reviews || [],
-          source: r.source,
-          isOpenStax: r.isOpenStax,
-          license: r.license,
-          isNonCommercial: r.isNonCommercial,
-          verifiedPdfUrl: r.verifiedPdfUrl,
-          openstaxPageUrl: r.openstaxPageUrl,
-          rexReaderUrl: r.rexReaderUrl,
-          rexWebUrl: r.rexWebUrl,
-          status: r.status,
-          driveFileId: r.driveFileId,
-          capabilities: r.capabilities,
-          assets: r.assets
-        }));
+      const [backendResults, orchestratedResults] = await Promise.all([
+        backendSearchPromise,
+        orchestratorPromise
+      ]);
+
+      const candidateCourses: CourseMaterial[] = [];
+
+      // 1. Process server-side live-search results (OpenStax, Open Library, Gutendex, Community)
+      if (Array.isArray(backendResults) && backendResults.length > 0) {
+        backendResults.forEach((c: any) => {
+          if (!c || (!c.title && !c.code)) return;
+          candidateCourses.push({
+            id: c.id || `live-${Math.random().toString(36).slice(2)}`,
+            code: c.code || 'GEN 101',
+            title: c.title || 'Academic Resource',
+            faculty: c.faculty || 'General Academic',
+            department: c.department || 'General Studies',
+            level: c.level || '100L',
+            semester: c.semester || 'First Semester',
+            author: c.author,
+            category: c.category || 'Educational Resource',
+            providerId: c.providerId || (c.source === 'openlibrary' ? 'openlibrary' : c.source === 'gutendex' ? 'gutenberg' : c.isOpenStax ? 'openstax' : undefined),
+            providerName: c.providerName || (c.source === 'openlibrary' ? 'Open Library' : c.source === 'gutendex' ? 'Project Gutenberg' : c.isOpenStax ? 'OpenStax' : 'Academic Resource'),
+            providerBadgeClass: c.providerBadgeClass || (
+              c.providerId === 'openstax' || c.isOpenStax
+                ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/25'
+                : c.providerId === 'openlibrary' || c.source === 'openlibrary'
+                ? 'bg-sky-500/15 text-sky-400 border border-sky-500/25'
+                : c.providerId === 'gutenberg' || c.source === 'gutendex'
+                ? 'bg-amber-500/15 text-amber-400 border border-amber-500/25'
+                : 'bg-purple-500/15 text-purple-400 border border-purple-500/25'
+            ),
+            coverUrl: c.coverUrl || c.thumbnailUrl || '',
+            thumbnailUrl: c.thumbnailUrl || c.coverUrl || '',
+            galleryImages: Array.isArray(c.galleryImages) && c.galleryImages.length > 0 ? c.galleryImages : (c.coverUrl ? [c.coverUrl] : []),
+            notes: c.notes || `${c.title || 'Course'} — educational resource.`,
+            likesCount: c.likesCount || 0,
+            rating: c.rating || 5.0,
+            reviewsCount: c.reviewsCount || 0,
+            uploaderName: c.uploaderName || c.providerName || 'Omni Scholar',
+            uploaderAvatar: c.uploaderAvatar,
+            uploaderUid: c.uploaderUid,
+            totalSizeBytes: c.totalSizeBytes || 12400000,
+            attachedDocs: c.attachedDocs || [],
+            reviews: c.reviews || [],
+            source: c.source || c.providerId,
+            isOpenStax: Boolean(c.isOpenStax || c.source === 'openstax' || c.providerId === 'openstax'),
+            license: c.license,
+            isNonCommercial: c.isNonCommercial !== undefined ? c.isNonCommercial : true,
+            verifiedPdfUrl: c.verifiedPdfUrl,
+            openstaxPageUrl: c.openstaxPageUrl || c.publisherUrl,
+            rexReaderUrl: c.rexReaderUrl || c.readingUrl,
+            readingUrl: c.readingUrl || c.rexReaderUrl,
+            publisherUrl: c.publisherUrl || c.openstaxPageUrl,
+            borrowUrl: c.borrowUrl,
+            sourceUrl: c.sourceUrl,
+            status: c.status || 'approved',
+            driveFileId: c.driveFileId,
+            capabilities: c.capabilities,
+            assets: c.assets
+          });
+        });
       }
 
-      // 2. Server-side live-search fallback if needed
-      if (discoveredCourses.length === 0) {
-        try {
-          const res = await fetch(`/api/courses/live-search?q=${encodeURIComponent(cleanQ)}`);
-          const data = await res.json();
-          if (data && data.success && Array.isArray(data.courses) && data.courses.length > 0) {
-            discoveredCourses = data.courses;
-          }
-        } catch (e) {}
+      // 2. Process client-orchestrated results
+      if (Array.isArray(orchestratedResults) && orchestratedResults.length > 0) {
+        orchestratedResults.forEach((r: ResourceResult) => {
+          if (!r || (!r.title && !r.code)) return;
+          candidateCourses.push({
+            id: r.id,
+            code: r.code || 'GEN 101',
+            title: r.title || 'Academic Resource',
+            faculty: r.faculty || 'General Academic',
+            department: r.department || 'General Studies',
+            author: r.author,
+            category: r.category || 'Educational Resource',
+            providerId: r.providerId,
+            providerName: r.providerName,
+            providerBadgeClass: r.providerBadgeClass,
+            publisherUrl: r.publisherUrl,
+            readingUrl: r.readingUrl,
+            borrowUrl: r.borrowUrl,
+            coverUrl: r.coverUrl,
+            sourceUrl: r.sourceUrl,
+            level: r.level || '100L',
+            thumbnailUrl: r.coverUrl || (r as any).thumbnailUrl || '',
+            galleryImages: r.galleryImages || (r.coverUrl ? [r.coverUrl] : []),
+            notes: r.notes || `${r.title || 'Course'} — educational resource.`,
+            likesCount: r.likesCount || 0,
+            rating: r.rating || 5.0,
+            reviewsCount: r.reviewsCount || 0,
+            uploaderName: r.uploaderName,
+            uploaderAvatar: r.uploaderAvatar,
+            uploaderUid: r.uploaderUid,
+            totalSizeBytes: r.totalSizeBytes || 12400000,
+            attachedDocs: r.attachedDocs,
+            reviews: r.reviews || [],
+            source: r.source,
+            isOpenStax: r.isOpenStax,
+            license: r.license,
+            isNonCommercial: r.isNonCommercial,
+            verifiedPdfUrl: r.verifiedPdfUrl,
+            openstaxPageUrl: r.openstaxPageUrl,
+            rexReaderUrl: r.rexReaderUrl,
+            rexWebUrl: r.rexWebUrl,
+            status: r.status,
+            driveFileId: r.driveFileId,
+            capabilities: r.capabilities,
+            assets: r.assets
+          });
+        });
       }
 
-      // 3. Fallback: matchOrSynthesizeOpenStaxCourse
+      // 3. Deduplicate candidate courses by ID and Normalized Title
+      const seenIds = new Set<string>();
+      const seenTitles = new Set<string>();
+      const discoveredCourses: CourseMaterial[] = [];
+
+      for (const course of candidateCourses) {
+        if (!course || !course.id) continue;
+        const normTitle = (course.title || '').trim().toLowerCase();
+        const normKey = `${course.providerId || course.source || 'item'}:${normTitle}`;
+        if (seenIds.has(course.id) || seenTitles.has(normKey)) {
+          continue;
+        }
+        seenIds.add(course.id);
+        if (normTitle) seenTitles.add(normKey);
+        discoveredCourses.push(course);
+      }
+
+      // 4. Fallback: matchOrSynthesizeOpenStaxCourse if nothing found
       if (discoveredCourses.length === 0) {
         const synth = matchOrSynthesizeOpenStaxCourse(cleanQ);
         if (synth) {
-          discoveredCourses = [synth as any];
+          discoveredCourses.push({
+            ...(synth as any),
+            providerId: 'openstax',
+            providerName: 'OpenStax',
+            providerBadgeClass: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/25',
+            readingUrl: synth.rexReaderUrl,
+            publisherUrl: synth.openstaxPageUrl,
+            capabilities: {
+              readableOnline: true,
+              downloadable: Boolean(synth.verifiedPdfUrl),
+              borrowable: false
+            }
+          });
         }
       }
 
@@ -814,23 +1082,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
           return merged;
         });
 
-        // Automatically save and cache newly discovered OpenStax courses into Firestore database
-        try {
-          discoveredCourses.filter(dc => dc.isOpenStax || dc.source === 'openstax').forEach(async (dc) => {
-            await setDoc(doc(db, 'courses', dc.id), {
-              ...dc,
-              status: 'approved',
-              source: 'openstax',
-              isOpenStax: true,
-              autoCachedAt: new Date().toISOString()
-            }, { merge: true });
-          });
-        } catch (fsErr) {}
-
         setHasDiscoveredLive(true);
-        if (setUserNotification) {
-          setUserNotification(`Found "${discoveredCourses[0].code} — ${discoveredCourses[0].title}"!`);
-        }
       }
     } catch (err: any) {
       console.warn('[CoursesPage] Multi-provider search notice:', err);
@@ -839,24 +1091,15 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
     }
   };
 
-  // Debounced auto-trigger: when user searches for something not in local catalog, execute live search immediately
+  // Debounced auto-trigger: when user searches for books/courses, execute live search smoothly
   useEffect(() => {
     if (!searchQuery || searchQuery.trim().length < 2) return;
     const timer = setTimeout(() => {
-      const q = searchQuery.toLowerCase().trim();
-      const hasLocalMatch = courses.some(c => 
-        c.code.toLowerCase().includes(q) || 
-        c.title.toLowerCase().includes(q) ||
-        (c.faculty && c.faculty.toLowerCase().includes(q)) ||
-        (c.department && c.department.toLowerCase().includes(q))
-      );
-      if (!hasLocalMatch) {
-        executeLiveSearch(searchQuery);
-      }
-    }, 450);
+      executeLiveSearch(searchQuery);
+    }, 400);
 
     return () => clearTimeout(timer);
-  }, [searchQuery, courses]);
+  }, [searchQuery]);
 
   // Handle Like / Unlike
   const toggleLike = async (e: React.MouseEvent, courseId: string) => {
@@ -1078,22 +1321,22 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
       // Audit log & user permission record (both local client Firestore and server API)
       try {
         const permId = `${userUid}_${selectedCourse.id}`.replace(/[^a-zA-Z0-9_-]/g, '_');
-        setDoc(doc(db, 'user_download_permissions', permId), {
+        setDoc(doc(db, 'user_download_permissions', permId), sanitizeForFirestore({
           userId: userUid,
           userEmail: user?.email || '',
           courseId: selectedCourse.id,
-          courseCode: selectedCourse.code,
-          courseTitle: selectedCourse.title,
+          courseCode: selectedCourse.code || 'COURSE',
+          courseTitle: selectedCourse.title || 'Untitled Course',
           lockedToUserUid: userUid,
-          source: selectedCourse.isOpenStax ? 'openstax' : (selectedCourse.source || 'community'),
-          license: 'Creative Commons License',
+          source: selectedCourse.providerId || selectedCourse.source || 'community',
+          license: selectedCourse.license || 'Open Access License',
           status: 'authorized',
           downloadedAt: new Date().toISOString()
-        }, { merge: true }).catch(() => {});
+        }), { merge: true }).catch(() => {});
       } catch (err) {}
 
       try {
-        fetch('/api/user/record-download-permission', {
+        fetch(apiUrl('/api/user/record-download-permission'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1102,7 +1345,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
             courseId: selectedCourse.id,
             courseCode: selectedCourse.code,
             courseTitle: selectedCourse.title,
-            source: selectedCourse.isOpenStax ? 'openstax' : (selectedCourse.source || 'community')
+            source: selectedCourse.providerId || selectedCourse.source || 'community'
           })
         }).catch(() => {});
       } catch (err) {}
@@ -1111,70 +1354,89 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
       let downloadedBlob: Blob | null = null;
       let targetAsset: ResourceAsset | null = null;
 
-      if (selectedCourse.assets && selectedCourse.assets.length > 0) {
-        targetAsset = selectedCourse.assets.find(a => a.isDirectDownload) || selectedCourse.assets[0];
-      } else if (selectedCourse.isOpenStax && selectedCourse.verifiedPdfUrl) {
+      // Identify real downloadable binary file (PDF, EPUB, DOCX, TXT)
+      const downloadableAsset = selectedCourse.assets?.find(a => 
+        (a.downloadable || (a as any).isDirectDownload) && 
+        a.type !== 'html' && 
+        Boolean(a.url || (a as any).downloadUrl)
+      );
+
+      if (downloadableAsset) {
+        targetAsset = {
+          id: downloadableAsset.id,
+          type: downloadableAsset.type,
+          url: downloadableAsset.url || (downloadableAsset as any).downloadUrl,
+          fileName: downloadableAsset.fileName || (downloadableAsset as any).filename || `${selectedCourse.code}_${selectedCourse.title.replace(/[^a-zA-Z0-9]/g, '_')}.${downloadableAsset.type}`,
+          sizeBytes: downloadableAsset.sizeBytes,
+          downloadable: true,
+          sourceUrl: downloadableAsset.sourceUrl || downloadableAsset.url,
+          mimeType: downloadableAsset.mimeType || (downloadableAsset.type === 'epub' ? 'application/epub+zip' : 'application/pdf')
+        };
+      } else if (selectedCourse.verifiedPdfUrl && selectedCourse.verifiedPdfUrl.startsWith('http')) {
         targetAsset = {
           id: `asset-${selectedCourse.id}-pdf`,
-          resourceId: selectedCourse.id,
           type: 'pdf',
           url: selectedCourse.verifiedPdfUrl,
-          downloadUrl: selectedCourse.verifiedPdfUrl,
-          mimeType: 'application/pdf',
-          filename: `${selectedCourse.code}_${selectedCourse.title.replace(/[^a-zA-Z0-9]/g, '_')}_OpenStax.pdf`,
-          isDirectDownload: true,
-          accessType: 'free'
+          fileName: `${selectedCourse.code}_${selectedCourse.title.replace(/[^a-zA-Z0-9]/g, '_')}_OpenStax.pdf`,
+          sizeBytes: selectedCourse.totalSizeBytes || 25000000,
+          downloadable: true,
+          sourceUrl: selectedCourse.openstaxPageUrl || selectedCourse.verifiedPdfUrl,
+          mimeType: 'application/pdf'
         };
+      } else if (selectedCourse.attachedDocs && selectedCourse.attachedDocs.length > 0) {
+        const docWithUrl = selectedCourse.attachedDocs.find(d => d.url && (d.type === 'pdf' || d.type === 'docx'));
+        if (docWithUrl) {
+          targetAsset = {
+            id: docWithUrl.id || `asset-${selectedCourse.id}-doc`,
+            type: (docWithUrl.type as ResourceAssetType) || 'pdf',
+            url: docWithUrl.url,
+            fileName: docWithUrl.name || `${selectedCourse.code}_Document.${docWithUrl.type || 'pdf'}`,
+            sizeBytes: docWithUrl.size,
+            downloadable: true,
+            sourceUrl: docWithUrl.url,
+            mimeType: docWithUrl.type === 'docx' ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'application/pdf'
+          };
+        }
       } else if (selectedCourse.driveFileId) {
         targetAsset = {
           id: `asset-${selectedCourse.id}-drive`,
-          resourceId: selectedCourse.id,
           type: 'pdf',
-          url: `/api/drive/download/${selectedCourse.driveFileId}`,
-          downloadUrl: `/api/drive/download/${selectedCourse.driveFileId}`,
-          mimeType: 'application/pdf',
-          filename: `${selectedCourse.code}_study_guide.pdf`,
-          isDirectDownload: true,
-          accessType: 'free'
+          url: apiUrl(`/api/drive/download/${selectedCourse.driveFileId}`),
+          fileName: `${selectedCourse.code}_study_guide.pdf`,
+          sizeBytes: selectedCourse.totalSizeBytes || 10000000,
+          downloadable: true,
+          sourceUrl: apiUrl(`/api/drive/download/${selectedCourse.driveFileId}`),
+          mimeType: 'application/pdf'
         };
       }
 
-      if (targetAsset) {
-        try {
-          const dlRes = await downloadService.download(
-            selectedCourse.id,
-            targetAsset,
-            selectedCourse.title
-          );
+      if (!targetAsset) {
+        const publisherUrl = getCoursePublisherUrl(selectedCourse);
+        openExternalUrl(publisherUrl);
+        setUserNotification("No downloadable document file for this book. Opening publisher page to view and read online.");
+        setIsDownloading(false);
+        return;
+      }
 
-          if (dlRes.success && dlRes.blob) {
-            downloadedBlob = dlRes.blob;
-            await saveBinaryAsset(`course-pdf-${selectedCourse.id}`, downloadedBlob, {
-              name: targetAsset.filename,
-              mimeType: targetAsset.mimeType || 'application/pdf',
-              courseId: selectedCourse.id
-            });
-            triggerFileDownload(downloadedBlob, targetAsset.filename);
-          } else if (targetAsset.downloadUrl) {
-            // Direct download fallback
-            const link = document.createElement('a');
-            link.href = targetAsset.downloadUrl;
-            link.download = targetAsset.filename;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-          }
-        } catch (dlErr) {
-          console.warn('[CoursesPage] Platform download notice:', dlErr);
-          if (targetAsset.downloadUrl) {
-            const link = document.createElement('a');
-            link.href = targetAsset.downloadUrl;
-            link.download = targetAsset.filename;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-          }
+      try {
+        const dlRes = await downloadService.download(
+          selectedCourse.id,
+          targetAsset,
+          selectedCourse.title
+        );
+
+        if (dlRes && (dlRes.blob || dlRes.localUri)) {
+          downloadedBlob = dlRes.blob || null;
+        } else {
+          throw new Error("Could not verify downloaded document.");
         }
+      } catch (dlErr: any) {
+        console.warn('[CoursesPage] Direct document download error:', dlErr);
+        setUserNotification("Unable to download document file directly. Opening book on publisher page instead.");
+        const publisherUrl = getCoursePublisherUrl(selectedCourse);
+        openExternalUrl(publisherUrl);
+        setIsDownloading(false);
+        return;
       }
 
       // 3. Multi-Asset Parsing: Check if course contains PDF, text notes, audio notes, or video notes
@@ -1308,6 +1570,28 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
     setAttachedFiles(prev => prev.filter(f => f.id !== fileId));
   };
 
+  // Dedicated handler to set the cover image for result cards and preview hero
+  const handleCoverImageSelection = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setUserNotification("Please select a valid image file (JPG, PNG, WebP).");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setUserNotification("Cover image must be 5MB or less.");
+      return;
+    }
+    try {
+      const dataUrl = await convertImageToDataUrl(file, 800, 0.7);
+      setUploadFormData(prev => ({ ...prev, thumbnailUrl: dataUrl }));
+      setUserNotification("Cover image selected! This will appear on result cards and preview header.");
+    } catch {
+      const objUrl = URL.createObjectURL(file);
+      setUploadFormData(prev => ({ ...prev, thumbnailUrl: objUrl }));
+    }
+  };
+
   // AI draft notes helper
   const handleGenerateAiNotes = async () => {
     if (!uploadFormData.code && !uploadFormData.title) {
@@ -1319,7 +1603,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
     setUserNotification("Generating structured lecture notes with AI...");
 
     try {
-      const response = await fetch('/api/gemini/course-notes', {
+      const response = await fetch(apiUrl('/api/gemini/course-notes'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1412,13 +1696,13 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
         'https://images.unsplash.com/photo-1532094349884-543bc11b234d?w=800&auto=format&fit=crop&q=80'
       ];
 
-      // USER REQUIREMENT: Strictly use the first image uploaded by the user as the preview card thumbnail
+      // Strictly use uploaded thumbnail or user uploaded image, or empty string if none provided
       const firstUploadedImage = galleryImgs.length > 0 ? galleryImgs[0] : undefined;
-      const primaryThumb = firstUploadedImage || uploadFormData.thumbnailUrl || defaultThumbnails[Math.floor(Math.random() * defaultThumbnails.length)];
+      const primaryThumb = uploadFormData.thumbnailUrl || firstUploadedImage || '';
       
       const finalGalleryImages = galleryImgs.length > 0 
         ? galleryImgs.slice(0, 4) 
-        : [primaryThumb];
+        : (primaryThumb ? [primaryThumb] : []);
 
       // Secure Server-Side Google Drive Community Upload Proxy
       let driveFileId: string | undefined = undefined;
@@ -1447,7 +1731,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
       }
 
       try {
-        const driveRes = await fetch('/api/drive/upload', {
+        const driveRes = await fetch(apiUrl('/api/drive/upload'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1572,7 +1856,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
     // Community uploads must NOT appear in student searches automatically unless status is 'approved'
     // (Pending / rejected uploads are only visible to the original uploader or an admin).
     result = result.filter(c => {
-      if (c.isOpenStax || c.source === 'openstax' || c.source === 'gutendex' || c.source === 'openlibrary') return true;
+      if (c.providerId || c.isOpenStax || c.source === 'openstax' || c.source === 'gutendex' || c.source === 'gutenberg' || c.source === 'openlibrary') return true;
       if (c.status === 'pending' || c.status === 'rejected') {
         const isOwner = user?.uid && c.uploaderUid === user.uid;
         const isAdmin = user?.email === 'nuellkelechi@gmail.com' || user?.role === 'admin';
@@ -1581,40 +1865,66 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
       return true;
     });
 
-    if (searchQuery.trim()) {
+    const isSearching = searchQuery.trim().length > 0;
+
+    if (isSearching) {
       const q = searchQuery.toLowerCase().trim();
       result = result.filter(c => 
-        c.code.toLowerCase().includes(q) ||
-        c.title.toLowerCase().includes(q) ||
-        c.faculty.toLowerCase().includes(q) ||
-        c.department.toLowerCase().includes(q) ||
-        (c.notes && c.notes.toLowerCase().includes(q))
+        Boolean(
+          (c?.code && typeof c.code === 'string' && c.code.toLowerCase().includes(q)) ||
+          (c?.title && typeof c.title === 'string' && c.title.toLowerCase().includes(q)) ||
+          (c?.faculty && typeof c.faculty === 'string' && c.faculty.toLowerCase().includes(q)) ||
+          (c?.department && typeof c.department === 'string' && c.department.toLowerCase().includes(q)) ||
+          (c?.notes && typeof c.notes === 'string' && c.notes.toLowerCase().includes(q)) ||
+          (c?.author && typeof c.author === 'string' && c.author.toLowerCase().includes(q)) ||
+          (c?.category && typeof c.category === 'string' && c.category.toLowerCase().includes(q)) ||
+          (c?.providerName && typeof c.providerName === 'string' && c.providerName.toLowerCase().includes(q))
+        )
       );
     }
 
     if (selectedFaculty !== 'ALL') {
-      result = result.filter(c => c.faculty === selectedFaculty);
+      result = result.filter(c => {
+        // When searching, preserve provider resources that match the search query
+        if (isSearching && (c?.providerId || c?.isOpenStax || c?.source === 'openlibrary' || c?.source === 'gutendex' || c?.source === 'gutenberg' || c?.source === 'openstax')) {
+          return true;
+        }
+        return c?.faculty === selectedFaculty;
+      });
     }
 
     if (selectedDepartment.trim()) {
       const deptQ = selectedDepartment.toLowerCase().trim();
-      result = result.filter(c => c.department.toLowerCase().includes(deptQ));
+      result = result.filter(c => {
+        if (isSearching && (c?.providerId || c?.isOpenStax || c?.source === 'openlibrary' || c?.source === 'gutendex' || c?.source === 'gutenberg' || c?.source === 'openstax')) {
+          return true;
+        }
+        return Boolean(c?.department && typeof c.department === 'string' && c.department.toLowerCase().includes(deptQ));
+      });
     }
 
     if (selectedLevel !== 'ALL') {
-      result = result.filter(c => c.level === selectedLevel);
+      result = result.filter(c => {
+        if (isSearching && (c?.providerId || c?.isOpenStax || c?.source === 'openlibrary' || c?.source === 'gutendex' || c?.source === 'gutenberg' || c?.source === 'openstax')) {
+          return true;
+        }
+        return c?.level === selectedLevel;
+      });
     }
 
     if (sortBy === 'likes') {
-      result.sort((a, b) => b.likesCount - a.likesCount);
+      result.sort((a, b) => (b?.likesCount || 0) - (a?.likesCount || 0));
     } else if (sortBy === 'rating') {
-      result.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+      result.sort((a, b) => (b?.rating || 0) - (a?.rating || 0));
     } else if (sortBy === 'az') {
-      result.sort((a, b) => a.code.localeCompare(b.code));
+      result.sort((a, b) => (a?.code || a?.title || '').localeCompare(b?.code || b?.title || ''));
     }
 
     return result;
   }, [courses, searchQuery, selectedFaculty, selectedDepartment, selectedLevel, sortBy]);
+
+  // State to track if the active preview image failed to load
+  const [hasPreviewImageError, setHasPreviewImageError] = useState(false);
 
   // Gallery image items for active preview
   const previewImages = useMemo(() => {
@@ -1623,14 +1933,16 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
     if (selectedCourse.thumbnailUrl) imgs.push(selectedCourse.thumbnailUrl);
     if (selectedCourse.galleryImages) {
       selectedCourse.galleryImages.forEach(img => {
-        if (!imgs.includes(img)) imgs.push(img);
+        if (img && !imgs.includes(img)) imgs.push(img);
       });
-    }
-    if (imgs.length === 0) {
-      imgs.push('https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=800&auto=format&fit=crop&q=80');
     }
     return imgs;
   }, [selectedCourse]);
+
+  // Reset image error state when selected course or active image changes
+  useEffect(() => {
+    setHasPreviewImageError(false);
+  }, [selectedCourse?.id, activeImageIndex]);
 
   return (
     <div 
@@ -1690,6 +2002,11 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        executeLiveSearch(searchQuery);
+                      }
+                    }}
                     placeholder="Search courses, textbooks, public-domain books..."
                     className={`w-full bg-transparent border-none outline-none text-xs sm:text-sm font-medium ${
                       theme === 'dark' 
@@ -1774,50 +2091,16 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
           <div className="max-w-6xl mx-auto px-3 sm:px-6 pt-4">
             {filteredCourses.length === 0 ? (
               isLiveSearching ? (
-                <div className={`p-8 rounded-3xl border text-center space-y-3 my-8 max-w-sm mx-auto ${
-                  theme === 'dark' ? 'bg-[#18132A] border-purple-500/30' : 'bg-white border-purple-200 shadow-sm'
-                }`}>
-                  <div className="w-12 h-12 rounded-2xl bg-purple-500/20 text-purple-400 flex items-center justify-center mx-auto border border-purple-500/30">
-                    <RefreshCw size={24} className="animate-spin text-purple-400" />
-                  </div>
-                  <div className="space-y-1">
-                    <h3 className={`text-sm font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
-                      Searching OpenStax Library...
-                    </h3>
-                    <p className={`text-xs ${theme === 'dark' ? 'text-white/60' : 'text-slate-500'}`}>
-                      Matching academic textbooks, study guides, and multi-media assets for "{searchQuery}"...
-                    </p>
-                  </div>
+                <div className="py-24 flex flex-col items-center justify-center gap-3">
+                  <div className="w-10 h-10 rounded-full border-4 border-purple-500/20 border-t-purple-600 animate-spin" />
                 </div>
               ) : searchQuery.trim().length > 0 ? (
-                <div className={`p-8 rounded-3xl border text-center space-y-3 my-8 max-w-sm mx-auto ${
-                  theme === 'dark' ? 'bg-[#18132A] border-white/10' : 'bg-white border-slate-200 shadow-sm'
+                <div className={`p-8 rounded-3xl border text-center space-y-2 my-8 max-w-sm mx-auto ${
+                  theme === 'dark' ? 'bg-[#18132A] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-800 shadow-sm'
                 }`}>
-                  <div className="w-12 h-12 rounded-2xl bg-purple-500/10 text-purple-400 flex items-center justify-center mx-auto border border-purple-500/20">
-                    <Sparkles size={24} />
-                  </div>
-                  <div className="space-y-1">
-                    <h3 className={`text-sm font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
-                      Course "{searchQuery}" not found locally
-                    </h3>
-                    <p className={`text-xs ${theme === 'dark' ? 'text-white/60' : 'text-slate-500'}`}>
-                      Search OpenStax open educational curriculum to auto-generate and expand your course catalog.
-                    </p>
-                  </div>
-                  <div className="flex flex-col gap-2 pt-1">
-                    <button
-                      onClick={() => executeLiveSearch(searchQuery)}
-                      className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white rounded-xl text-xs font-bold shadow-md cursor-pointer transition-all inline-flex items-center justify-center gap-1.5 active:scale-95"
-                    >
-                      <Sparkles size={14} /> Search &amp; Add OpenStax Course
-                    </button>
-                    <button
-                      onClick={() => setIsUploadModalOpen(true)}
-                      className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white/80 rounded-xl text-xs font-semibold cursor-pointer transition-all inline-flex items-center justify-center gap-1.5"
-                    >
-                      <Plus size={14} /> Upload Custom Course
-                    </button>
-                  </div>
+                  <p className="text-sm font-semibold">
+                    No books or courses found for "{searchQuery}"
+                  </p>
                 </div>
               ) : (
                 <div className={`p-8 rounded-3xl border text-center space-y-3 my-8 max-w-sm mx-auto ${
@@ -1906,87 +2189,33 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
                         </motion.div>
                       )}
 
-                      {/* Compact Thumbnail Image with Like Button & Rating */}
-                      <div className="relative w-full aspect-[4/3] rounded-xl overflow-hidden bg-purple-950/40 pointer-events-none">
-                        <img 
-                          src={course.thumbnailUrl} 
-                          alt={course.title}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                          onError={(e: any) => {
-                            e.target.src = 'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=600&auto=format&fit=crop&q=80';
-                          }}
-                        />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none" />
-
-                        {/* Level / Code Overlay Badge */}
-                        <div className="absolute top-1.5 left-1.5">
-                          <span className="px-1.5 py-0.5 rounded-md bg-purple-600/90 text-white text-[9px] font-black tracking-wider uppercase backdrop-blur-md">
-                            {course.code}
-                          </span>
-                        </div>
-
-                        {/* Like Heart Button with Live Likes Counter */}
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleLike(e, course.id);
-                          }}
-                          onMouseDown={(e) => e.stopPropagation()}
-                          onTouchStart={(e) => e.stopPropagation()}
-                          className={`pointer-events-auto absolute top-1.5 right-1.5 px-2 py-0.5 rounded-full backdrop-blur-md transition-all active:scale-90 cursor-pointer flex items-center gap-1 text-[10px] font-bold z-10 ${
-                            isLiked 
-                              ? 'bg-red-500 text-white shadow-md shadow-red-500/40' 
-                              : 'bg-black/60 text-white/90 hover:text-white hover:bg-black/80'
-                          }`}
-                          title={isLiked ? "Unlike" : "Like"}
-                        >
-                          <Heart size={11} fill={isLiked ? "currentColor" : "none"} className={isLiked ? "text-white" : ""} />
-                          <span>{course.likesCount || 0}</span>
-                        </button>
-
-                        {/* Rating on bottom left of image */}
-                        <div className="absolute bottom-1.5 left-1.5 flex items-center gap-1 text-white text-[10px] font-semibold bg-black/60 backdrop-blur-md px-1.5 py-0.5 rounded-md">
-                          <Star size={10} className="text-amber-400 fill-amber-400" />
-                          <span>{course.rating || 5.0}</span>
-                        </div>
-
-                        {/* Downloaded in Notes indicator badge */}
-                        {isCourseDownloaded(course.id, course.code, course.title) && (
-                          <div className="absolute bottom-1.5 right-1.5 flex items-center gap-0.5 text-white text-[9px] font-bold bg-emerald-600/90 backdrop-blur-md px-1.5 py-0.5 rounded-md shadow-xs">
-                            <Check size={10} className="stroke-[3]" />
-                            <span>Saved</span>
-                          </div>
-                        )}
-                      </div>
+                      {/* Compact Thumbnail Image with Fallback, Like Button & Rating */}
+                      <CourseCardThumbnail
+                        src={course.thumbnailUrl}
+                        alt={course.title}
+                        theme={theme}
+                        code={course.code}
+                        isLiked={isLiked}
+                        likesCount={course.likesCount || 0}
+                        rating={course.rating || 5.0}
+                        isDownloaded={isCourseDownloaded(course.id, course.code, course.title)}
+                        onToggleLike={(e) => toggleLike(e, course.id)}
+                      />
 
                       {/* Clean Text Details without container boxes */}
                       <div className="pt-2 space-y-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          {course.isOpenStax || course.source === 'openstax' ? (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 text-[9px] font-bold">
-                              <CheckCircle2 size={10} className="text-emerald-400" />
-                              <span>OpenStax</span>
-                            </span>
-                          ) : course.source === 'gutendex' ? (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/25 text-[9px] font-bold">
-                              <BookOpen size={10} className="text-amber-400" />
-                              <span>Gutenberg</span>
-                            </span>
-                          ) : course.source === 'openlibrary' ? (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-sky-500/15 text-sky-400 border border-sky-500/25 text-[9px] font-bold">
-                              <Globe size={10} className="text-sky-400" />
-                              <span>Open Library</span>
-                            </span>
-                          ) : course.status === 'pending' ? (
+                          {course.status === 'pending' ? (
                             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] font-bold">
                               <Clock size={10} className="text-amber-400" />
                               <span>Pending Review</span>
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-blue-500/15 text-blue-400 border border-blue-500/25 text-[9px] font-bold">
-                              <ShieldCheck size={10} className="text-blue-400" />
-                              <span>Community</span>
+                            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold ${
+                              course.providerBadgeClass || 'bg-blue-500/15 text-blue-400 border border-blue-500/25'
+                            }`}>
+                              <ShieldCheck size={10} />
+                              <span>{course.providerName || (course.isOpenStax ? 'OpenStax' : 'Community')}</span>
                             </span>
                           )}
                         </div>
@@ -2000,12 +2229,12 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
                         <p className={`text-[11px] font-bold truncate ${
                           theme === 'dark' ? 'text-purple-300' : 'text-purple-700'
                         }`}>
-                          {course.faculty}
+                          {course.faculty || course.category || course.department || (course.author ? `By ${course.author}` : 'Academic Resource')}
                         </p>
 
                         <div className="flex items-center justify-between text-[10px] pt-0.5">
                           <span className={theme === 'dark' ? 'text-white/40' : 'text-slate-400'}>
-                            {course.source === 'gutendex' ? 'gutenberg.org' : course.source === 'openlibrary' ? 'openlibrary.org' : course.isOpenStax ? 'openstax.org' : (course.uploaderName ? `By ${course.uploaderName}` : 'NSG Community')}
+                            {course.providerName ? `Via ${course.providerName}` : (course.uploaderName ? `By ${course.uploaderName}` : 'NSG Community')}
                           </span>
                           {(course.isOpenStax || course.license) && (
                             <span className="text-[9px] font-mono text-purple-400/80">
@@ -2043,19 +2272,37 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
           className="max-w-md mx-auto min-h-screen pb-32"
         >
           {/* Hero Image Slider Container */}
-          <div className="relative w-full aspect-[4/3] bg-black overflow-hidden sm:rounded-b-3xl">
-            {/* Active Hero Image */}
-            <motion.img 
-              key={activeImageIndex}
-              initial={{ opacity: 0.8 }}
-              animate={{ opacity: 1 }}
-              src={previewImages[activeImageIndex] || selectedCourse.thumbnailUrl}
-              alt={selectedCourse.title}
-              className="w-full h-full object-cover"
-              onError={(e: any) => {
-                e.target.src = 'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=800&auto=format&fit=crop&q=80';
-              }}
-            />
+          <div className={`relative w-full aspect-[4/3] overflow-hidden sm:rounded-b-3xl border-b ${
+            theme === 'dark' ? 'bg-black border-white/10' : 'bg-white border-slate-200'
+          }`}>
+            {/* Active Hero Image or Fallback */}
+            {(() => {
+              const currentHeroSrc = previewImages[activeImageIndex] || selectedCourse.thumbnailUrl;
+              if (!currentHeroSrc || hasPreviewImageError) {
+                return (
+                  <div className={`w-full h-full flex flex-col items-center justify-center p-6 text-center select-none ${
+                    theme === 'dark' ? 'bg-black text-white' : 'bg-white text-black'
+                  }`}>
+                    <span className={`text-base font-bold tracking-widest uppercase ${
+                      theme === 'dark' ? 'text-white' : 'text-black'
+                    }`}>
+                      No image
+                    </span>
+                  </div>
+                );
+              }
+              return (
+                <motion.img 
+                  key={`${selectedCourse.id}-${activeImageIndex}`}
+                  initial={{ opacity: 0.8 }}
+                  animate={{ opacity: 1 }}
+                  src={currentHeroSrc}
+                  alt={selectedCourse.title}
+                  className="w-full h-full object-cover"
+                  onError={() => setHasPreviewImageError(true)}
+                />
+              );
+            })()}
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-black/30 pointer-events-none" />
 
             {/* Overlaid Header Controls (Back, Share, Like) */}
@@ -2140,7 +2387,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
             <div className="flex items-center justify-between gap-2">
               {/* Faculty/Department Tag (Replacing "Open Space") */}
               <span className="text-xs font-semibold px-3 py-1 rounded-full text-purple-600 bg-purple-100 dark:text-purple-300 dark:bg-purple-950/60 border border-purple-500/20 truncate max-w-[220px]">
-                {selectedCourse.faculty}
+                {selectedCourse.faculty || selectedCourse.category || selectedCourse.department || 'Academic Resource'}
               </span>
 
               {/* Dynamic Star Rating & Review Count (e.g. ★ 4.8 (365 reviews)) */}
@@ -2165,11 +2412,12 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
                   {selectedCourse.title || selectedCourse.code}
                 </h1>
 
-                {/* Uploader Name (1012 Ocean Avenue becomes Uploader Name) */}
+                {/* Uploader Name */}
                 <p className={`text-xs sm:text-sm font-medium ${
                   theme === 'dark' ? 'text-white/60' : 'text-slate-500'
                 }`}>
-                  Uploaded by {selectedCourse.uploaderName || 'Omni Scholar'} • {selectedCourse.department}
+                  {selectedCourse.providerName ? `Via ${selectedCourse.providerName}` : `Uploaded by ${selectedCourse.uploaderName || 'Omni Scholar'}`}
+                  {selectedCourse.department ? ` • ${selectedCourse.department}` : ''}
                 </p>
               </div>
 
@@ -2186,7 +2434,25 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
 
                 {/* Signature Light Purple Action Circle Button */}
                 {(() => {
+                  const hasDoc = courseHasDownloadableDocument(selectedCourse);
                   const isDownloaded = isCourseDownloaded(selectedCourse.id, selectedCourse.code, selectedCourse.title);
+
+                  if (!hasDoc) {
+                    const actionUrl = getCourseReadingUrl(selectedCourse) || getCourseBorrowUrl(selectedCourse) || getCoursePublisherUrl(selectedCourse);
+                    if (!actionUrl) return null;
+                    return (
+                      <a
+                        href={actionUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-11 h-11 rounded-full text-white bg-purple-600 hover:bg-purple-500 shadow-purple-600/30 shadow-md flex items-center justify-center cursor-pointer transition-all active:scale-95 shrink-0"
+                        title={getCourseReadingUrl(selectedCourse) ? "Read Online" : getCourseBorrowUrl(selectedCourse) ? "Borrow Book" : "View Resource"}
+                      >
+                        <ExternalLink size={18} />
+                      </a>
+                    );
+                  }
+
                   return (
                     <button 
                       onClick={isDownloaded ? undefined : handleDownloadCourse}
@@ -2265,159 +2531,200 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
                 </div>
 
                 {/* Uploaded By Profile Section / Publisher Attribution */}
-                <div className="space-y-2 pt-2 border-t border-white/10">
-                  <h3 className={`text-xs font-bold uppercase tracking-wider ${theme === 'dark' ? 'text-white/50' : 'text-slate-400'}`}>
-                    {selectedCourse.isOpenStax || selectedCourse.source === 'openstax' || selectedCourse.source === 'gutendex' || selectedCourse.source === 'openlibrary'
-                      ? 'Official Academic Publisher' 
-                      : 'Uploaded by'}
-                  </h3>
-                  <div className="flex items-center gap-3">
-                    <div className={`w-11 h-11 rounded-full flex items-center justify-center font-black text-sm overflow-hidden ${
-                      selectedCourse.isOpenStax || selectedCourse.source === 'openstax'
-                        ? 'bg-emerald-600/20 text-emerald-300 border border-emerald-500/30'
-                        : selectedCourse.source === 'gutendex'
-                        ? 'bg-amber-600/20 text-amber-300 border border-amber-500/30'
-                        : selectedCourse.source === 'openlibrary'
-                        ? 'bg-sky-600/20 text-sky-300 border border-sky-500/30'
-                        : 'bg-purple-600/20 text-purple-300 border border-purple-500/30'
-                    }`}>
-                      {selectedCourse.isOpenStax || selectedCourse.source === 'openstax' ? (
-                        <Globe size={22} className="text-emerald-400" />
-                      ) : selectedCourse.source === 'gutendex' ? (
-                        <BookOpen size={22} className="text-amber-400" />
-                      ) : selectedCourse.source === 'openlibrary' ? (
-                        <Globe size={22} className="text-sky-400" />
-                      ) : selectedCourse.uploaderAvatar ? (
-                        <img src={selectedCourse.uploaderAvatar} alt={selectedCourse.uploaderName} className="w-full h-full object-cover" />
-                      ) : (
-                        <span>{selectedCourse.uploaderName ? selectedCourse.uploaderName[0].toUpperCase() : 'O'}</span>
-                      )}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <p className={`text-sm font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
-                          {selectedCourse.isOpenStax || selectedCourse.source === 'openstax' 
-                            ? 'OpenStax (Rice University)' 
-                            : selectedCourse.source === 'gutendex'
-                            ? 'Project Gutenberg Archive'
-                            : selectedCourse.source === 'openlibrary'
-                            ? 'Open Library (Internet Archive)'
-                            : (selectedCourse.uploaderName || 'NSG Community')}
-                        </p>
-                        {(selectedCourse.isOpenStax || selectedCourse.source === 'openstax') && (
-                          <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-bold border border-emerald-500/30 flex items-center gap-0.5">
-                            <ShieldCheck size={10} />
-                            Verified OER
-                          </span>
-                        )}
-                        {selectedCourse.source === 'gutendex' && (
-                          <span className="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 text-[10px] font-bold border border-amber-500/30 flex items-center gap-0.5">
-                            <ShieldCheck size={10} />
-                            Public Domain
-                          </span>
-                        )}
-                        {selectedCourse.source === 'openlibrary' && (
-                          <span className="px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-400 text-[10px] font-bold border border-sky-500/30 flex items-center gap-0.5">
-                            <ShieldCheck size={10} />
-                            Lending Library
-                          </span>
-                        )}
-                      </div>
-                      <p className={`text-xs ${theme === 'dark' ? 'text-white/50' : 'text-slate-500'}`}>
-                        {selectedCourse.license || (selectedCourse.isOpenStax ? 'Creative Commons Attribution 4.0 (CC BY 4.0)' : selectedCourse.department || 'Academic Department')}
-                      </p>
-                    </div>
-                  </div>
+                {(() => {
+                  const isOpenStaxCourse = Boolean(
+                    selectedCourse.isOpenStax ||
+                    selectedCourse.source === 'openstax' ||
+                    selectedCourse.providerId === 'openstax' ||
+                    (selectedCourse.providerName && String(selectedCourse.providerName).toLowerCase().includes('openstax')) ||
+                    (selectedCourse.uploaderName && String(selectedCourse.uploaderName).toLowerCase().includes('openstax'))
+                  );
+                  const isOER = isOpenStaxCourse || selectedCourse.capabilities?.downloadable || Boolean(selectedCourse.license && String(selectedCourse.license).toLowerCase().includes('creative commons'));
+                  const isAcademicPublisher = Boolean(
+                    isOpenStaxCourse ||
+                    selectedCourse.providerId === 'openstax' ||
+                    selectedCourse.providerId === 'gutenberg' ||
+                    selectedCourse.providerId === 'openlibrary' ||
+                    selectedCourse.providerName
+                  );
 
-                  {/* OpenStax Attribution details */}
-                  {(selectedCourse.isOpenStax || selectedCourse.source === 'openstax') && (
-                    <div className="p-3 rounded-2xl bg-emerald-950/25 border border-emerald-500/25 text-xs space-y-1.5 mt-2">
-                      <p className="text-emerald-300 font-bold flex items-center gap-1.5 text-xs">
-                        <ShieldCheck size={14} className="text-emerald-400" />
-                        Zero-Cost Hybrid Open Educational Resource (OER)
-                      </p>
-                      <p className="text-white/70 text-[11px] leading-relaxed">
-                        This peer-reviewed college textbook is authored and reviewed by educators under a Creative Commons Attribution license. Students can freely read online via the Rex web reader or download high-resolution PDF course editions.
-                      </p>
-                      {selectedCourse.rexReaderUrl && (
-                        <div className="pt-1 flex items-center gap-3">
-                          <a 
-                            href={selectedCourse.rexReaderUrl} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 hover:text-emerald-300 underline"
+                  // 1. Resolve Provider Reader URL (leading specifically to the book content page)
+                  let specificReaderUrl: string | undefined = undefined;
+                  let readerLinkText: string = 'Open in Web Reader';
+
+                  if (isOpenStaxCourse) {
+                    specificReaderUrl = 
+                      selectedCourse.rexReaderUrl || 
+                      selectedCourse.rexWebUrl || 
+                      selectedCourse.readingUrl;
+                    
+                    if (!specificReaderUrl) {
+                      if (selectedCourse.slug) {
+                        specificReaderUrl = `https://openstax.org/books/${selectedCourse.slug}/pages/1-introduction`;
+                      } else if (selectedCourse.openstaxPageUrl) {
+                        const m = selectedCourse.openstaxPageUrl.match(/books\/([^/?#]+)/);
+                        if (m && m[1]) {
+                          specificReaderUrl = `https://openstax.org/books/${m[1]}/pages/1-introduction`;
+                        } else {
+                          specificReaderUrl = selectedCourse.openstaxPageUrl;
+                        }
+                      }
+                    }
+                    readerLinkText = 'Open in OpenStax Rex Reader';
+                  } else if (selectedCourse.providerId === 'gutenberg' || selectedCourse.source === 'gutenberg') {
+                    specificReaderUrl = selectedCourse.readingUrl || selectedCourse.sourceUrl;
+                    readerLinkText = 'Open in Project Gutenberg Reader';
+                  } else if (selectedCourse.providerId === 'openlibrary' || selectedCourse.source === 'openlibrary') {
+                    specificReaderUrl = selectedCourse.readingUrl || selectedCourse.borrowUrl;
+                    readerLinkText = 'Open in Open Library Reader';
+                  } else if (selectedCourse.readingUrl) {
+                    specificReaderUrl = selectedCourse.readingUrl;
+                    readerLinkText = `Open in ${selectedCourse.providerName || 'Provider'} Reader`;
+                  }
+
+                  // 2. Resolve Book Details / Catalog URL
+                  const detailsUrl = selectedCourse.publisherUrl || selectedCourse.openstaxPageUrl || selectedCourse.sourceUrl;
+
+                  // 3. Verified explanation text
+                  let verifiedExplanationText = selectedCourse.notes || '';
+                  if (isOpenStaxCourse) {
+                    verifiedExplanationText = 'This peer-reviewed college textbook is authored and reviewed by educators under a Creative Commons Attribution license. Students can freely read online via the Rex web reader or download high-resolution PDF course editions.';
+                  } else if (selectedCourse.providerId === 'gutenberg' || selectedCourse.source === 'gutenberg') {
+                    verifiedExplanationText = 'This peer-reviewed and curated academic book is preserved under open-access distribution. Students can freely read online via the web reader or download full textbook editions.';
+                  } else if (selectedCourse.providerId === 'openlibrary' || selectedCourse.source === 'openlibrary') {
+                    verifiedExplanationText = 'This academic volume is made accessible for online reading and scholarly study through the Internet Archive and Open Library digital lending library.';
+                  } else if (!verifiedExplanationText) {
+                    verifiedExplanationText = 'Verified academic and study curriculum material authored for higher-education learning and research.';
+                  }
+
+                  const verifiedTitle = isOpenStaxCourse || isOER
+                    ? 'Zero-Cost Hybrid Open Educational Resource (OER)'
+                    : selectedCourse.providerName
+                      ? `${selectedCourse.providerName} Academic Resource`
+                      : 'Verified Academic Study Resource';
+
+                  return (
+                    <div className="space-y-3 pt-2 border-t border-white/10">
+                      <h3 className={`text-xs font-bold uppercase tracking-wider ${theme === 'dark' ? 'text-white/50' : 'text-slate-400'}`}>
+                        {isAcademicPublisher ? 'OFFICIAL ACADEMIC PUBLISHER' : (selectedCourse.providerName ? 'Publisher / Source' : 'Uploaded by')}
+                      </h3>
+                      
+                      <div className="flex items-center gap-3">
+                        <div className={`w-11 h-11 rounded-full flex items-center justify-center font-black text-sm overflow-hidden shrink-0 ${
+                          isOpenStaxCourse || isOER
+                            ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/25'
+                            : (selectedCourse.providerBadgeClass || 'bg-purple-600/20 text-purple-300 border border-purple-500/30')
+                        }`}>
+                          {selectedCourse.providerName || isOpenStaxCourse ? (
+                            <Globe size={22} />
+                          ) : selectedCourse.uploaderAvatar ? (
+                            <img src={selectedCourse.uploaderAvatar} alt={selectedCourse.uploaderName} className="w-full h-full object-cover" />
+                          ) : (
+                            <span>{selectedCourse.uploaderName ? selectedCourse.uploaderName[0].toUpperCase() : 'O'}</span>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className={`text-sm font-bold ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}>
+                              {isOpenStaxCourse ? 'OpenStax (Rice University)' : (selectedCourse.providerName || selectedCourse.uploaderName || 'NSG Community')}
+                            </p>
+                            {isOpenStaxCourse || isOER ? (
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30 flex items-center gap-0.5">
+                                <CheckCircle2 size={10} /> Verified OER
+                              </span>
+                            ) : selectedCourse.license ? (
+                              <span className="px-1.5 py-0.5 rounded bg-white/10 text-white/80 text-[10px] font-bold border border-white/15 flex items-center gap-0.5">
+                                <ShieldCheck size={10} />
+                                {selectedCourse.capabilities?.borrowable ? 'Digital Lending' : selectedCourse.capabilities?.downloadable ? 'Open Resource' : 'Verified Catalog'}
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className={`text-xs truncate ${theme === 'dark' ? 'text-white/50' : 'text-slate-500'}`}>
+                            {selectedCourse.license || (isOpenStaxCourse ? 'Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)' : (selectedCourse.department || selectedCourse.faculty || 'Educational Resource'))}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Containerless Verified Resource Section directly on main page */}
+                      <div className="space-y-1.5 pt-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <ShieldCheck size={14} className="text-emerald-400 shrink-0" />
+                            <span className="text-xs font-bold text-emerald-400 truncate">
+                              {verifiedTitle}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setIsVerifiedResourceExpanded(!isVerifiedResourceExpanded)}
+                            className="text-[11px] font-bold text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer shrink-0 inline-flex items-center gap-0.5"
                           >
-                            <span>Open in OpenStax Rex Reader</span>
-                            <ExternalLink size={11} />
-                          </a>
-                          {(selectedCourse.openstaxPageUrl || (selectedCourse as any).openStaxWebUrl) && (
+                            <span>{isVerifiedResourceExpanded ? 'See less' : 'See more'}</span>
+                            <ChevronDown size={12} className={`transition-transform duration-200 ${isVerifiedResourceExpanded ? 'rotate-180' : ''}`} />
+                          </button>
+                        </div>
+
+                        {/* Verified text resource locked in "See more" */}
+                        {isVerifiedResourceExpanded && (
+                          <p className={`text-xs leading-relaxed pt-0.5 transition-all ${theme === 'dark' ? 'text-white/70' : 'text-slate-600'}`}>
+                            {verifiedExplanationText}
+                          </p>
+                        )}
+
+                        {/* Provider Reader & Book Details Links directly on the main page */}
+                        <div className="pt-1.5 flex items-center gap-4 flex-wrap">
+                          {specificReaderUrl && (
                             <a 
-                              href={selectedCourse.openstaxPageUrl || (selectedCourse as any).openStaxWebUrl} 
+                              href={specificReaderUrl} 
+                              onClick={(e) => {
+                                e.preventDefault();
+                                openExternalUrl(specificReaderUrl!);
+                              }}
                               target="_blank" 
                               rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-[11px] font-medium text-white/50 hover:text-white/80"
+                              className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer"
+                            >
+                              <span>{readerLinkText}</span>
+                              <ExternalLink size={12} />
+                            </a>
+                          )}
+                          {detailsUrl && (
+                            <a 
+                              href={detailsUrl} 
+                              onClick={(e) => {
+                                e.preventDefault();
+                                openExternalUrl(detailsUrl!);
+                              }}
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className={`inline-flex items-center gap-1 text-xs font-medium transition-colors cursor-pointer ${
+                                theme === 'dark' ? 'text-white/60 hover:text-white/90' : 'text-slate-500 hover:text-slate-800'
+                              }`}
                             >
                               <span>Book Details</span>
-                              <ExternalLink size={10} />
+                              <ExternalLink size={11} />
+                            </a>
+                          )}
+                          {selectedCourse.borrowUrl && selectedCourse.borrowUrl !== specificReaderUrl && selectedCourse.borrowUrl !== detailsUrl && (
+                            <a 
+                              href={selectedCourse.borrowUrl} 
+                              onClick={(e) => {
+                                e.preventDefault();
+                                openExternalUrl(selectedCourse.borrowUrl!);
+                              }}
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-xs font-medium text-sky-400 hover:text-sky-300 transition-colors cursor-pointer"
+                            >
+                              <span>Borrow on Lending Platform</span>
+                              <ExternalLink size={11} />
                             </a>
                           )}
                         </div>
-                      )}
+                      </div>
                     </div>
-                  )}
-
-                  {/* Project Gutenberg Details */}
-                  {selectedCourse.source === 'gutendex' && (
-                    <div className="p-3 rounded-2xl bg-amber-950/25 border border-amber-500/25 text-xs space-y-1.5 mt-2">
-                      <p className="text-amber-300 font-bold flex items-center gap-1.5 text-xs">
-                        <BookOpen size={14} className="text-amber-400" />
-                        Project Gutenberg Public Domain Book
-                      </p>
-                      <p className="text-white/70 text-[11px] leading-relaxed">
-                        This work is in the public domain and free to read, download, and study. Produced by thousands of volunteers to digitize world literature and knowledge.
-                      </p>
-                      {selectedCourse.rexReaderUrl && (
-                        <div className="pt-1 flex items-center gap-3">
-                          <a 
-                            href={selectedCourse.rexReaderUrl} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-400 hover:text-amber-300 underline"
-                          >
-                            <span>Read Online (HTML Edition)</span>
-                            <ExternalLink size={11} />
-                          </a>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Open Library Details */}
-                  {selectedCourse.source === 'openlibrary' && (
-                    <div className="p-3 rounded-2xl bg-sky-950/25 border border-sky-500/25 text-xs space-y-1.5 mt-2">
-                      <p className="text-sky-300 font-bold flex items-center gap-1.5 text-xs">
-                        <Globe size={14} className="text-sky-400" />
-                        Open Library Catalog & Digital Lending
-                      </p>
-                      <p className="text-white/70 text-[11px] leading-relaxed">
-                        Open Library is an initiative of the Internet Archive. Readers can borrow books digitally or view bibliographic records and summaries.
-                      </p>
-                      {selectedCourse.openstaxPageUrl && (
-                        <div className="pt-1 flex items-center gap-3">
-                          <a 
-                            href={selectedCourse.openstaxPageUrl} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-400 hover:text-sky-300 underline"
-                          >
-                            <span>View on Open Library</span>
-                            <ExternalLink size={11} />
-                          </a>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -2486,7 +2793,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
                                 const cleanDocName = docItem.name || `${selectedCourse.code}_document.pdf`;
                                 const docUrl = (docItem as any).verifiedPdfUrl || docItem.url || (docItem as any).dataUrl;
                                 if (docUrl && (docUrl.startsWith('http://') || docUrl.startsWith('https://'))) {
-                                  const directDocUrl = `/api/courses/direct-download?url=${encodeURIComponent(docUrl)}&filename=${encodeURIComponent(cleanDocName)}`;
+                                  const directDocUrl = apiUrl(`/api/courses/direct-download?url=${encodeURIComponent(docUrl)}&filename=${encodeURIComponent(cleanDocName)}`);
                                   const link = document.createElement('a');
                                   link.href = directDocUrl;
                                   link.download = cleanDocName;
@@ -2504,14 +2811,14 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
                                   setUserNotification(`📥 Downloading "${cleanDocName}" directly to device...`);
                                 } else if (selectedCourse.driveFileId) {
                                   const link = document.createElement('a');
-                                  link.href = `/api/drive/download/${selectedCourse.driveFileId}`;
+                                  link.href = apiUrl(`/api/drive/download/${selectedCourse.driveFileId}`);
                                   link.download = cleanDocName;
                                   document.body.appendChild(link);
                                   link.click();
                                   document.body.removeChild(link);
                                   setUserNotification(`📥 Downloading "${cleanDocName}" directly to device...`);
-                                } else if (selectedCourse.isOpenStax && selectedCourse.verifiedPdfUrl) {
-                                  const directDocUrl = `/api/courses/direct-download?url=${encodeURIComponent(selectedCourse.verifiedPdfUrl)}&filename=${encodeURIComponent(cleanDocName)}`;
+                                } else if (selectedCourse.verifiedPdfUrl) {
+                                  const directDocUrl = apiUrl(`/api/courses/direct-download?url=${encodeURIComponent(selectedCourse.verifiedPdfUrl)}&filename=${encodeURIComponent(cleanDocName)}`);
                                   const link = document.createElement('a');
                                   link.href = directDocUrl;
                                   link.download = cleanDocName;
@@ -2535,9 +2842,13 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
                     </div>
                   )}
 
-                  {/* Notice instructing user to tap bottom Download */}
+                  {/* Notice instructing user to tap bottom Download or View */}
                   <p className="text-[11px] text-center pt-2 text-purple-400 font-medium">
-                    Tap the <strong>Download</strong> button below to download the entire course package to your phone.
+                    {courseHasDownloadableDocument(selectedCourse) ? (
+                      <>Tap the <strong>Download</strong> button below to download the entire course package to your device.</>
+                    ) : (
+                      <>Tap the <strong>View</strong> button below to open this book on the publisher's platform.</>
+                    )}
                   </p>
                 </div>
               </div>
@@ -2657,11 +2968,11 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
               {/* Total Size / Access Mode */}
               <div className="space-y-0.5">
                 <span className={`text-[11px] font-medium block ${theme === 'dark' ? 'text-white/50' : 'text-slate-400'}`}>
-                  {selectedCourse.capabilities?.borrowable && !selectedCourse.capabilities?.downloadable ? 'Access Mode' : 'Total Size'}
+                  {!courseHasDownloadableDocument(selectedCourse) ? 'Access Mode' : 'Total Size'}
                 </span>
                 <p className="text-base font-black text-purple-500 dark:text-purple-400 leading-none">
-                  {selectedCourse.capabilities?.borrowable && !selectedCourse.capabilities?.downloadable ? (
-                    <span>Digital Lending</span>
+                  {!courseHasDownloadableDocument(selectedCourse) ? (
+                    <span>Online / Publisher</span>
                   ) : (
                     <>
                       {formatBytes(selectedCourse.totalSizeBytes)}{' '}
@@ -2671,22 +2982,38 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
                 </p>
               </div>
 
-              {/* Action Button: Download OR Borrow on Open Library */}
+              {/* Action Button: Download OR View on Publisher */}
               {(() => {
+                const hasDoc = courseHasDownloadableDocument(selectedCourse);
                 const isDownloaded = isCourseDownloaded(selectedCourse.id, selectedCourse.code, selectedCourse.title);
-                const isBorrowOnly = selectedCourse.capabilities?.borrowable && !selectedCourse.capabilities?.downloadable;
 
-                if (isBorrowOnly) {
-                  const borrowUrl = selectedCourse.openstaxPageUrl || selectedCourse.rexReaderUrl || `https://openlibrary.org/search?q=${encodeURIComponent(selectedCourse.title)}`;
+                if (!hasDoc) {
+                  const readingUrl = getCourseReadingUrl(selectedCourse);
+                  const borrowUrl = getCourseBorrowUrl(selectedCourse);
+                  const publisherUrl = getCoursePublisherUrl(selectedCourse);
+                  const targetUrl = readingUrl || borrowUrl || publisherUrl;
+                  const label = readingUrl ? 'Read Online' : borrowUrl ? 'Borrow on Open Library' : 'View on Catalog';
+
+                  if (!targetUrl) {
+                    return (
+                      <button
+                        disabled
+                        className="flex-1 py-3.5 px-6 rounded-full font-black text-sm shadow-xl flex items-center justify-center gap-2 bg-white/10 text-white/40 cursor-not-allowed text-center"
+                      >
+                        <span>Catalog Record Only</span>
+                      </button>
+                    );
+                  }
+
                   return (
                     <a
-                      href={borrowUrl}
+                      href={targetUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex-1 py-3.5 px-6 rounded-full font-black text-sm shadow-xl flex items-center justify-center gap-2 transition-all active:scale-95 bg-sky-600 hover:bg-sky-500 text-white shadow-sky-600/30 cursor-pointer"
+                      className="flex-1 py-3.5 px-6 rounded-full font-black text-sm shadow-xl flex items-center justify-center gap-2 transition-all active:scale-95 bg-purple-600 hover:bg-purple-500 text-white shadow-purple-600/30 cursor-pointer text-center"
                     >
                       <ExternalLink size={16} />
-                      <span>Borrow on Open Library</span>
+                      <span>{label}</span>
                     </a>
                   );
                 }
@@ -3155,6 +3482,78 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({
                         : 'bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-400'
                     }`}
                   />
+                </div>
+
+                {/* Course Cover Image Section (Result Cards & Preview Page Header) */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold uppercase tracking-wider text-purple-400">
+                      Course Cover Image (Result Cards &amp; Preview Header)
+                    </label>
+                    <span className="text-[10px] text-white/50">
+                      {uploadFormData.thumbnailUrl ? 'Custom Image Attached' : 'Optional (shows "No image" if blank)'}
+                    </span>
+                  </div>
+                  <p className={`text-[11px] leading-relaxed ${theme === 'dark' ? 'text-white/60' : 'text-slate-500'}`}>
+                    Choose an image to display on the search result cards and the top of the course preview page. If no image is selected, the app will cleanly display a high-contrast <strong>"No image"</strong> placeholder.
+                  </p>
+
+                  {uploadFormData.thumbnailUrl ? (
+                    <div className={`p-3 rounded-2xl border flex items-center gap-3.5 ${
+                      theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-slate-50 border-slate-200'
+                    }`}>
+                      <div className="w-20 h-16 rounded-xl overflow-hidden bg-black/40 border border-white/10 shrink-0">
+                        <img 
+                          src={uploadFormData.thumbnailUrl} 
+                          alt="Cover preview" 
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold truncate">Custom Cover Attached</p>
+                        <p className="text-[10px] text-purple-400">Will display on result cards &amp; preview page</p>
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <label className="text-[10px] font-bold text-purple-400 hover:text-purple-300 underline cursor-pointer">
+                            Change Image
+                            <input 
+                              type="file" 
+                              accept="image/*" 
+                              onChange={handleCoverImageSelection} 
+                              className="hidden" 
+                            />
+                          </label>
+                          <span className="text-white/20">•</span>
+                          <button
+                            type="button"
+                            onClick={() => setUploadFormData(prev => ({ ...prev, thumbnailUrl: '' }))}
+                            className="text-[10px] font-bold text-red-400 hover:text-red-300 underline cursor-pointer"
+                          >
+                            Remove (Use "No image")
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <label className={`w-full p-4 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${
+                      theme === 'dark' 
+                        ? 'border-purple-500/30 bg-purple-950/20 hover:border-purple-500 hover:bg-purple-950/40' 
+                        : 'border-purple-300 bg-purple-50/50 hover:border-purple-500 hover:bg-purple-50'
+                    }`}>
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={handleCoverImageSelection} 
+                        className="hidden" 
+                      />
+                      <ImageIcon size={20} className="text-purple-400" />
+                      <div className="text-center">
+                        <p className="text-xs font-bold">Upload Course Cover Photo</p>
+                        <p className={`text-[10px] ${theme === 'dark' ? 'text-white/50' : 'text-slate-500'}`}>
+                          Tap to select a JPG, PNG, or WebP cover image (under 5MB)
+                        </p>
+                      </div>
+                    </label>
+                  )}
                 </div>
 
                 <div className="space-y-2">

@@ -20,6 +20,7 @@ import { PeerChatWorkspace } from './PeerChatWorkspace';
 import { MessageOverlay } from './MessageOverlay';
 import { requestMicrophonePermission, getSupportedAudioMimeType } from '../lib/audioRecorder';
 import { cleanupRAM } from '../services/aiEngine';
+import { apiUrl } from '../services/apiConfig';
 
 const extractYoutubeLinks = (text: string): string[] => {
   if (!text) return [];
@@ -765,7 +766,7 @@ export const ChatRoom: React.FC<ChatRoomProps> = ({
         const registration = await navigator.serviceWorker.register('/sw.js');
         console.log("Service Worker active scope:", registration.scope);
         
-        const response = await fetch('/api/notifications/vapid-public-key');
+        const response = await fetch(apiUrl('/api/notifications/vapid-public-key'));
         if (!response.ok) return;
         
         const data = await response.json();

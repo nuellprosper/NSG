@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowLeft, BookMarked, Search, Clock, FileText, ChevronRight, ArrowDown } from 'lucide-react';
 import { motion } from 'motion/react';
-import { formatSafeDate } from '../utils';
+import { formatSafeDate, getCleanNoteSnippet } from '../utils';
 import { isCapacitorNative } from '../lib/capacitor';
 
 interface NotesHistoryPageProps {
@@ -19,10 +19,15 @@ export const NotesHistoryPage: React.FC<NotesHistoryPageProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Only display root notes (not subfolders/child notes) in history containers
   const filteredNotes = userNotes.filter((note) => {
+    // If it has a parentId, it is a subfolder/child note inside a parent note
+    if (note.parentId) return false;
+
     const title = note.title || 'Untitled Study Note';
     const content = typeof note.content === 'string' ? note.content : (note.content?.text || '');
-    const q = searchQuery.toLowerCase();
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return true;
     return title.toLowerCase().includes(q) || content.toLowerCase().includes(q);
   });
 
@@ -100,7 +105,7 @@ export const NotesHistoryPage: React.FC<NotesHistoryPageProps> = ({
           {filteredNotes.map((note, idx) => {
             const title = note.title || 'Untitled Study Note';
             const rawContent = typeof note.content === 'string' ? note.content : (note.content?.text || '');
-            const snippet = rawContent ? rawContent.replace(/[#*`]/g, '').substring(0, 120) + '...' : 'No text content';
+            const snippet = getCleanNoteSnippet(rawContent, 120) || 'Empty note...';
             const dateStr = formatSafeDate(note.date || note.createdAt, 'Saved Note');
 
             return (

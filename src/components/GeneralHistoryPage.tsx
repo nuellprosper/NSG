@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Search, Target, FileText, BookMarked, Mic, History, PlayCircle, ChevronRight, Award, ArrowDown } from 'lucide-react';
 import { motion } from 'motion/react';
-import { formatSafeDate } from '../utils';
+import { formatSafeDate, getCleanNoteSnippet } from '../utils';
 import { isCapacitorNative } from '../lib/capacitor';
 
 interface GeneralHistoryPageProps {
@@ -42,14 +42,15 @@ export const GeneralHistoryPage: React.FC<GeneralHistoryPageProps> = ({
     });
   });
 
-  // Add Notes
+  // Add Notes (Root notes only - child folders must not create extra cards)
   userNotes.forEach((note) => {
+    if (note.parentId) return;
     const rawContent = typeof note.content === 'string' ? note.content : (note.content?.text || '');
     combined.push({
       id: note.id,
       category: 'notes',
       title: note.title || 'Untitled Study Note',
-      subtitle: rawContent ? rawContent.replace(/[#*`]/g, '').substring(0, 90) + '...' : 'No text content',
+      subtitle: getCleanNoteSnippet(rawContent, 90) || 'Empty note...',
       date: formatSafeDate(note.date || note.createdAt, 'Saved Note'),
       rawItem: note
     });

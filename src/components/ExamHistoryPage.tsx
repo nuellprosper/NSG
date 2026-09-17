@@ -34,7 +34,7 @@ export const ExamHistoryPage: React.FC<ExamHistoryPageProps> = ({
     >
       {/* Top Bar */}
       <div 
-        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 8px)' }}
+        style={{ paddingTop: 'max(28px, calc(env(safe-area-inset-top, 0px) + 14px))' }}
         className="flex items-center justify-between border-b border-white/10 pb-4"
       >
         <button

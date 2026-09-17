@@ -2,6 +2,13 @@ import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { XCircle, Settings } from 'lucide-react';
 
+import { 
+  TERMS_TITLE, 
+  TERMS_LAST_UPDATED, 
+  TERMS_PREAMBLE, 
+  TERMS_SECTIONS 
+} from '../constants/terms';
+
 export interface LegalModalProps {
   legalPage: 'about' | 'terms' | 'privacy' | 'contact' | null;
   setLegalPage: (page: 'about' | 'terms' | 'privacy' | 'contact' | null) => void;
@@ -47,15 +54,44 @@ export const LegalModal: React.FC<LegalModalProps> = ({
                 </>
               )}
               {legalPage === 'terms' && (
-                <>
-                  <p>By using NSG, you agree to the following terms:</p>
-                  <ul className="list-disc pl-5 space-y-2">
-                    <li>NSG is provided "as is" for educational purposes.</li>
-                    <li>Users are responsible for the content they upload and record.</li>
-                    <li>We do not guarantee 100% accuracy of AI-generated content.</li>
-                    <li>Your data is stored locally on your device for privacy.</li>
-                  </ul>
-                </>
+                <div className="space-y-6">
+                  <div className="border-b border-white/10 pb-4">
+                    <h3 className="text-base font-black text-white tracking-tight uppercase">
+                      {TERMS_TITLE}
+                    </h3>
+                    <p className="text-xs font-semibold text-[#DC2626] mt-1">
+                      Last Updated: {TERMS_LAST_UPDATED}
+                    </p>
+                  </div>
+
+                  <div className="space-y-3 bg-white/[0.02] p-4 rounded-xl border border-white/5 text-xs text-white/80 leading-relaxed">
+                    {TERMS_PREAMBLE.map((paragraph, index) => (
+                      <p key={index}>{paragraph}</p>
+                    ))}
+                  </div>
+
+                  <div className="space-y-6">
+                    {TERMS_SECTIONS.map((section) => (
+                      <div key={section.id} className="space-y-2 pt-3 border-t border-white/5">
+                        <h4 className="text-xs sm:text-sm font-bold text-white uppercase text-[#DC2626]">
+                          {section.title}
+                        </h4>
+                        <div className="space-y-2 text-xs text-white/70 leading-relaxed">
+                          {section.content.map((p, pIdx) => (
+                            <p key={pIdx}>{p}</p>
+                          ))}
+                          {section.bullets && section.bullets.length > 0 && (
+                            <ul className="list-disc pl-5 space-y-1 text-white/70 marker:text-[#DC2626]/70">
+                              {section.bullets.map((bullet, bIdx) => (
+                                <li key={bIdx}>{bullet}</li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
               {legalPage === 'privacy' && (
                 <div className="space-y-4">

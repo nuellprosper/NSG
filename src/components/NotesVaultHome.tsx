@@ -6,7 +6,7 @@ import {
   Share2, RefreshCw, Youtube, Clipboard
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { formatSafeDate } from '../utils';
+import { formatSafeDate, getCleanNoteSnippet } from '../utils';
 
 export interface NoteItem {
   id: string;
@@ -24,6 +24,7 @@ export interface NoteItem {
   drawings?: any[];
   audioRecordings?: any[];
   images?: string[];
+  notePodcast?: any;
   [key: string]: any;
 }
 
@@ -114,6 +115,9 @@ export const NotesVaultHome: React.FC<NotesVaultHomeProps> = ({
   // Filter notes based on active filter and real-time search query keywords
   const filteredNotes = useMemo(() => {
     return userNotes.filter((note) => {
+      // Child folders/subfolders must only be accessed from within their parent note
+      if (note.parentId) return false;
+
       // 1. Filter by media type
       if (activeFilter !== 'all') {
         const mediaType = getNoteMediaType(note);
@@ -607,7 +611,7 @@ export const NotesVaultHome: React.FC<NotesVaultHomeProps> = ({
                         {notesInFolder.map((note, noteIdx) => {
                           const mediaType = getNoteMediaType(note);
                           const rawContent = typeof note.content === 'string' ? note.content : ((note.content as any)?.text || '');
-                          const cleanSnippet = rawContent ? rawContent.replace(/[#*`_!\[\]\(\)]/g, '').substring(0, 80) + '...' : 'No text content';
+                          const cleanSnippet = getCleanNoteSnippet(rawContent, 80) || 'Empty note...';
                           const dateStr = formatSafeDate(note.updatedAt || note.createdAt || note.date, 'Recently');
 
                           return (

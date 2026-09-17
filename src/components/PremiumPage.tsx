@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowLeft, X, Lock, ChevronDown, Zap, ShieldCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { apiUrl } from '../services/apiConfig';
 
 interface PremiumPageProps {
   isPremium: boolean;
@@ -38,7 +39,7 @@ export const PremiumPage: React.FC<PremiumPageProps> = ({
         setIsInitializing(false);
       } else {
         // Fallback: Initialize server-side Paystack checkout transaction
-        const res = await fetch('/api/initialize-paystack-transaction', {
+        const res = await fetch(apiUrl('/api/initialize-paystack-transaction'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ plan: selectedPlan })

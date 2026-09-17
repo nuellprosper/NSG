@@ -8,6 +8,7 @@ import {
 import { UNIVERSITIES, FACULTIES, DEPARTMENTS } from '../constants/academic';
 import { OtpVerificationModal } from './OtpVerificationModal';
 import { sendOtpEmail } from '../services/authService';
+import { TermsAndConditionsModal } from './TermsAndConditionsModal';
 
 export interface AuthModalProps {
   showAuthModal: boolean;
@@ -48,7 +49,7 @@ export interface AuthModalProps {
   uniSearchQuery: string;
   setUniSearchQuery: (query: string) => void;
   handleAuth: (e: React.FormEvent) => void;
-  handleGoogleLogin: () => void;
+  handleGoogleLogin: (explicitTermsAgreed?: boolean) => void;
   setUserNotification: (msg: string) => void;
   auth: any;
   sendPasswordResetEmail?: any;
@@ -59,6 +60,8 @@ export interface AuthModalProps {
   validationErrors?: Record<string, string>;
   passwordStrength?: { score: number; color: string; feedback: string };
   pendingQuizId?: string;
+  termsAgreed?: boolean;
+  setTermsAgreed?: (agreed: boolean) => void;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -111,11 +114,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   validationErrors = {},
   passwordStrength = { score: 2, color: 'bg-emerald-500', feedback: 'Strong' },
   pendingQuizId = '',
+  termsAgreed: propsTermsAgreed,
+  setTermsAgreed: propsSetTermsAgreed,
 }) => {
   const [showOtpModal, setShowOtpModal] = useState(false);
   const [otpModalType, setOtpModalType] = useState<'signup' | 'forgot-password' | 'profile-change'>('signup');
   const [otpExpiresAt, setOtpExpiresAt] = useState<number | undefined>(undefined);
   const [isPreparingOtp, setIsPreparingOtp] = useState(false);
+  
+  // Mandatory Terms & Conditions state
+  const [localTermsAgreed, setLocalTermsAgreed] = useState(false);
+  const isTermsAgreed = propsTermsAgreed !== undefined ? propsTermsAgreed : localTermsAgreed;
+  const updateTermsAgreed = (val: boolean) => {
+    if (propsSetTermsAgreed) propsSetTermsAgreed(val);
+    setLocalTermsAgreed(val);
+    if (val) setTermsError(null);
+  };
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [termsError, setTermsError] = useState<string | null>(null);
 
   // Intercept sign-up form submit to mandate 6-digit OTP verification via Resend
   const handleAuthSubmitWithOtp = async (e: React.FormEvent) => {
@@ -124,6 +140,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     // In Login mode, process directly
     if (authMode === 'login') {
       handleAuth(e);
+      return;
+    }
+
+    // In Signup mode, mandatory Terms acceptance check FIRST
+    if (!isTermsAgreed) {
+      setUserNotification('Please read and agree to the Terms & Conditions before creating your account.');
+      setTermsError('Please read and agree to the Terms & Conditions before creating your account.');
       return;
     }
 
@@ -480,6 +503,51 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   )}
                 </div>
                 
+                {/* MANDATORY TERMS & CONDITIONS ACCEPTANCE (SIGNUP MODE) */}
+                {authMode === 'signup' && (
+                  <div className="pt-2">
+                    <label className="flex items-start gap-2.5 cursor-pointer group select-none">
+                      <div className="relative flex items-center justify-center mt-0.5">
+                        <input
+                          type="checkbox"
+                          checked={isTermsAgreed}
+                          onChange={(e) => updateTermsAgreed(e.target.checked)}
+                          className="sr-only"
+                        />
+                        <div className={`w-4 h-4 rounded border transition-all flex items-center justify-center ${
+                          isTermsAgreed 
+                            ? 'bg-[#7C3AED] border-[#7C3AED] shadow-sm shadow-purple-900/40' 
+                            : 'border-white/30 bg-white/5 group-hover:border-white/50'
+                        }`}>
+                          {isTermsAgreed && <Check size={12} className="text-white stroke-[3]" />}
+                        </div>
+                      </div>
+                      <span className="text-xs text-gray-300 leading-snug">
+                        I have read and agree to the{' '}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setShowTermsModal(true);
+                          }}
+                          className="text-orange-400 hover:text-orange-300 underline font-semibold cursor-pointer"
+                        >
+                          Terms &amp; Conditions
+                        </button>
+                        .
+                      </span>
+                    </label>
+
+                    {termsError && (
+                      <p className="text-[11px] text-red-400 mt-1.5 font-medium flex items-center gap-1">
+                        <XCircle size={13} className="shrink-0" />
+                        {termsError}
+                      </p>
+                    )}
+                  </div>
+                )}
+                
                 {/* CONTINUE / CREATE ACCOUNT BUTTON */}
                 <button 
                   type="submit" 
@@ -506,7 +574,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     Don’t have an account?{' '}
                     <button 
                       type="button"
-                      onClick={() => setAuthMode('signup')} 
+                      onClick={() => {
+                        setAuthMode('signup');
+                        setTermsError(null);
+                      }} 
                       className="text-orange-400 hover:text-orange-300 font-bold ml-1 cursor-pointer transition-colors"
                     >
                       Sign Up
@@ -517,7 +588,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     Already registered?{' '}
                     <button 
                       type="button"
-                      onClick={() => setAuthMode('login')} 
+                      onClick={() => {
+                        setAuthMode('login');
+                        setTermsError(null);
+                      }} 
                       className="text-orange-400 hover:text-orange-300 font-bold ml-1 cursor-pointer transition-colors"
                     >
                       Sign In
@@ -529,57 +603,45 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               {/* OR SIGN IN WITH DIVIDER */}
               <div className="flex items-center gap-3 my-5">
                 <div className="flex-1 h-[1px] bg-white/10" />
-                <span className="text-xs text-gray-400 font-medium">or sign in with</span>
+                <span className="text-xs text-gray-400 font-medium">or continue with</span>
                 <div className="flex-1 h-[1px] bg-white/10" />
               </div>
 
               {/* SOCIAL BUTTONS */}
-              <div className="grid grid-cols-2 gap-3">
-                {/* GOOGLE LOG IN */}
+              <div className="w-full">
+                {/* GOOGLE SIGN IN */}
                 <button 
                   type="button"
-                  onClick={handleGoogleLogin} 
-                  className="w-full bg-[#13151F] hover:bg-[#1A1C29] border border-white/10 rounded-2xl py-3 flex items-center justify-center transition-all cursor-pointer group"
-                  title="Sign in with Google"
+                  onClick={() => {
+                    if (authMode === 'signup' && !isTermsAgreed) {
+                      setUserNotification('Please read and agree to the Terms & Conditions before creating your account.');
+                      setTermsError('Please read and agree to the Terms & Conditions before creating your account.');
+                      return;
+                    }
+                    handleGoogleLogin(authMode === 'signup' ? isTermsAgreed : undefined);
+                  }} 
+                  className="w-full bg-[#13151F] hover:bg-[#1A1C29] border border-white/10 rounded-2xl py-3.5 px-4 flex items-center justify-center gap-3 transition-all cursor-pointer group shadow-md active:scale-[0.99]"
+                  title="Continue with Google"
                 >
-                  <svg className="w-5 h-5 group-hover:scale-105 transition-transform" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 group-hover:scale-105 transition-transform shrink-0" viewBox="0 0 24 24">
                     <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                     <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
                     <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
                     <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
                   </svg>
-                </button>
-
-                {/* FACEBOOK LOG IN */}
-                <button 
-                  type="button"
-                  onClick={async () => {
-                    setIsAuthLoading(true);
-                    try {
-                      const { FacebookAuthProvider, signInWithPopup } = await import('firebase/auth');
-                      const provider = new FacebookAuthProvider();
-                      await signInWithPopup(auth, provider);
-                      setUserNotification("Successfully logged in with Facebook!");
-                      setShowAuthModal(false);
-                    } catch (error: any) {
-                      console.error("Facebook Login Error:", error);
-                      setUserNotification(error.message || "Facebook login failed. Please ensure Facebook sign-in is enabled in Firebase Console.");
-                    } finally {
-                      setIsAuthLoading(false);
-                    }
-                  }} 
-                  className="w-full bg-[#13151F] hover:bg-[#1A1C29] border border-white/10 rounded-2xl py-3 flex items-center justify-center transition-all cursor-pointer group"
-                  title="Sign in with Facebook"
-                >
-                  <svg className="w-5 h-5 fill-[#1877F2] group-hover:scale-105 transition-transform" viewBox="0 0 24 24">
-                    <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-                  </svg>
+                  <span className="text-xs sm:text-sm font-semibold text-white">Continue with Google</span>
                 </button>
               </div>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Full-Screen Terms & Conditions Reading Modal */}
+      <TermsAndConditionsModal
+        isOpen={showTermsModal}
+        onClose={() => setShowTermsModal(false)}
+      />
 
       {/* 6-Digit OTP Verification Modal (Integrated with Resend secure backend relay) */}
       <OtpVerificationModal

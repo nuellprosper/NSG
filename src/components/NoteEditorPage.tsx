@@ -1,17 +1,21 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   ArrowLeft, Cloud, Share2, MoreVertical, Plus, Bold, Italic, Underline,
   Mic, Image as ImageIcon, Edit3, List, ListOrdered, AlignLeft,
   ChevronDown, X, Play, Pause, RotateCcw, RotateCw, Trash2,
   FileText, Download, Check, Upload, Palette, Type,
-  Folder, Sparkles, Volume2, Move, Scissors, Link, Users,
+  Folder, FolderPlus, ChevronRight, Sparkles, Volume2, Move, Scissors, Link, Users,
   GraduationCap, Settings, HelpCircle, Undo, Redo, Eraser, Eye,
   Quote, Strikethrough, Subscript, Superscript, Film, ExternalLink,
-  PlayCircle, Video, FileDown, BookOpen
+  PlayCircle, Video, FileDown, BookOpen, Layers, Radio, Headphones
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { NoteItem } from './NotesVaultHome';
+import { TranscriptSegment } from '../lib/lectureProcessor';
 import { getBinaryAsset, triggerFileDownload, fetchAndStreamBinaryFile, saveBinaryAsset } from '../utils/assetStorage';
+import { apiUrl } from '../services/apiConfig';
+import { MaterialSelectionModal } from './podcast/MaterialSelectionModal';
+import { checkForMaterialChanges } from '../services/podcast/podcastManager';
 
 export interface NoteEditorPageProps {
   note: NoteItem;
@@ -22,7 +26,11 @@ export interface NoteEditorPageProps {
   onShareAsCourse?: (courseData: any) => void;
   setUserNotification?: (msg: string) => void;
   onStartPodcast?: (sourceText: string) => void;
+  onOpenPodcastView?: () => void;
   onSetQuiz?: (note: NoteItem) => void;
+  userNotes?: NoteItem[];
+  onSelectNote?: (note: NoteItem) => void;
+  onCreateChildNote?: (title: string, parentId: string) => Promise<void> | void;
 }
 
 interface DrawingBlock {
@@ -111,16 +119,62 @@ export const NoteEditorPage: React.FC<NoteEditorPageProps> = ({
   onShareAsCourse,
   setUserNotification,
   onStartPodcast,
+  onOpenPodcastView,
   onSetQuiz,
+  userNotes = [],
+  onSelectNote,
+  onCreateChildNote,
 }) => {
   // Main note state
   const [title, setTitle] = useState(note.title || 'Untitled Note');
   const [folder, setFolder] = useState(note.folder || 'History');
 
+  // Note Podcast Modal & State
+  const [isPodcastMaterialModalOpen, setIsPodcastMaterialModalOpen] = useState(false);
+  const hasPodcastChanges = useMemo(() => {
+    return checkForMaterialChanges(note.notePodcast, note);
+  }, [note]);
+
+  // Hierarchical Sub-Folder State
+  const [showCreateFolderModal, setShowCreateFolderModal] = useState(false);
+  const [newChildFolderName, setNewChildFolderName] = useState('');
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+
+  // Hierarchy Resolution: Ancestor chain for breadcrumbs and direct child folders
+  const ancestors = useMemo(() => {
+    const list: NoteItem[] = [];
+    let currParentId = note.parentId;
+    let depth = 0;
+    const visited = new Set<string>();
+    while (currParentId && depth < 20) {
+      if (visited.has(currParentId)) break;
+      visited.add(currParentId);
+      const p = userNotes.find(n => n.id === currParentId);
+      if (p) {
+        list.unshift(p);
+        currParentId = p.parentId;
+      } else {
+        break;
+      }
+      depth++;
+    }
+    return list;
+  }, [note.parentId, userNotes]);
+
+  // Child folders directly under current note
+  const childNotes = useMemo(() => {
+    return userNotes.filter(n => n.parentId === note.id);
+  }, [note.id, userNotes]);
+
   // Interactive blocks
   const [drawings, setDrawings] = useState<DrawingBlock[]>(note.drawings || []);
   const [audioRecordings, setAudioRecordings] = useState<AudioBlock[]>(note.audioRecordings || []);
-  const [documents, setDocuments] = useState<DocumentBlock[]>(note.attachments || []);
+  const [documents, setDocuments] = useState<DocumentBlock[]>(() => {
+    return (note.attachments || []).map((att: any, i: number) => ({
+      ...att,
+      id: att.id || att.url || `doc-att-${i}`
+    }));
+  });
   const [videoNotes, setVideoNotes] = useState<VideoBlock[]>(note.videoNotes || []);
   const [images, setImages] = useState<string[]>(note.images || []);
 
@@ -163,24 +217,75 @@ export const NoteEditorPage: React.FC<NoteEditorPageProps> = ({
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const savedSelectionRangeRef = useRef<Range | null>(null);
 
-  // Initialize editor content once
+  // Initialize and synchronize note metadata
   useEffect(() => {
     setTitle(note.title || 'Untitled Note');
     setFolder(note.folder || 'History');
     setDrawings(note.drawings || []);
     setAudioRecordings(note.audioRecordings || []);
-    setDocuments(note.attachments || []);
+    setDocuments((note.attachments || []).map((att: any, i: number) => ({
+      ...att,
+      id: att.id || att.url || `doc-att-${i}`
+    })));
     setVideoNotes(note.videoNotes || []);
     setImages(note.images || []);
+  }, [note.id, note.title, note.folder]);
 
+  const currentLoadedNoteIdRef = useRef<string>(note.id);
+
+  // Live real-time content synchronization while transcribing or editing
+  useEffect(() => {
     if (editorRef.current) {
-      const raw = typeof note.content === 'string' ? note.content : (note.content as any)?.text || '';
-      const htmlContent = convertMarkdownToHtml(raw);
-      if (editorRef.current.innerHTML !== htmlContent) {
+      const isNoteSwitch = currentLoadedNoteIdRef.current !== note.id;
+      if (isNoteSwitch) {
+        currentLoadedNoteIdRef.current = note.id;
+      }
+      const isFocused = document.activeElement === editorRef.current;
+      // If note changed, unconditionally refresh editor HTML. Otherwise, update only if not actively typing.
+      if (isNoteSwitch || !isFocused || note.isTranscribing || note.processingStatus === 'transcribing') {
+        const raw = typeof note.content === 'string' ? note.content : (note.content as any)?.text || '';
+        const htmlContent = convertMarkdownToHtml(raw);
         editorRef.current.innerHTML = htmlContent;
       }
     }
-  }, [note.id]);
+  }, [note.id, note.content, note.processingStatus, note.transcriptSegments]);
+
+  // Handler for creating a child folder inside current note
+  const handleCreateSubFolder = async () => {
+    const cleanName = newChildFolderName.trim();
+    if (!cleanName || isCreatingFolder) return;
+    setIsCreatingFolder(true);
+    try {
+      if (onCreateChildNote) {
+        await onCreateChildNote(cleanName, note.id);
+      } else {
+        const newChild: NoteItem = {
+          id: `note-child-${Date.now()}`,
+          parentId: note.id,
+          title: cleanName,
+          folder: title || 'History',
+          isFolder: true,
+          content: '',
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        onSaveNote(newChild);
+        if (onSelectNote) {
+          onSelectNote(newChild);
+        }
+      }
+      if (setUserNotification) {
+        setUserNotification(`Created folder "${cleanName}"`);
+      }
+      setShowCreateFolderModal(false);
+      setNewChildFolderName('');
+    } catch (err) {
+      console.error('Failed to create folder:', err);
+      if (setUserNotification) setUserNotification('Failed to create folder.');
+    } finally {
+      setIsCreatingFolder(false);
+    }
+  };
 
   // Save selection whenever selection changes or editor loses focus
   const saveSelection = useCallback(() => {
@@ -283,7 +388,7 @@ export const NoteEditorPage: React.FC<NoteEditorPageProps> = ({
     } catch (err: any) {
       console.warn('[NoteEditorPage] Stream download fallback:', err);
       if (docItem.url) {
-        const directUrl = `/api/courses/direct-download?url=${encodeURIComponent(docItem.url)}&filename=${encodeURIComponent(docItem.name)}`;
+        const directUrl = apiUrl(`/api/courses/direct-download?url=${encodeURIComponent(docItem.url)}&filename=${encodeURIComponent(docItem.name)}`);
         const a = document.createElement('a');
         a.href = directUrl;
         a.download = docItem.name;
@@ -830,7 +935,7 @@ export const NoteEditorPage: React.FC<NoteEditorPageProps> = ({
           theme === 'dark' ? 'bg-[#181920]/95 border-white/10 text-white' : 'bg-white/95 border-slate-200 text-slate-900'
         }`}
       >
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
           <button
             onClick={onBack}
             className={`p-1.5 rounded-xl transition-all flex items-center gap-1 cursor-pointer text-xs font-semibold ${
@@ -841,15 +946,55 @@ export const NoteEditorPage: React.FC<NoteEditorPageProps> = ({
             <ArrowLeft size={18} />
           </button>
 
-          {/* Folder Name */}
-          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-300">
-            <Folder size={14} className="text-amber-400" />
-            <span>{folder}</span>
+          {/* Breadcrumb Navigation: Notes -> [Parent Note (if child)] -> [FolderPlus Action + Current Note] */}
+          <div className="flex items-center gap-1 sm:gap-1.5 text-xs font-semibold text-slate-300 min-w-0 overflow-x-auto no-scrollbar py-0.5">
+            <button
+              onClick={onBack}
+              className="hover:text-white transition-colors cursor-pointer shrink-0 text-slate-400 hover:underline"
+              title="Return to Notes Vault"
+            >
+              Notes
+            </button>
+
+            {ancestors.map((anc, idx) => (
+              <React.Fragment key={`anc-${anc.id || idx}`}>
+                <ChevronRight size={13} className="text-slate-500 shrink-0" />
+                <button
+                  onClick={() => onSelectNote && onSelectNote(anc)}
+                  className="hover:text-white transition-colors cursor-pointer truncate max-w-[90px] sm:max-w-[140px] shrink-0 text-slate-300 hover:underline"
+                  title={anc.title || 'Folder'}
+                >
+                  {anc.title || 'Folder'}
+                </button>
+              </React.Fragment>
+            ))}
+
+            <ChevronRight size={13} className="text-slate-500 shrink-0" />
+
+            {/* Current Note Indicator */}
+            <div className="flex items-center gap-1.5 shrink-0 bg-white/5 border border-white/10 rounded-lg px-2.5 py-0.5 text-white">
+              <Folder size={13} className="text-amber-400 shrink-0" />
+              <span className="font-bold text-xs truncate max-w-[120px] sm:max-w-[200px] text-amber-200">
+                {title || 'Untitled Note'}
+              </span>
+            </div>
           </div>
         </div>
 
         {/* Top Right Actions */}
-        <div className="flex items-center gap-2.5 shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => setIsPodcastMaterialModalOpen(true)}
+            className="flex items-center gap-1.5 py-1.5 px-3 rounded-xl bg-gradient-to-r from-purple-600/20 to-indigo-600/20 hover:from-purple-600/30 hover:to-indigo-600/30 text-purple-300 border border-purple-500/30 transition-all cursor-pointer shadow-sm group"
+            title="Note Podcast: Omni & Zeal"
+          >
+            <Headphones size={15} className="text-purple-400 group-hover:scale-110 transition-transform" />
+            <span className="text-xs font-bold hidden sm:inline">Podcast</span>
+            {hasPodcastChanges && (
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" title="Material changed since podcast was made" />
+            )}
+          </button>
+
           <button 
             className="text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer"
             title="Note is Synced"
@@ -886,19 +1031,21 @@ export const NoteEditorPage: React.FC<NoteEditorPageProps> = ({
                       theme === 'dark' ? 'bg-[#22242E] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-800'
                     }`}
                   >
-                    {onStartPodcast && (
-                      <button
-                        onClick={() => {
-                          setShowMoreMenu(false);
-                          const plainText = editorRef.current?.innerText || '';
-                          onStartPodcast(`${title}\n\n${plainText}`);
-                        }}
-                        className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-white/5 text-xs font-semibold text-left cursor-pointer"
-                      >
-                        <Volume2 size={15} className="text-blue-400" />
-                        <span>Discuss as Podcast</span>
-                      </button>
-                    )}
+                    <button
+                      onClick={() => {
+                        setShowMoreMenu(false);
+                        setIsPodcastMaterialModalOpen(true);
+                      }}
+                      className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-white/5 text-xs font-semibold text-left cursor-pointer"
+                    >
+                      <Headphones size={15} className="text-purple-400" />
+                      <div className="flex items-center gap-1.5">
+                        <span>Note Podcast</span>
+                        {hasPodcastChanges && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                        )}
+                      </div>
+                    </button>
 
                     {onSetQuiz && (
                       <button
@@ -962,6 +1109,39 @@ export const NoteEditorPage: React.FC<NoteEditorPageProps> = ({
           }
         }}
       >
+        {/* Top Folder Navigation & Management Bar */}
+        <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar py-1 shrink-0">
+          {childNotes.map((child, idx) => (
+            <button
+              key={child.id || `folder-top-${idx}`}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelectNote && onSelectNote(child);
+              }}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 hover:text-amber-200 transition-all text-xs font-semibold shrink-0 cursor-pointer shadow-sm group"
+              title={`Open folder "${child.title || 'Folder'}"`}
+            >
+              <Folder size={14} className="text-amber-400 group-hover:scale-110 transition-transform" />
+              <span className="truncate max-w-[180px]">{child.title || 'Folder'}</span>
+              <ChevronRight size={13} className="text-amber-400/60 group-hover:translate-x-0.5 transition-transform" />
+            </button>
+          ))}
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowCreateFolderModal(true);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white transition-all text-xs font-semibold shrink-0 cursor-pointer"
+            title="Add a child folder inside this note"
+          >
+            <FolderPlus size={14} className="text-emerald-400" />
+            <span>Add Folder</span>
+          </button>
+        </div>
+
         {/* Note Title Input */}
         <input
           type="text"
@@ -1038,13 +1218,14 @@ export const NoteEditorPage: React.FC<NoteEditorPageProps> = ({
                   <span>Attached Textbooks & Documents ({documents.length})</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  {documents.map((doc) => {
-                    const isDownloading = downloadingDocId === doc.id;
+                  {documents.map((doc, idx) => {
+                    const docKey = doc.id || doc.url || `doc-${idx}`;
+                    const isDownloading = downloadingDocId === docKey || downloadingDocId === doc.id;
                     const sizeStr = doc.size ? (doc.size > 1024 * 1024 ? `${(doc.size / (1024 * 1024)).toFixed(1)} MB` : `${(doc.size / 1024).toFixed(0)} KB`) : 'PDF Textbook';
 
                     return (
                       <div
-                        key={doc.id}
+                        key={docKey}
                         className={`p-3 rounded-xl border flex flex-col justify-between gap-2.5 transition-all ${
                           theme === 'dark' ? 'bg-[#262A37] border-white/10 hover:border-blue-500/40' : 'bg-white border-slate-200 hover:border-blue-400 shadow-sm'
                         }`}
@@ -1113,34 +1294,37 @@ export const NoteEditorPage: React.FC<NoteEditorPageProps> = ({
                   <span>Audio Notes & Voice Lectures ({audioRecordings.length})</span>
                 </div>
                 <div className="grid grid-cols-1 gap-2">
-                  {audioRecordings.map((rec) => (
-                    <div
-                      key={rec.id}
-                      className={`p-3 rounded-xl border flex flex-col gap-2 ${
-                        theme === 'dark' ? 'bg-[#262A37] border-white/10' : 'bg-white border-slate-200 shadow-sm'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <Mic size={14} className="text-amber-400 shrink-0" />
-                          <span className="text-xs font-bold text-slate-100 truncate">
-                            {rec.name || 'Voice Lecture Note'}
-                          </span>
+                  {audioRecordings.map((rec, idx) => {
+                    const recKey = rec.id || rec.audioUrl || `rec-${idx}`;
+                    return (
+                      <div
+                        key={recKey}
+                        className={`p-3 rounded-xl border flex flex-col gap-2 ${
+                          theme === 'dark' ? 'bg-[#262A37] border-white/10' : 'bg-white border-slate-200 shadow-sm'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <Mic size={14} className="text-amber-400 shrink-0" />
+                            <span className="text-xs font-bold text-slate-100 truncate">
+                              {rec.name || 'Voice Lecture Note'}
+                            </span>
+                          </div>
+                          {rec.duration ? (
+                            <span className="text-[10px] text-slate-400">
+                              {Math.floor(rec.duration / 60)}:{(rec.duration % 60).toString().padStart(2, '0')}
+                            </span>
+                          ) : null}
                         </div>
-                        {rec.duration ? (
-                          <span className="text-[10px] text-slate-400">
-                            {Math.floor(rec.duration / 60)}:{(rec.duration % 60).toString().padStart(2, '0')}
-                          </span>
-                        ) : null}
+                        <audio
+                          src={rec.audioUrl}
+                          controls
+                          className="w-full h-8 rounded-lg accent-amber-500"
+                          preload="metadata"
+                        />
                       </div>
-                      <audio
-                        src={rec.audioUrl}
-                        controls
-                        className="w-full h-8 rounded-lg accent-amber-500"
-                        preload="metadata"
-                      />
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -1153,30 +1337,33 @@ export const NoteEditorPage: React.FC<NoteEditorPageProps> = ({
                   <span>Video Lectures & Visual Notes ({videoNotes.length})</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {videoNotes.map((vid) => (
-                    <div
-                      key={vid.id}
-                      className={`p-3 rounded-xl border flex flex-col gap-2 ${
-                        theme === 'dark' ? 'bg-[#262A37] border-white/10' : 'bg-white border-slate-200 shadow-sm'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Video size={14} className="text-purple-400 shrink-0" />
-                        <span className="text-xs font-bold text-slate-100 truncate">
-                          {vid.title || 'Video Lecture'}
-                        </span>
+                  {videoNotes.map((vid, idx) => {
+                    const vidKey = vid.id || vid.videoUrl || `vid-${idx}`;
+                    return (
+                      <div
+                        key={vidKey}
+                        className={`p-3 rounded-xl border flex flex-col gap-2 ${
+                          theme === 'dark' ? 'bg-[#262A37] border-white/10' : 'bg-white border-slate-200 shadow-sm'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Video size={14} className="text-purple-400 shrink-0" />
+                          <span className="text-xs font-bold text-slate-100 truncate">
+                            {vid.title || 'Video Lecture'}
+                          </span>
+                        </div>
+                        <div className="rounded-lg overflow-hidden bg-black aspect-video flex items-center justify-center">
+                          <video
+                            src={vid.videoUrl}
+                            poster={vid.thumbnailUrl}
+                            controls
+                            className="w-full h-full object-contain"
+                            preload="metadata"
+                          />
+                        </div>
                       </div>
-                      <div className="rounded-lg overflow-hidden bg-black aspect-video flex items-center justify-center">
-                        <video
-                          src={vid.videoUrl}
-                          poster={vid.thumbnailUrl}
-                          controls
-                          className="w-full h-full object-contain"
-                          preload="metadata"
-                        />
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -1490,9 +1677,9 @@ export const NoteEditorPage: React.FC<NoteEditorPageProps> = ({
                     <div className="px-2 py-1 text-[10px] font-bold text-white/50 uppercase tracking-wider">
                       Select Text Color
                     </div>
-                    {colorOptions.map((opt) => (
+                    {colorOptions.map((opt, idx) => (
                       <button
-                        key={opt.hex}
+                        key={opt.hex || opt.label || `color-${idx}`}
                         onMouseDown={(e) => handleApplyColor(opt.hex, e)}
                         className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-white/10 text-xs font-semibold cursor-pointer transition-colors"
                       >
@@ -1552,9 +1739,9 @@ export const NoteEditorPage: React.FC<NoteEditorPageProps> = ({
                   { color: '#FBBF24' },
                   { color: '#38BDF8' },
                   { color: '#34D399' },
-                ].map((c) => (
+                ].map((c, idx) => (
                   <button
-                    key={c.color}
+                    key={c.color || `pen-color-${idx}`}
                     onClick={() => {
                       setDrawingColor(c.color);
                       setDrawingTool('pen');
@@ -1824,7 +2011,7 @@ export const NoteEditorPage: React.FC<NoteEditorPageProps> = ({
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <a
-                    href={`/api/courses/direct-download?url=${encodeURIComponent(previewingPdf.url)}&filename=${encodeURIComponent(previewingPdf.name)}`}
+                    href={apiUrl(`/api/courses/direct-download?url=${encodeURIComponent(previewingPdf.url)}&filename=${encodeURIComponent(previewingPdf.name)}`)}
                     download={previewingPdf.name}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition-all shadow-sm"
                   >
@@ -1843,7 +2030,7 @@ export const NoteEditorPage: React.FC<NoteEditorPageProps> = ({
 
               <div className="flex-1 min-h-0 w-full bg-slate-900 relative">
                 <iframe
-                  src={previewingPdf.url.startsWith('http') ? `/api/courses/direct-download?url=${encodeURIComponent(previewingPdf.url)}&inline=true` : previewingPdf.url}
+                  src={previewingPdf.url.startsWith('http') ? apiUrl(`/api/courses/direct-download?url=${encodeURIComponent(previewingPdf.url)}&inline=true`) : previewingPdf.url}
                   className="w-full h-full border-none"
                   title={previewingPdf.name}
                 />
@@ -1852,6 +2039,126 @@ export const NoteEditorPage: React.FC<NoteEditorPageProps> = ({
           </div>
         )}
       </AnimatePresence>
+
+      {/* 6. CREATE SUB-FOLDER / CHILD PAGE MODAL */}
+      <AnimatePresence>
+        {showCreateFolderModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className={`w-full max-w-md rounded-2xl p-6 border shadow-2xl space-y-4 ${
+                theme === 'dark' ? 'bg-[#1E202B] border-white/10 text-white' : 'bg-white border-slate-200 text-slate-900'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-400/20 text-amber-400 flex items-center justify-center shrink-0">
+                  <FolderPlus size={20} />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-base font-bold">New Folder</h3>
+                  <p className="text-xs text-slate-400 truncate max-w-xs">
+                    Inside: <span className="font-semibold text-white/90">{title || 'Untitled Note'}</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300">Folder Name</label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={newChildFolderName}
+                  onChange={(e) => setNewChildFolderName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleCreateSubFolder();
+                  }}
+                  placeholder="e.g. Chapter 1, Practice Problems, Formulas..."
+                  className={`w-full px-3.5 py-2.5 rounded-xl border text-sm font-medium outline-none transition-all ${
+                    theme === 'dark'
+                      ? 'bg-black/30 border-white/10 text-white focus:border-amber-400/60'
+                      : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-amber-500'
+                  }`}
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCreateFolderModal(false);
+                    setNewChildFolderName('');
+                  }}
+                  disabled={isCreatingFolder}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-white/5 transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCreateSubFolder}
+                  disabled={isCreatingFolder || !newChildFolderName.trim()}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-black transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-amber-500/20 flex items-center gap-1.5"
+                >
+                  <FolderPlus size={14} />
+                  <span>{isCreatingFolder ? 'Creating...' : 'Create Folder'}</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Note Podcast Material Selection & Options Modal */}
+      <MaterialSelectionModal
+        isOpen={isPodcastMaterialModalOpen}
+        onClose={() => setIsPodcastMaterialModalOpen(false)}
+        note={note}
+        userNotes={userNotes}
+        existingPodcast={note.notePodcast}
+        hasDetectedChanges={hasPodcastChanges}
+        onStartGeneration={(mode, folderId, folderName) => {
+          setIsPodcastMaterialModalOpen(false);
+          if (onOpenPodcastView) {
+            onOpenPodcastView();
+          } else if (onStartPodcast) {
+            const plainText = editorRef.current?.innerText || '';
+            onStartPodcast(`${title}\n\n${plainText}`);
+          }
+        }}
+        onOpenExistingPodcast={() => {
+          setIsPodcastMaterialModalOpen(false);
+          if (onOpenPodcastView) {
+            onOpenPodcastView();
+          } else if (onStartPodcast) {
+            const plainText = editorRef.current?.innerText || '';
+            onStartPodcast(`${title}\n\n${plainText}`);
+          }
+        }}
+        onContinueListening={() => {
+          setIsPodcastMaterialModalOpen(false);
+          if (onOpenPodcastView) {
+            onOpenPodcastView();
+          } else if (onStartPodcast) {
+            const plainText = editorRef.current?.innerText || '';
+            onStartPodcast(`${title}\n\n${plainText}`);
+          }
+        }}
+        onReviewSources={() => {
+          setIsPodcastMaterialModalOpen(false);
+          if (onOpenPodcastView) {
+            onOpenPodcastView();
+          }
+        }}
+        onUpdatePodcast={() => {
+          setIsPodcastMaterialModalOpen(false);
+          if (onOpenPodcastView) {
+            onOpenPodcastView();
+          }
+        }}
+        theme={theme}
+      />
     </div>
   );
 };
