@@ -26,6 +26,9 @@
         "isWhatsAppVerified": { "type": "boolean" },
         "verificationCode": { "type": "string", "description": "6-digit OTP verification code for WhatsApp linking" },
         "premiumUntil": { "type": "string", "format": "date-time" },
+        "termsAccepted": { "type": "boolean", "description": "Whether user agreed to NSG Terms & Conditions" },
+        "termsVersion": { "type": "string", "description": "Version string of accepted Terms (e.g. 2026-09-14)" },
+        "termsAcceptedAt": { "type": "string", "format": "date-time", "description": "Timestamp when user agreed to Terms" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },

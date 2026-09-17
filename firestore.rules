@@ -78,6 +78,9 @@ service cloud.firestore {
              (!('isWhatsAppVerified' in data) || data.isWhatsAppVerified is bool) &&
              (!('verificationCode' in data) || isValString(data.verificationCode, 128)) &&
              (!('dailyNoteUsage' in data) || data.dailyNoteUsage is int || data.dailyNoteUsage is number) &&
+             (!('termsAccepted' in data) || data.termsAccepted is bool) &&
+             (!('termsVersion' in data) || isValString(data.termsVersion, 64)) &&
+             (!('termsAcceptedAt' in data) || (data.termsAcceptedAt is string || data.termsAcceptedAt is timestamp)) &&
              (!('updatedAt' in data) || (data.updatedAt is string || data.updatedAt is timestamp));
     }
 
@@ -123,7 +126,7 @@ service cloud.firestore {
       allow create: if (isOwner(uid) || (request.auth == null && uid != null)) && isValidUser(incoming());
       allow update: if (isOwner(uid) || isAdmin()) && isValidUser(incoming()) && (
         // Action: Profile Update
-        (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'username', 'university', 'level', 'department', 'faculty', 'dob', 'country', 'gender', 'matric', 'matricNumber', 'updatedAt', 'fullName', 'status', 'premiumUntil', 'bypassHostingPayment', 'bypassTakingPayment', 'bypassAllPayments', 'isPremium', 'about', 'lastSeen', 'email', 'points', 'streak', 'lastActive', 'rank', 'claimedQuests', 'invitedUsers', 'pointResetCompleted', 'whatsappNumber', 'isWhatsAppVerified', 'verificationCode', 'dailyNoteUsage'])) ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'username', 'university', 'level', 'department', 'faculty', 'dob', 'country', 'gender', 'matric', 'matricNumber', 'updatedAt', 'fullName', 'status', 'premiumUntil', 'bypassHostingPayment', 'bypassTakingPayment', 'bypassAllPayments', 'isPremium', 'about', 'lastSeen', 'email', 'points', 'streak', 'lastActive', 'rank', 'claimedQuests', 'invitedUsers', 'pointResetCompleted', 'whatsappNumber', 'isWhatsAppVerified', 'verificationCode', 'dailyNoteUsage', 'termsAccepted', 'termsVersion', 'termsAcceptedAt'])) ||
         // Action: Presence Heartbeat
         (incoming().diff(existing()).affectedKeys().hasOnly(['lastSeen', 'status'])) ||
         // Action: Admin Role Update
