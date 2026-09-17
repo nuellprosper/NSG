@@ -3,6 +3,7 @@ import { ResourceAsset } from '../resources/types';
 import { validateBlobContent, validateBinaryContent } from './validator';
 import { localManifest } from '../resources/localManifest';
 import { saveBinaryAsset, getBinaryAsset, deleteBinaryAsset, triggerFileDownload } from '../../utils/assetStorage';
+import { apiUrl } from '../apiConfig';
 
 // Lazy-load Capacitor Filesystem to prevent crash on web-only runs
 let capacitorFilesystem: any = null;
@@ -82,12 +83,12 @@ export class PlatformDownloadService implements DownloadService {
     options?.onProgress?.(10);
 
     // Determine target URL. If CORS might fail or if it's an OpenStax / Drive stream, use our proxy
-    let streamUrl = asset.url;
+    let streamUrl = asset.url.startsWith('/') ? apiUrl(asset.url) : asset.url;
     const isExternalUrl = asset.url.startsWith('http://') || asset.url.startsWith('https://');
 
     // If external, route through secure download proxy
     if (isExternalUrl) {
-      streamUrl = `/api/courses/direct-download?url=${encodeURIComponent(asset.url)}&filename=${encodeURIComponent(fileName)}&courseId=${encodeURIComponent(resourceId)}`;
+      streamUrl = apiUrl(`/api/courses/direct-download?url=${encodeURIComponent(asset.url)}&filename=${encodeURIComponent(fileName)}&courseId=${encodeURIComponent(resourceId)}`);
     }
 
     options?.onProgress?.(30);
@@ -192,11 +193,7 @@ export class PlatformDownloadService implements DownloadService {
     // Use direct proxy if external to avoid CORS/redirect issues on Android WebView
     let downloadUrl = asset.url;
     if (downloadUrl.startsWith('http://') || downloadUrl.startsWith('https://')) {
-      downloadUrl = `/api/courses/direct-download?url=${encodeURIComponent(asset.url)}&filename=${encodeURIComponent(fileName)}&courseId=${encodeURIComponent(resourceId)}`;
-      // Convert to absolute URL for Capacitor native layer if needed
-      if (downloadUrl.startsWith('/')) {
-        downloadUrl = window.location.origin + downloadUrl;
-      }
+      downloadUrl = apiUrl(`/api/courses/direct-download?url=${encodeURIComponent(asset.url)}&filename=${encodeURIComponent(fileName)}&courseId=${encodeURIComponent(resourceId)}`);
     }
 
     // Call Filesystem.downloadFile
