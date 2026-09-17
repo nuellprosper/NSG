@@ -1,3 +1,5 @@
+import { apiUrl } from '../services/apiConfig';
+
 // NSG Local Binary Asset Storage & Streamer
 // Uses browser IndexedDB to store multi-megabyte binary PDFs, audio notes, and media files locally
 // bypassing localStorage 5MB quota restrictions.
@@ -133,7 +135,7 @@ export async function fetchAndStreamBinaryFile(
   courseId?: string
 ): Promise<Blob> {
   // Construct proxy URL to bypass CORS and ensure direct binary attachment stream
-  const proxyUrl = `/api/courses/direct-download?url=${encodeURIComponent(targetUrl)}&filename=${encodeURIComponent(filename)}&courseId=${encodeURIComponent(courseId || '')}`;
+  const proxyUrl = apiUrl(`/api/courses/direct-download?url=${encodeURIComponent(targetUrl)}&filename=${encodeURIComponent(filename)}&courseId=${encodeURIComponent(courseId || '')}`);
 
   const response = await fetch(proxyUrl, {
     method: 'GET',

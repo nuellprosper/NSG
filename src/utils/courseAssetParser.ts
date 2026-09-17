@@ -1,3 +1,5 @@
+import { apiUrl } from '../services/apiConfig';
+
 // NSG Multi-Media Course Asset Parser
 // Inspects any course entry and parses:
 // - Text notes (for the main WYSIWYG note body)
@@ -118,7 +120,7 @@ export function parseCourseAssets(course: any): ParsedCoursePackage {
       name: `${courseCode}_Study_Guide.pdf`,
       size: Number(course.totalSizeBytes) || 12000000,
       type: 'application/pdf',
-      url: `/api/drive/download/${course.driveFileId}`,
+      url: apiUrl(`/api/drive/download/${course.driveFileId}`),
       isVerified: true,
       license: 'Community Peer-Reviewed Document',
     });
