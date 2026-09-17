@@ -1,5 +1,34 @@
 import { ResourceProvider, ResourceResult, ResourceAsset, SearchOptions } from '../types';
 
+function normalizeGutenbergCategory(subjects?: string[], bookshelves?: string[]): string {
+  const combined = [...(subjects || []), ...(bookshelves || [])].join(' ').toLowerCase();
+  if (combined.includes('math') || combined.includes('calculus') || combined.includes('algebra') || combined.includes('geometry')) {
+    return 'Mathematics';
+  }
+  if (combined.includes('physic') || combined.includes('chemist') || combined.includes('biolog') || combined.includes('astronom') || combined.includes('geolog') || combined.includes('science')) {
+    return 'Science';
+  }
+  if (combined.includes('philosoph') || combined.includes('ethics') || combined.includes('logic')) {
+    return 'Philosophy';
+  }
+  if (combined.includes('histor') || combined.includes('war') || combined.includes('civilization') || combined.includes('revolution')) {
+    return 'History';
+  }
+  if (combined.includes('econom') || combined.includes('business') || combined.includes('finance') || combined.includes('commerce')) {
+    return 'Business & Economics';
+  }
+  if (combined.includes('law') || combined.includes('politics') || combined.includes('government') || combined.includes('political')) {
+    return 'Social Sciences & Law';
+  }
+  if (combined.includes('art') || combined.includes('music') || combined.includes('theater') || combined.includes('poetry') || combined.includes('drama')) {
+    return 'Arts & Humanities';
+  }
+  if (combined.includes('fiction') || combined.includes('literature') || combined.includes('novel') || combined.includes('story') || combined.includes('stories')) {
+    return 'Classic Literature';
+  }
+  return 'General Literature';
+}
+
 export class GutendexProvider implements ResourceProvider {
   public readonly id = 'gutendex';
   public readonly name = 'Project Gutenberg';
@@ -43,9 +72,9 @@ export class GutendexProvider implements ResourceProvider {
 
         const authorName = Array.isArray(book.authors) && book.authors.length > 0
           ? this.formatAuthorName(book.authors[0].name)
-          : 'Project Gutenberg Contributor';
+          : undefined;
 
-        const sourcePageUrl = `https://www.gutenberg.org/ebooks/${book.id}`;
+        const publisherUrl = `https://www.gutenberg.org/ebooks/${book.id}`;
         const cleanTitle = (book.title || 'Untitled Book').replace(/[\r\n]+/g, ' ').trim();
         const safeTitleSlug = cleanTitle.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 40);
 
@@ -60,7 +89,7 @@ export class GutendexProvider implements ResourceProvider {
             mimeType: 'application/epub+zip',
             fileName: `${safeTitleSlug}_Gutenberg.epub`,
             downloadable: true,
-            sourceUrl: sourcePageUrl,
+            sourceUrl: publisherUrl,
             label: 'Download EPUB E-Book',
           });
         }
@@ -74,7 +103,7 @@ export class GutendexProvider implements ResourceProvider {
             mimeType: 'text/plain',
             fileName: `${safeTitleSlug}_Gutenberg.txt`,
             downloadable: true,
-            sourceUrl: sourcePageUrl,
+            sourceUrl: publisherUrl,
             label: 'Download Plain Text (Notes)',
           });
         }
@@ -88,7 +117,7 @@ export class GutendexProvider implements ResourceProvider {
             mimeType: 'application/pdf',
             fileName: `${safeTitleSlug}_Gutenberg.pdf`,
             downloadable: true,
-            sourceUrl: sourcePageUrl,
+            sourceUrl: publisherUrl,
             label: 'Download PDF',
           });
         }
@@ -101,7 +130,7 @@ export class GutendexProvider implements ResourceProvider {
             url: htmlUrl,
             mimeType: 'text/html',
             downloadable: false,
-            sourceUrl: sourcePageUrl,
+            sourceUrl: publisherUrl,
             label: 'Read Online in Browser',
           });
         }
@@ -119,11 +148,15 @@ export class GutendexProvider implements ResourceProvider {
           title: cleanTitle,
           author: authorName,
           description,
-          coverUrl,
+          coverUrl: coverUrl || '',
           providerId: this.id,
           providerName: this.name,
-          sourceUrl: sourcePageUrl,
+          sourceUrl: publisherUrl,
+          publisherUrl,
+          readingUrl: htmlUrl || '',
           license: 'Public Domain / Project Gutenberg License',
+          category: normalizeGutenbergCategory(book.subjects, book.bookshelves),
+          providerBadgeClass: 'bg-amber-500/15 text-amber-400 border border-amber-500/25',
           capabilities: {
             readableOnline: isReadableOnline,
             downloadable: isDownloadable,
@@ -131,12 +164,11 @@ export class GutendexProvider implements ResourceProvider {
           },
           assets,
 
-          // Compatibility fields
+          // Safe compatibility fields
           code: `PG-${book.id}`,
-          faculty: 'Faculty of Arts / Humanities',
-          department: 'Literature and Classics',
-          level: 'Public Domain',
-          semester: 'Open Archive',
+          faculty: 'General Academic',
+          department: 'Literature & Humanities',
+          level: '100L',
           notes: description,
           likesCount: book.download_count ? Math.min(book.download_count, 999) : 42,
           rating: 4.8,
@@ -144,7 +176,8 @@ export class GutendexProvider implements ResourceProvider {
           uploaderName: 'Project Gutenberg',
           source: 'gutendex',
           status: 'approved',
-          rexReaderUrl: htmlUrl,
+          rexReaderUrl: htmlUrl || undefined,
+          openstaxPageUrl: publisherUrl,
         });
       }
 

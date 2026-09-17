@@ -1,6 +1,7 @@
 import { ResourceProvider, ResourceResult, ResourceAsset, SearchOptions } from '../types';
 import { collection, query, where, getDocs, limit, orderBy } from 'firebase/firestore';
 import { db } from '../../../firebase';
+import { apiUrl } from '../../apiConfig';
 
 export class CommunityDriveProvider implements ResourceProvider {
   public readonly id = 'community';
@@ -62,12 +63,12 @@ export class CommunityDriveProvider implements ResourceProvider {
           assets.push({
             id: `comm-drive-${driveFileId}`,
             type: 'pdf',
-            url: `/api/drive/download/${driveFileId}`,
+            url: apiUrl(`/api/drive/download/${driveFileId}`),
             mimeType: 'application/pdf',
             fileName: `${code}_Study_Guide.pdf`,
             sizeBytes: data.totalSizeBytes || 12000000,
             downloadable: true,
-            sourceUrl: `/api/drive/download/${driveFileId}`,
+            sourceUrl: apiUrl(`/api/drive/download/${driveFileId}`),
             label: 'Download Peer Study Guide (PDF)',
           });
         } else if (pdfUrl) {
@@ -114,7 +115,10 @@ export class CommunityDriveProvider implements ResourceProvider {
           providerId: this.id,
           providerName: this.name,
           sourceUrl: `/courses/${courseId}`,
+          readingUrl: assets.length > 0 ? assets[0].url : '',
           license: 'Community Peer-Reviewed Educational Material',
+          category: data.faculty || 'Peer Academic Material',
+          providerBadgeClass: 'bg-purple-500/15 text-purple-400 border border-purple-500/25',
           capabilities: {
             readableOnline: true,
             downloadable: assets.length > 0,

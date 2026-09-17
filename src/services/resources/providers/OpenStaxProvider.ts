@@ -83,6 +83,9 @@ export class OpenStaxProvider implements ResourceProvider {
         });
       }
 
+      const publisherUrl = entry.openstaxPageUrl || (entry.slug ? `https://openstax.org/details/books/${entry.slug}` : undefined);
+      const readingUrl = entry.rexReaderUrl || entry.openstaxPageUrl || undefined;
+
       results.push({
         id: entry.id,
         title: entry.title,
@@ -91,10 +94,14 @@ export class OpenStaxProvider implements ResourceProvider {
         coverUrl: entry.coverUrl,
         providerId: this.id,
         providerName: this.name,
-        sourceUrl: entry.openstaxPageUrl || `https://openstax.org/details/books/${entry.slug}`,
+        sourceUrl: publisherUrl || `https://openstax.org/details/books/${entry.slug}`,
+        publisherUrl,
+        readingUrl,
         license: entry.license || 'Creative Commons Attribution 4.0 (CC BY 4.0)',
+        category: entry.department || entry.faculty || 'Open Educational Resource',
+        providerBadgeClass: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/25',
         capabilities: {
-          readableOnline: Boolean(entry.rexReaderUrl || entry.openstaxPageUrl),
+          readableOnline: Boolean(readingUrl),
           downloadable: Boolean(entry.verifiedPdfUrl),
           borrowable: false,
         },
