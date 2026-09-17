@@ -22,8 +22,17 @@ import { TimeTable } from './components/TimeTable';
 import { CoursesPage } from './components/CoursesPage';
 import { NotesVaultHome } from './components/NotesVaultHome';
 import { NoteEditorPage } from './components/NoteEditorPage';
+import { NotePodcastView } from './components/podcast/NotePodcastView';
+import { NotePodcast, GenerationProgressStep } from './types/podcast';
+import { 
+  runPodcastGenerationPipeline, 
+  runIncrementalPodcastUpdate, 
+  checkForMaterialChanges 
+} from './services/podcast/podcastManager';
+import { calculateContentHash } from './services/podcast/sourceProcessor';
 import { db } from './firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { apiUrl } from './services/apiConfig';
 
 const WhatsAppIcon = ({ size = 24, className = "" }: { size?: number, className?: string }) => (
   <svg 
@@ -468,6 +477,165 @@ export const ToolsPage = (props: any) => {
   const setQuizCreationMethod = props.setQuizCreationMethod || setLocalQuizCreationMethod;
 
   const [reviewFilter, setReviewFilter] = useState<'all' | 'correct' | 'incorrect'>('all');
+
+  // Grounded Note Podcast System State
+  const [podcastProgressStep, setPodcastProgressStep] = useState<GenerationProgressStep | null>(null);
+  const [isLocalGeneratingPodcast, setIsLocalGeneratingPodcast] = useState(false);
+
+  // Compute active NotePodcast object with backwards-compatibility synthesis
+  const activeNotePodcast: NotePodcast = useMemo(() => {
+    if (selectedNote?.notePodcast) {
+      return selectedNote.notePodcast;
+    }
+
+    const baseMessages = (selectedNote?.podcastDialogue || podcastDialogue || []).map((d: any, idx: number) => ({
+      id: d.id || `pod_init_${idx}`,
+      podcastId: `pod_${selectedNote?.id || 'note'}`,
+      speaker: (d.char?.toLowerCase() === 'omni' ? 'omni' : (d.char?.toLowerCase() === 'zeal' ? 'zeal' : 'user')) as 'omni' | 'zeal' | 'user',
+      text: d.text || '',
+      replyToSpeaker: d.replyTo ? 'Previous' : undefined,
+      replyToTextSnippet: d.replyTo || undefined,
+      createdAt: new Date().toISOString(),
+      generationType: 'initial' as const,
+      sourceVersion: 1
+    }));
+
+    return {
+      podcastId: `pod_${selectedNote?.id || 'temp'}`,
+      noteId: selectedNote?.id || '',
+      title: `${selectedNote?.title || 'Note'} Podcast`,
+      podcastVersion: 1,
+      materialMode: 'entire_note' as const,
+      messages: baseMessages,
+      sourceSnapshot: [
+        {
+          id: `src_note_${selectedNote?.id || '0'}`,
+          type: 'note_text' as const,
+          name: selectedNote?.title || 'Note Content',
+          contentHash: calculateContentHash(selectedNote?.content || ''),
+          version: 1
+        }
+      ],
+      sourceGraph: {
+        nodes: {
+          [`src_note_${selectedNote?.id || '0'}`]: {
+            id: `src_note_${selectedNote?.id || '0'}`,
+            noteId: selectedNote?.id || '',
+            name: selectedNote?.title || 'Note Content',
+            type: 'note_text' as const,
+            contentHash: calculateContentHash(selectedNote?.content || ''),
+            extractedContent: selectedNote?.content || '',
+            processedAt: new Date().toISOString(),
+            sourceVersion: 1
+          }
+        },
+        edges: [],
+        updatedAt: new Date().toISOString()
+      },
+      generationState: baseMessages.length > 0 ? ('completed' as const) : ('idle' as const),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+  }, [selectedNote?.id, selectedNote?.notePodcast, selectedNote?.podcastDialogue, podcastDialogue, selectedNote?.content, selectedNote?.title]);
+
+  const hasMaterialChanges = useMemo(() => {
+    return checkForMaterialChanges(selectedNote?.notePodcast, selectedNote);
+  }, [selectedNote]);
+
+  const handleSavePodcast = async (updatedPodcast: NotePodcast) => {
+    if (!selectedNote) return;
+    const updatedNote: any = {
+      ...selectedNote,
+      notePodcast: updatedPodcast,
+      podcastDialogue: updatedPodcast.messages.map(m => ({
+        id: m.id,
+        char: m.speaker === 'omni' ? 'Omni' : (m.speaker === 'zeal' ? 'Zeal' : 'User'),
+        text: m.text,
+        replyTo: m.replyToTextSnippet
+      })),
+      updatedAt: new Date()
+    };
+    if (setSelectedNote) {
+      setSelectedNote(updatedNote);
+    }
+    if (saveNote) {
+      await saveNote(updatedNote);
+    }
+  };
+
+  const handleTriggerPodcastRegeneration = async (
+    mode: 'entire_note' | 'folder', 
+    folderId?: string, 
+    folderName?: string
+  ) => {
+    if (!selectedNote) return;
+    setIsLocalGeneratingPodcast(true);
+    setPodcastProgressStep({
+      step: 'reading_note',
+      label: 'Reading note content and extracting sources...',
+      status: 'in_progress'
+    });
+
+    try {
+      const generatedPodcast = await runPodcastGenerationPipeline(
+        selectedNote,
+        userNotes || [],
+        mode,
+        folderId,
+        folderName,
+        (step) => setPodcastProgressStep(step),
+        async (interimPod) => {
+          await handleSavePodcast(interimPod);
+        }
+      );
+      await handleSavePodcast(generatedPodcast);
+      if (setUserNotification) {
+        setUserNotification("Note Podcast generated successfully!");
+      }
+    } catch (err: any) {
+      console.error("Podcast Generation Pipeline Error:", err);
+      if (setUserNotification) {
+        setUserNotification("Failed to complete podcast generation.");
+      }
+    } finally {
+      setIsLocalGeneratingPodcast(false);
+      setPodcastProgressStep(null);
+    }
+  };
+
+  const handleTriggerPodcastUpdate = async () => {
+    if (!selectedNote) return;
+    setIsLocalGeneratingPodcast(true);
+    setPodcastProgressStep({
+      step: 'building_graph',
+      label: 'Analyzing added material...',
+      status: 'in_progress'
+    });
+
+    try {
+      const updatedPod = await runIncrementalPodcastUpdate(
+        activeNotePodcast,
+        selectedNote,
+        userNotes || [],
+        (step) => setPodcastProgressStep(step),
+        async (interimPod) => {
+          await handleSavePodcast(interimPod);
+        }
+      );
+      await handleSavePodcast(updatedPod);
+      if (setUserNotification) {
+        setUserNotification("Note Podcast updated with new material!");
+      }
+    } catch (err: any) {
+      console.error("Incremental Podcast Update Error:", err);
+      if (setUserNotification) {
+        setUserNotification("Failed to update podcast with new material.");
+      }
+    } finally {
+      setIsLocalGeneratingPodcast(false);
+      setPodcastProgressStep(null);
+    }
+  };
 
   React.useEffect(() => {
     if (selectedNote) {
@@ -1428,220 +1596,47 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
         <motion.div key="notebook" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full flex-1 flex flex-col h-full min-h-0 overflow-hidden">
           {selectedNote ? (
             isPodcastActive ? (
-              // FULL SCREEN PODCAST PAGE SEAMLESSLY INTEGRATED
-              <div className="w-full flex-1 flex flex-col bg-[#070A12] min-h-[calc(100vh-65px)]">
-                <div className="p-4 border-b border-white/10 flex items-center justify-between shrink-0 bg-[#0B0F1D]/80 backdrop-blur-md">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-green-500/10 rounded-xl flex items-center justify-center animate-pulse">
-                      <Volume2 className="text-green-400" size={16} />
-                    </div>
-                    <div>
-                      <h3 className="text-xs font-black text-white uppercase tracking-widest">Omni &amp; Zeal</h3>
-                      <p className="text-[8px] text-green-500 font-bold uppercase tracking-widest">Podcast Chat Active</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    {podcastDialogue.length > 0 && (
-                      <div className="flex items-center gap-2">
-                        {podcastSpeechIndex !== null ? (
-                          <button 
-                            onClick={stopPodcastSpeech}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600/20 border border-red-600/30 text-red-500 hover:bg-red-600/30 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all animate-pulse shadow-lg shadow-red-500/10 cursor-pointer"
-                            title="Stop Audio Discussion"
-                          >
-                            <Volume2 size={12} className="animate-bounce" />
-                            <span>Stop</span>
-                          </button>
-                        ) : (
-                          <button 
-                            onClick={() => playPodcastDialogueLine(0, podcastDialogue)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 border border-white/10 text-white/60 hover:text-white hover:bg-white/10 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
-                            title="Listen to Podcast"
-                          >
-                            <VolumeX size={12} />
-                            <span>Speak</span>
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    <button onClick={() => setIsPodcastActive(false)} className="text-white/40 hover:text-white shrink-0 cursor-pointer">
-                      <X size={16} />
-                    </button>
-                  </div>
-                </div>
-                
-                <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 custom-scrollbar bg-[#08070F]">
-                  {podcastDialogue.length === 0 ? (
-                    <div className="h-full flex flex-col items-center justify-center text-center p-8 space-y-6">
-                      <div className="flex items-center justify-center gap-4 relative">
-                        <div className="absolute inset-0 bg-red-500/10 blur-3xl rounded-full" />
-                        <div className="relative w-16 h-16 bg-black border-2 border-red-500/50 rounded-2xl flex items-center justify-center shadow-2xl shadow-red-500/20">
-                          <Brain size={28} className="text-red-500 drop-shadow-[0_0_10px_#EF4444] animate-pulse" />
-                        </div>
-                        <span className="text-red-500/30 text-lg font-bold font-mono">&amp;</span>
-                        <div className="relative w-16 h-16 bg-black border-2 border-red-950/50 rounded-2xl flex items-center justify-center shadow-2xl">
-                          <span className="font-display font-black text-red-800 text-2xl">Z</span>
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <h4 className="text-lg font-black text-white uppercase tracking-tight">Podcast Analysis</h4>
-                        <p className="text-xs text-white/40 max-w-xs mx-auto">Omni and Zeal are ready to discuss your source content.</p>
-                      </div>
-                      <button 
-                        onClick={() => generatePodcastDiscussion(selectedNote.content)}
-                        disabled={isGeneratingPodcast}
-                        className="px-8 py-4 bg-[#DC2626] hover:bg-[#DC2626]/90 text-white font-black rounded-2xl text-[10px] uppercase tracking-widest hover:scale-110 active:scale-95 transition-all disabled:opacity-50 shadow-xl shadow-[#DC2626]/20 cursor-pointer"
-                      >
-                        {isGeneratingPodcast ? 'Analyzing...' : 'Create Podcast'}
-                      </button>
-                    </div>
-                  ) : (
-                    podcastDialogue.map((d: any, idx: number) => (
-                      <motion.div 
-                        key={d.id || idx} 
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className={`flex flex-col ${d.char === 'User' ? 'items-end' : 'items-start'}`}
-                      >
-                        <div className={`max-w-[90%] p-4 rounded-3xl text-xs leading-relaxed relative group ${d.char === 'User' ? 'bg-[#DC2626] text-white shadow-lg shadow-[#DC2626]/10' : 'bg-white/5 text-white/95 border border-white/10'}`}>
-                          <div className="flex items-center justify-between gap-6 mb-2">
-                            <span className={`text-[8px] font-black uppercase tracking-widest ${d.char === 'User' ? 'text-white/60' : (d.char === 'Omni' ? 'text-blue-400' : 'text-purple-400')}`}>{d.char}</span>
-                            {d.char !== 'User' && (
-                              <button 
-                                onClick={() => {
-                                  setReplyingTo(d);
-                                  const inp = document.getElementById('tools-podcast-chat-input');
-                                  if (inp) inp.focus();
-                                }}
-                                className="opacity-0 group-hover:opacity-100 transition-opacity bg-white/10 hover:bg-white/20 px-2 py-0.5 rounded-lg text-[8px] font-black uppercase tracking-tighter cursor-pointer"
-                              >
-                                Tag & Reply
-                              </button>
-                            )}
-                          </div>
-                          
-                          {d.replyTo && (
-                            <div className="mb-2 p-2 bg-white/5 border-l-2 border-white/20 rounded-xl text-[9px] opacity-60 italic max-h-12 overflow-hidden truncate">
-                              {d.replyTo}
-                            </div>
-                          )}
-
-                          <p className="leading-relaxed font-sans">{d.text}</p>
-                        </div>
-                      </motion.div>
-                    ))
-                  )}
-                  {isGeneratingPodcast && (
-                    <div className="flex items-center gap-2 text-white/20 ml-2">
-                      <div className="animate-bounce">●</div>
-                      <div className="animate-bounce delay-75">●</div>
-                      <div className="animate-bounce delay-150">●</div>
-                    </div>
-                  )}
-                </div>
-                
-                <div className="p-4 border-t border-white/10 bg-[#050811] shrink-0">
-                  {replyingTo && (
-                    <div className="mb-3 p-3 bg-[#DC2626]/10 border border-[#DC2626]/20 rounded-2xl flex items-center justify-between">
-                      <div className="flex items-center gap-3 overflow-hidden">
-                        <div className="p-1.5 bg-[#DC2626]/20 rounded-lg">
-                          <CornerDownRight size={12} className="text-[#DC2626]" />
-                        </div>
-                        <div className="overflow-hidden">
-                          <p className="text-[8px] font-black text-[#DC2626] uppercase tracking-widest">Tagging {replyingTo.char}</p>
-                          <p className="text-[10px] text-white/60 truncate line-clamp-1">{replyingTo.text}</p>
-                        </div>
-                      </div>
-                      <button onClick={() => setReplyingTo(null)} className="p-2 text-white/20 hover:text-white shrink-0 cursor-pointer">
-                        <X size={14} />
-                      </button>
-                    </div>
-                  )}
-
-                  <div className="relative">
-                    <div className="absolute left-3 top-1/2 -translate-y-1/2">
-                      <button 
-                        onClick={() => setShowPodcastUploadMenu(!showPodcastUploadMenu)}
-                        className={`p-1.5 rounded-lg transition-all ${showPodcastUploadMenu ? 'bg-[#DC2626] text-white shadow-lg' : 'bg-white/5 text-white/40 hover:text-white'}`}
-                      >
-                        <Plus size={16} />
-                      </button>
-                      
-                      <AnimatePresence>
-                        {showPodcastUploadMenu && (
-                          <>
-                            <div className="fixed inset-0 z-40" onClick={() => setShowPodcastUploadMenu(false)} />
-                            <motion.div 
-                              initial={{ y: 20, opacity: 0, scale: 0.9 }}
-                              animate={{ y: -160, opacity: 1, scale: 1 }}
-                              exit={{ y: 20, opacity: 0, scale: 0.9 }}
-                              className="absolute left-0 w-44 bg-[#0F172A] border border-white/10 rounded-2xl p-1 shadow-2xl z-50 flex flex-col gap-1 ring-1 ring-white/10"
-                            >
-                              <label className="flex items-center gap-2.5 p-2 bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer group">
-                                <div className="p-1.5 bg-blue-500/10 rounded-lg"><ImageIcon size={14} className="text-blue-400" /></div>
-                                <span className="text-[8px] font-black text-white uppercase tracking-widest">Image Source</span>
-                                <input type="file" className="hidden" accept="image/*" onChange={(e) => { uploadNoteFile(e, 'image'); setShowPodcastUploadMenu(false); }} />
-                              </label>
-                              <label className="flex items-center gap-2.5 p-2 bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer group">
-                                <div className="p-1.5 bg-green-500/10 rounded-lg"><Mic size={14} className="text-green-400" /></div>
-                                <span className="text-[8px] font-black text-white uppercase tracking-widest">Voice Memo</span>
-                                <input type="file" className="hidden" accept="audio/*" onChange={(e) => { uploadNoteFile(e, 'audio'); setShowPodcastUploadMenu(false); }} />
-                              </label>
-                              <label className="flex items-center gap-2.5 p-2 bg-white/5 hover:bg-white/10 rounded-xl transition-all cursor-pointer group">
-                                <div className="p-1.5 bg-yellow-500/10 rounded-lg"><FileText size={14} className="text-yellow-400" /></div>
-                                <span className="text-[8px] font-black text-white uppercase tracking-widest">Document</span>
-                                <input type="file" className="hidden" accept=".pdf,.doc,.docx,.txt" onChange={(e) => { uploadNoteFile(e, 'doc'); setShowPodcastUploadMenu(false); }} />
-                              </label>
-                            </motion.div>
-                          </>
-                        )}
-                      </AnimatePresence>
-                    </div>
-
-                    <textarea 
-                      id="tools-podcast-chat-input"
-                      autoComplete="off"
-                      placeholder="Chat with Omni &amp; Zeal..."
-                      className="w-full bg-white/5 border border-white/10 rounded-2xl pl-12 pr-12 py-3 text-xs text-white outline-none focus:border-blue-500/50 transition-all placeholder:text-white/20 resize-none h-[42px] min-h-[42px] max-h-[112px] custom-scrollbar leading-relaxed"
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          const target = e.target as HTMLTextAreaElement;
-                          if (target.value.trim()) {
-                            handlePodcastInput(target.value);
-                            target.value = '';
-                            target.style.height = '42px';
-                          }
-                        }
-                      }}
-                      onInput={(e) => {
-                        const target = e.target as HTMLTextAreaElement;
-                        target.style.height = 'auto';
-                        target.style.height = `${Math.min(target.scrollHeight, 112)}px`;
-                      }}
-                    />
-                    <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                      <button 
-                        onClick={() => {
-                          const input = document.getElementById('tools-podcast-chat-input') as HTMLTextAreaElement;
-                          if (input && input.value.trim()) {
-                            handlePodcastInput(input.value);
-                            input.value = '';
-                            input.style.height = '42px';
-                          }
-                        }}
-                        className="p-1.5 bg-[#DC2626] text-white rounded-lg shadow-lg hover:scale-110 active:scale-95 transition-all cursor-pointer"
-                      >
-                        <Send size={14} />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <NotePodcastView
+                podcast={activeNotePodcast}
+                note={selectedNote}
+                userNotes={userNotes || []}
+                theme={theme}
+                onBack={() => setIsPodcastActive(false)}
+                onSavePodcast={handleSavePodcast}
+                isGenerating={isGeneratingPodcast || isLocalGeneratingPodcast}
+                currentProgressStep={podcastProgressStep}
+                onTriggerRegeneration={handleTriggerPodcastRegeneration}
+                onTriggerUpdateWithNewMaterial={handleTriggerPodcastUpdate}
+                hasDetectedChanges={hasMaterialChanges}
+              />
             ) : (
               <NoteEditorPage
                 note={selectedNote}
                 theme={theme}
+                userNotes={userNotes || []}
+                onOpenPodcastView={() => {
+                  setIsPodcastActive(true);
+                  if (activeNotePodcast.messages.length === 0) {
+                    handleTriggerPodcastRegeneration('entire_note');
+                  }
+                }}
+                onSelectNote={(targetNote) => setSelectedNote(targetNote)}
+                onCreateChildNote={async (childTitle, parentId) => {
+                  if (saveNote) {
+                    const newChildNote: any = {
+                      id: `note-child-${Date.now()}`,
+                      parentId: parentId,
+                      title: childTitle,
+                      folder: selectedNote?.title || 'History',
+                      isFolder: true,
+                      content: `# ${childTitle}\n\n*Child folder inside ${selectedNote?.title || 'Note'}*\n\n`,
+                      createdAt: new Date(),
+                      updatedAt: new Date()
+                    };
+                    await saveNote(newChildNote);
+                    setSelectedNote(newChildNote);
+                  }
+                }}
                 onBack={() => setSelectedNote(null)}
                 onSaveNote={(updatedNote) => {
                   setSelectedNote(updatedNote);
@@ -1686,7 +1681,7 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                     }
 
                     // Route to Google Drive Community Upload Proxy
-                    await fetch('/api/drive/upload', {
+                    await fetch(apiUrl('/api/drive/upload'), {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({
@@ -1722,11 +1717,11 @@ Hi Omni! I just finished taking this quiz on "${quizTopic || 'Study Material'}".
                 }}
                 setUserNotification={setUserNotification}
                 onStartPodcast={(sourceText) => {
-                  if (generatePodcastDiscussion) {
-                    generatePodcastDiscussion(sourceText);
-                  }
                   if (setIsPodcastActive) {
                     setIsPodcastActive(true);
+                  }
+                  if (activeNotePodcast.messages.length === 0) {
+                    handleTriggerPodcastRegeneration('entire_note');
                   }
                 }}
                 onSetQuiz={(noteObj) => {

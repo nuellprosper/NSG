@@ -90,6 +90,16 @@ import {
   OFFLINE_MODEL_NOT_DOWNLOADED_MSG
 } from './lib/capacitor';
 import { requestMicrophonePermission, getSupportedAudioMimeType } from './lib/audioRecorder';
+import { apiUrl } from './services/apiConfig';
+import {
+  createLectureNoteStructure,
+  parseTranscriptIntoSegments,
+  formatSegmentsAsMarkdown,
+  generateExplanationFromTranscript,
+  VERBATIM_TRANSCRIPTION_SYSTEM_PROMPT,
+  LECTURE_EXPLANATION_SYSTEM_PROMPT,
+  TranscriptSegment
+} from './lib/lectureProcessor';
 
 
 import { 
@@ -212,10 +222,11 @@ export default function App() {
     setMeta('meta[name="twitter:description"]', description);
   };
   // --- \u{1F510} AUTH STATE ---
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<any>(() => auth.currentUser);
   const [currentUserData, setCurrentUserData] = useState<any>(null);
   const [isAdminUser, setIsAdminUser] = useState(false);
-  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [isAuthReady, setIsAuthReady] = useState<boolean>(() => Boolean(auth.currentUser));
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(() => !Boolean(auth.currentUser));
 
   // --- OFFLINE WARNING MODAL STATE ---
   const [showOfflineModal, setShowOfflineModal] = useState(false);
@@ -813,7 +824,9 @@ export default function App() {
 
   // Auto-close auth modal when user is logged in, or force auth modal when unauthenticated
   useEffect(() => {
-    if (user && !isAuthLoading) {
+    if (!isAuthReady) return;
+
+    if (user) {
       if (showAuthModal && !pendingQuizId && !sessionStorage.getItem('nsg_pending_quiz_id')) {
         setShowAuthModal(false);
       }
@@ -827,12 +840,12 @@ export default function App() {
         setUserNotification("Authentication successful! Loading your shared quiz...");
         loadSharedQuiz(targetQuiz);
       }
-    } else if (!isAuthLoading && !user) {
+    } else {
       if (!showAuthModal) {
         setShowAuthModal(true);
       }
     }
-  }, [user, isAuthLoading, showAuthModal, pendingQuizId]);
+  }, [user, isAuthReady, showAuthModal, pendingQuizId]);
   useEffect(() => {
     if (!isAdminUser) return;
     const q = query(collection(db, 'reports'), orderBy('timestamp', 'desc'));
@@ -2671,6 +2684,10 @@ export default function App() {
   const [showPodcastUploadMenu, setShowPodcastUploadMenu] = useState(false);
   const transcriptionNotesRef = useRef('');
   const activeRecordingNoteIdRef = useRef<string | null>(null);
+  const activeParentNoteIdRef = useRef<string | null>(null);
+  const activeTranscriptNoteIdRef = useRef<string | null>(null);
+  const activeExplanationNoteIdRef = useRef<string | null>(null);
+  const activeTranscriptSegmentsRef = useRef<TranscriptSegment[]>([]);
   const finalRecordingTitleRef = useRef<string>("Untitled");
 
   // Helper to get unfinished items
@@ -3102,6 +3119,12 @@ export default function App() {
           return timeB - timeA;
         });
         setUserNotes(sortedList);
+        setSelectedNote(prev => {
+          if (prev?.id && mapById.has(prev.id)) {
+            return { ...prev, ...mapById.get(prev.id) };
+          }
+          return prev;
+        });
 
         try {
           // Keep a lightweight cache representation to prevent QuotaExceededError in localStorage
@@ -3550,6 +3573,22 @@ export default function App() {
       updatedAt: serverTimestamp()
     };
 
+    if (typeof contentOrNote === 'object' && contentOrNote !== null) {
+      if (contentOrNote.notePodcast !== undefined) noteData.notePodcast = contentOrNote.notePodcast;
+      if (contentOrNote.parentId !== undefined) noteData.parentId = contentOrNote.parentId;
+      if (contentOrNote.isFolder !== undefined) noteData.isFolder = contentOrNote.isFolder;
+      if (contentOrNote.isParentNote !== undefined) noteData.isParentNote = contentOrNote.isParentNote;
+      if (contentOrNote.subType !== undefined) noteData.subType = contentOrNote.subType;
+      if (contentOrNote.sourceAudioSessionId !== undefined) noteData.sourceAudioSessionId = contentOrNote.sourceAudioSessionId;
+      if (contentOrNote.processingStatus !== undefined) noteData.processingStatus = contentOrNote.processingStatus;
+      if (contentOrNote.processingError !== undefined) noteData.processingError = contentOrNote.processingError;
+      if (contentOrNote.transcriptSegments !== undefined) noteData.transcriptSegments = contentOrNote.transcriptSegments;
+      if (contentOrNote.explanationSections !== undefined) noteData.explanationSections = contentOrNote.explanationSections;
+      if (contentOrNote.diarizationNotice !== undefined) noteData.diarizationNotice = contentOrNote.diarizationNotice;
+      if (contentOrNote.isTranscribing !== undefined) noteData.isTranscribing = contentOrNote.isTranscribing;
+      if (contentOrNote.fragments !== undefined) noteData.fragments = contentOrNote.fragments;
+    }
+
     // Firestore 1MB Limit Check
     const size = calculateDocumentSize(noteData);
     if (size > 1000000) { // Limit is 1,048,576 bytes
@@ -3642,7 +3681,7 @@ export default function App() {
     if (!selectedNote.id && !selectedNote.content && !selectedNote.title) return;
 
     const timer = setTimeout(() => {
-      saveNote(selectedNote.content, selectedNote.title, selectedNote.id, selectedNote.attachments, podcastDialogue);
+      saveNote(selectedNote);
     }, 1000); // 1 second auto-save
     return () => clearTimeout(timer);
   }, [selectedNote?.content, selectedNote?.title, selectedNote?.attachments, user, podcastDialogue]);
@@ -4187,7 +4226,7 @@ export default function App() {
         return;
       }
 
-      const res = await axios.post('/api/admin/broadcast-list', { 
+      const res = await axios.post(apiUrl('/api/admin/broadcast-list'), { 
         secret: 'GOD_MODE',
         recipients,
         subjectTemplate: subject,
@@ -4534,7 +4573,7 @@ export default function App() {
       // Stage 2: Background secure server-side verification to settle ledger
       if (reference) {
         try {
-          await axios.post('/api/verify-payment', {
+          await axios.post(apiUrl('/api/verify-payment'), {
             reference,
             uid: user.uid,
             plan
@@ -4549,7 +4588,7 @@ export default function App() {
 
       // Send Thank You Email
       try {
-        await axios.post('/api/send-premium-thank-you', {
+        await axios.post(apiUrl('/api/send-premium-thank-you'), {
           email: user.email || '',
           name: currentUserData?.fullName || user.displayName || 'Student'
         });
@@ -4627,7 +4666,7 @@ export default function App() {
       if (ref) {
         try {
           setUserNotification("Verifying pending payment...");
-          const response = await fetch('/api/verify-payment', {
+          const response = await fetch(apiUrl('/api/verify-payment'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: circularSafeStringify({ reference: ref, uid: user.uid, plan: plan })
@@ -4695,13 +4734,29 @@ export default function App() {
     // Initialize native GoogleAuth plugin on mount
     initGoogleAuth().catch((err) => console.warn("GoogleAuth startup initialization note:", err));
 
-    // Safety fallback timer to prevent indefinite auth loading screen
-    const authSafetyTimeout = setTimeout(() => {
+    let isMounted = true;
+
+    // Immediately resolve initial auth state from Firebase cleanly without artificial delay
+    auth.authStateReady().then(() => {
+      if (!isMounted) return;
+      const initialUser = auth.currentUser;
+      setUser(initialUser);
       setIsAuthLoading(false);
-    }, 2500);
+      setIsAuthReady(true);
+      if (initialUser) {
+        setShowAuthModal(false);
+      } else {
+        setShowAuthModal(true);
+      }
+    }).catch((err) => {
+      console.warn("Auth readiness check note:", err);
+      if (!isMounted) return;
+      setIsAuthLoading(false);
+      setIsAuthReady(true);
+    });
 
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
-      clearTimeout(authSafetyTimeout);
+      if (!isMounted) return;
       // Clear any existing snapshot listener
       if (userUnsubscribeRef.current) {
         userUnsubscribeRef.current();
@@ -4709,6 +4764,8 @@ export default function App() {
       }
 
       setUser(currentUser);
+      setIsAuthLoading(false);
+      setIsAuthReady(true);
       
       if (currentUser) {
         const userDocRef = doc(db, 'users', currentUser.uid);
@@ -4840,6 +4897,8 @@ export default function App() {
         setShowPremiumTrial(false);
         setShowPremiumModal(false);
         setIsAuthLoading(false);
+        setIsAuthReady(true);
+        setShowAuthModal(true);
       }
     });
 
@@ -4847,13 +4906,13 @@ export default function App() {
     const urlParams = new URLSearchParams(window.location.search);
     const quizId = urlParams.get('quizId');
     if (quizId) {
-      if (user) {
+      const activeUser = auth.currentUser || user;
+      if (activeUser) {
         loadSharedQuiz(quizId);
       } else {
         // Do NOT load quiz until user logs in. Save pending quiz ID and trigger login modal.
         setPendingQuizId(quizId);
         sessionStorage.setItem('nsg_pending_quiz_id', quizId);
-        setShowAuthModal(true);
       }
     } else {
       // Check for local unsaved quiz progress
@@ -4936,7 +4995,12 @@ export default function App() {
     if (!hasSeenWelcome) setShowWelcome(true);
 
     return () => {
+      isMounted = false;
       unsubscribeAuth();
+      if (userUnsubscribeRef.current) {
+        userUnsubscribeRef.current();
+        userUnsubscribeRef.current = null;
+      }
     };
   }, []);
 
@@ -5475,7 +5539,7 @@ export default function App() {
         
         // Send Welcome Email
         try {
-          await axios.post('/api/send-welcome-email', {
+          await axios.post(apiUrl('/api/send-welcome-email'), {
             email: newUser.email,
             name: authFullName
           });
@@ -5491,7 +5555,7 @@ export default function App() {
         if (!isLikelyEmail) {
           try {
             // Use server-side proxy for matric lookup to avoid unauthenticated Firestore list permissions
-            const res = await axios.get(`/api/lookup-user?matric=${encodeURIComponent(authEmail.trim())}`);
+            const res = await axios.get(apiUrl(`/api/lookup-user?matric=${encodeURIComponent(authEmail.trim())}`));
             if (res.data.email) {
               loginEmail = res.data.email;
             } else {
@@ -6914,9 +6978,9 @@ ${session.fullAnalysis}
       createdAt: Date.now(),
       duration: formattedDuration,
       imageCount: 0,
-      summary: `Uploaded audio (${numFragments} parts). Active sequential transcription in progress...`,
+      summary: `Uploaded audio (${numFragments} parts). Tripartite lecture processing in progress...`,
       fullAnalysis: "",
-      notes: "Transcribing audio fragments into structured study note...",
+      notes: "Transcribing verbatim lecture transcript and synthesizing academic explanation...",
       images: [],
       audioUrl: attachments[0]?.url || url,
       status: 'analyzed'
@@ -6925,76 +6989,84 @@ ${session.fullAnalysis}
     setSessions(prev => [uploadedSession, ...prev]);
     setSelectedSession(uploadedSession);
 
-    const initialNote = {
-      id: newNoteId,
-      title: `${cleanFileName}`,
-      content: `# Transcribing Audio (${numFragments} Fragments)...\n\nAudio fragments uploaded to Cloudinary. Sequential context-aware AI transcription in progress...`,
-      isTranscribing: true,
-      createdAt: { toMillis: () => Date.now(), toDate: () => new Date() } as any,
-      updatedAt: { toMillis: () => Date.now(), toDate: () => new Date() } as any,
-      attachments: attachments,
-      fragments: fragments.map(f => ({ index: f.index, name: f.name, url: f.url, status: f.status }))
-    };
+    // Create hierarchical note structure: Main Note (Transcript), Subfolder Note (Transcript Summary)
+    const { parentNote, summaryNote } = createLectureNoteStructure(
+      cleanFileName,
+      null,
+      newSessionId
+    );
 
-    setActiveAudioNoteId(newNoteId);
+    parentNote.attachments = attachments;
+    parentNote.fragments = fragments.map(f => ({ index: f.index, name: f.name, url: f.url, status: f.status }));
+
+    setActiveAudioNoteId(parentNote.id);
     setIsAudioTranscribing(true);
     setAudioTranscribingPopup(true);
 
-    setUserNotes(prev => [initialNote, ...prev]);
+    setUserNotes(prev => [parentNote, summaryNote, ...prev.filter(n => n.id !== parentNote.id && n.id !== summaryNote.id)]);
 
     if (user?.uid) {
       try {
-        await setDoc(doc(db, 'notes', newNoteId), {
-          ...initialNote,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        });
-        await setDoc(doc(db, 'users', user.uid, 'lectureSessions', newSessionId), uploadedSession);
+        await Promise.all([
+          setDoc(doc(db, 'notes', parentNote.id), { ...parentNote, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }),
+          setDoc(doc(db, 'notes', summaryNote.id), { ...summaryNote, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }),
+          setDoc(doc(db, 'users', user.uid, 'lectureSessions', newSessionId), uploadedSession)
+        ]);
       } catch (e) {
-        console.error("Error saving note/session:", e);
+        console.error("Error saving hierarchical notes/session:", e);
       }
     }
 
     // Background Sequential Transcription Loop across all fragments with continuous context awareness
     (async () => {
       const aiInstance = getAiInstance();
-      let accumulatedText = "";
+      let allSegments: TranscriptSegment[] = [];
 
       for (let i = 0; i < fragments.length; i++) {
         const frag = fragments[i];
         try {
-          setUserNotification(`Transcribing Part ${i + 1} of ${fragments.length} seamlessly...`);
+          setUserNotification(`Transcribing Part ${i + 1} of ${fragments.length} verbatim...`);
           
           const audioPart = await fileToGenerativePart(frag.fileBlob);
 
-          const prompt = i === 0
-            ? `You are an expert academic assistant. Analyze this first audio fragment (Part 1 of ${fragments.length}) of "${cleanFileName}" and generate a comprehensive, structured markdown study note ("perfect note"). Include clean headings, key concepts, detailed explanations, bullet points, summaries, and actionable study takeaways. Output ONLY the clean markdown note content.`
-            : `You are continuing the analysis of audio recording "${cleanFileName}" (Part ${i + 1} of ${fragments.length}). Here is the previous transcription context so far:\n\n${accumulatedText}\n\nContinue transcribing and expanding the structured markdown study note seamlessly from where it left off, integrating new details from this next part without repeating. Output ONLY the clean markdown note content.`;
+          const prompt = `Transcribe this audio fragment (Part ${i + 1} of ${fragments.length}) of "${cleanFileName}". Follow all verbatim speech rules faithfully. Include speaker turns.`;
 
           const response = await aiInstance.models.generateContent({
             model: FLASH_MODEL,
-            contents: [{ parts: [audioPart, { text: prompt }] }]
+            contents: [{ parts: [audioPart, { text: prompt }] }],
+            config: {
+              systemInstruction: VERBATIM_TRANSCRIPTION_SYSTEM_PROMPT
+            }
           });
 
           const partText = response.text || "";
           if (partText) {
-            accumulatedText = accumulatedText ? `${accumulatedText}\n\n### Part ${i + 1} Continuation\n\n${partText}` : partText;
+            const timeTag = `${Math.floor((i * chunkSec) / 60)}:00`;
+            const fragSegments = parseTranscriptIntoSegments(partText, allSegments.length, timeTag);
+            allSegments = [...allSegments, ...fragSegments];
           }
 
-          // Update note state and Firestore in real-time
-          setUserNotes(prev => prev.map(n => n.id === newNoteId ? {
+          const currentTranscriptMd = formatSegmentsAsMarkdown(allSegments);
+
+          // Update Main Note (Transcript) in state and Firestore in real-time
+          setUserNotes(prev => prev.map(n => n.id === parentNote.id ? {
             ...n,
-            content: accumulatedText,
+            content: currentTranscriptMd,
+            transcriptSegments: allSegments,
+            processingStatus: 'transcribing',
             updatedAt: { toMillis: () => Date.now(), toDate: () => new Date() } as any
           } : n));
-          setSelectedNote(prev => prev && prev.id === newNoteId ? {
+
+          setSelectedNote(prev => prev && prev.id === parentNote.id ? {
             ...prev,
-            content: accumulatedText
+            content: currentTranscriptMd,
+            transcriptSegments: allSegments
           } : prev);
 
           if (user?.uid) {
-            await updateDoc(doc(db, 'notes', newNoteId), {
-              content: accumulatedText,
+            await updateDoc(doc(db, 'notes', parentNote.id), {
+              content: currentTranscriptMd,
+              transcriptSegments: allSegments,
               updatedAt: serverTimestamp()
             });
           }
@@ -7003,38 +7075,73 @@ ${session.fullAnalysis}
         }
       }
 
-      // Finalize note transcription
-      setUserNotes(prev => prev.map(n => n.id === newNoteId ? {
+      // Finalize verbatim transcript in Main Note
+      const finalTranscriptMd = formatSegmentsAsMarkdown(allSegments);
+      setUserNotes(prev => prev.map(n => n.id === parentNote.id ? {
         ...n,
-        content: accumulatedText || "# Transcription completed with notes.",
+        content: finalTranscriptMd,
+        transcriptSegments: allSegments,
+        processingStatus: 'completed',
         isTranscribing: false,
         updatedAt: { toMillis: () => Date.now(), toDate: () => new Date() } as any
       } : n));
 
-      setSelectedNote(prev => prev && prev.id === newNoteId ? {
+      setSelectedNote(prev => prev && prev.id === parentNote.id ? {
         ...prev,
-        content: accumulatedText || "# Transcription completed with notes.",
-        isTranscribing: false
+        content: finalTranscriptMd,
+        transcriptSegments: allSegments,
+        processingStatus: 'completed'
       } : prev);
 
-      setSessions(prev => prev.map(s => s.id === newSessionId ? {
-        ...s,
-        notes: accumulatedText,
-        fullAnalysis: accumulatedText,
-        summary: "Successfully transcribed all fragments seamlessly into note."
-      } : s));
+      if (user?.uid) {
+        await updateDoc(doc(db, 'notes', parentNote.id), {
+          content: finalTranscriptMd,
+          transcriptSegments: allSegments,
+          processingStatus: 'completed',
+          isTranscribing: false,
+          updatedAt: serverTimestamp()
+        });
+      }
+
+      // Synthesize Long Transcript Summary for the Subfolder Note
+      setUserNotification("Generating comprehensive transcript summary...");
+      let finalExplanation = "";
+      try {
+        const fullTranscriptRaw = allSegments.map(s => `${s.speaker}: ${s.text}`).join('\n\n');
+        finalExplanation = await generateExplanationFromTranscript(fullTranscriptRaw, async (prompt, systemPrompt) => {
+          const res = await aiInstance.models.generateContent({
+            model: MODEL_NAME,
+            contents: prompt,
+            config: { systemInstruction: systemPrompt }
+          });
+          return res.text || null;
+        });
+
+        // Update Summary Subfolder Note
+        setUserNotes(prev => prev.map(n => n.id === summaryNote.id ? {
+          ...n,
+          content: finalExplanation,
+          processingStatus: 'completed',
+          updatedAt: { toMillis: () => Date.now(), toDate: () => new Date() } as any
+        } : n));
+
+        if (user?.uid) {
+          await updateDoc(doc(db, 'notes', summaryNote.id), {
+            content: finalExplanation,
+            processingStatus: 'completed',
+            updatedAt: serverTimestamp()
+          });
+        }
+      } catch (explErr) {
+        console.error("Error generating summary for uploaded audio:", explErr);
+      }
 
       if (user?.uid) {
         try {
-          await updateDoc(doc(db, 'notes', newNoteId), {
-            content: accumulatedText || "# Transcription completed with notes.",
-            isTranscribing: false,
-            updatedAt: serverTimestamp()
-          });
           await updateDoc(doc(db, 'users', user.uid, 'lectureSessions', newSessionId), {
-            notes: accumulatedText,
-            fullAnalysis: accumulatedText,
-            summary: "Successfully transcribed all fragments seamlessly into note."
+            notes: finalTranscriptMd,
+            fullAnalysis: finalExplanation,
+            summary: "Successfully transcribed audio into main transcript with summary subfolder."
           });
         } catch (e) {}
       }
@@ -7042,7 +7149,7 @@ ${session.fullAnalysis}
       setIsAudioTranscribing(false);
       setActiveAudioNoteId(null);
       setAudioTranscribingPopup(false);
-      setUserNotification("All audio fragments successfully transcribed into note!");
+      setUserNotification("Audio transcript and Transcript Summary ready!");
     })();
   };
 
@@ -7195,13 +7302,69 @@ ${session.fullAnalysis}
       try {
         await processorQueue.current;
         const aiTitle = await generateAITitleForNote(transcriptionNotesRef.current);
-        const finalTitle = aiTitle === "Untitled" ? "Untitled" : `${aiTitle} ${formatNoteTimeDate()}`;
+        const finalTitle = (aiTitle && aiTitle !== "Untitled") ? aiTitle : `Lecture ${formatNoteTimeDate()}`;
         finalRecordingTitleRef.current = finalTitle;
 
-        if (activeRecordingNoteIdRef.current) {
-          await saveNote(transcriptionNotesRef.current, finalTitle, activeRecordingNoteIdRef.current);
+        // 1. Finalize Transcript in Main Note
+        if (activeParentNoteIdRef.current) {
+          const finalTranscriptMd = formatSegmentsAsMarkdown(activeTranscriptSegmentsRef.current);
+          await saveNote({
+            id: activeParentNoteIdRef.current,
+            title: finalTitle,
+            folder: finalTitle,
+            content: finalTranscriptMd,
+            transcriptSegments: activeTranscriptSegmentsRef.current,
+            isParentNote: true,
+            isFolder: true,
+            processingStatus: 'completed',
+            isTranscribing: false
+          });
         }
-        setUserNotification("Transcription and note creation completed!");
+
+        // 2. Synthesize and finalize Transcript Summary in Subfolder Note
+        if (activeExplanationNoteIdRef.current) {
+          const fullTranscriptText = activeTranscriptSegmentsRef.current.length > 0
+            ? activeTranscriptSegmentsRef.current.map(s => `${s.speaker}: ${s.text}`).join('\n\n')
+            : transcriptionNotesRef.current;
+
+          if (fullTranscriptText.trim()) {
+            await saveNote({
+              id: activeExplanationNoteIdRef.current,
+              title: 'Transcript Summary',
+              folder: finalTitle,
+              processingStatus: 'generating'
+            });
+
+            try {
+              const explanationMd = await generateExplanationFromTranscript(fullTranscriptText, async (prompt, systemPrompt) => {
+                const aiInstance = getAiInstance();
+                const res = await aiInstance.models.generateContent({
+                  model: MODEL_NAME,
+                  contents: prompt,
+                  config: { systemInstruction: systemPrompt }
+                });
+                return res.text || null;
+              });
+
+              await saveNote({
+                id: activeExplanationNoteIdRef.current,
+                folder: finalTitle,
+                content: explanationMd,
+                processingStatus: 'completed'
+              });
+            } catch (err) {
+              console.error("Failed to generate transcript summary:", err);
+              await saveNote({
+                id: activeExplanationNoteIdRef.current,
+                folder: finalTitle,
+                processingStatus: 'error',
+                content: `## Transcript Summary\n\n*Summary generation encountered an issue.*`
+              });
+            }
+          }
+        }
+
+        setUserNotification("Audio recording transcript and Transcript Summary ready!");
       } catch (err) {
         console.error("Error finalizing recording:", err);
       } finally {
@@ -7222,6 +7385,7 @@ ${session.fullAnalysis}
       setAudioUrl(null);
       setRecordedBlob(null);
       activeRecordingNoteIdRef.current = null;
+      activeTranscriptSegmentsRef.current = [];
       finalRecordingTitleRef.current = "Untitled";
 
       const newSessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
@@ -7245,10 +7409,24 @@ ${session.fullAnalysis}
         });
       }, 1000);
 
-      // Create placeholder note in vault
-      const initNoteId = await saveNote("Transcribing lecture content...", "Untitled");
-      activeRecordingNoteIdRef.current = initNoteId;
-      setActiveAudioNoteId(initNoteId);
+      // Create hierarchical note structure: Main Note (Transcript), Subfolder Note (Transcript Summary)
+      const { parentNote, summaryNote } = createLectureNoteStructure(
+        "Lecture Recording",
+        null,
+        newSessionId
+      );
+
+      activeParentNoteIdRef.current = parentNote.id;
+      activeTranscriptNoteIdRef.current = parentNote.id;
+      activeExplanationNoteIdRef.current = summaryNote.id;
+      activeRecordingNoteIdRef.current = parentNote.id;
+
+      await Promise.all([
+        saveNote(parentNote),
+        saveNote(summaryNote)
+      ]);
+
+      setActiveAudioNoteId(parentNote.id);
       setIsAudioTranscribing(true);
       setAudioTranscribingPopup(true);
 
@@ -7643,53 +7821,44 @@ ${session.fullAnalysis}
         let cleanedPart = "";
         if (newPart && newPart.trim()) {
           cleanedPart = newPart.trim();
-        } else {
-          cleanedPart = "not clear....";
         }
 
-        // Avoid repeating duplicate "not clear...." consecutively
-        if (cleanedPart === "not clear...." && lastFinalizedTranscriptRef.current.endsWith("not clear....")) {
-          return;
-        }
-
-        const updatedText = lastFinalizedTranscriptRef.current + (lastFinalizedTranscriptRef.current ? " " : "") + cleanedPart;
-        
-        setTranscriptionNotes(updatedText);
-        transcriptionNotesRef.current = updatedText;
-        lastFinalizedTranscriptRef.current = updatedText;
-        
-        // Update the active real-time Note in custom Vault
-        if (activeRecordingNoteIdRef.current) {
-          saveNote(updatedText, "Untitled", activeRecordingNoteIdRef.current).catch(() => {});
-        }
-
-        if (isOnline && user && currentRecordingSessionIdRef.current) {
-          updateDoc(doc(db, 'users', user.uid, 'lectureSessions', currentRecordingSessionIdRef.current), {
-            notes: updatedText,
-            updatedAt: serverTimestamp()
-          }).catch(() => {});
-        }
-      } else {
-        // If no raw transcript at all, treat as unclear
-        const cleanedPart = "not clear....";
-        if (!lastFinalizedTranscriptRef.current.endsWith("not clear....")) {
+        if (cleanedPart && !cleanedPart.toLowerCase().includes("not clear")) {
           const updatedText = lastFinalizedTranscriptRef.current + (lastFinalizedTranscriptRef.current ? " " : "") + cleanedPart;
           
           setTranscriptionNotes(updatedText);
           transcriptionNotesRef.current = updatedText;
           lastFinalizedTranscriptRef.current = updatedText;
+
+          // Parse speaker segments
+          const timeTag = formatTime(recordingTime);
+          const parsed = parseTranscriptIntoSegments(cleanedPart, activeTranscriptSegmentsRef.current.length, timeTag);
+          if (parsed.length > 0) {
+            activeTranscriptSegmentsRef.current = [...activeTranscriptSegmentsRef.current, ...parsed];
+          }
+          const formattedTranscript = formatSegmentsAsMarkdown(activeTranscriptSegmentsRef.current);
           
-          if (activeRecordingNoteIdRef.current) {
+          // Update Transcript Child Note in custom Vault
+          if (activeTranscriptNoteIdRef.current) {
+            saveNote({
+              id: activeTranscriptNoteIdRef.current,
+              content: formattedTranscript,
+              transcriptSegments: activeTranscriptSegmentsRef.current,
+              processingStatus: 'transcribing'
+            }).catch(() => {});
+          } else if (activeRecordingNoteIdRef.current) {
             saveNote(updatedText, "Untitled", activeRecordingNoteIdRef.current).catch(() => {});
           }
 
           if (isOnline && user && currentRecordingSessionIdRef.current) {
             updateDoc(doc(db, 'users', user.uid, 'lectureSessions', currentRecordingSessionIdRef.current), {
-              notes: updatedText,
+              notes: formattedTranscript,
               updatedAt: serverTimestamp()
             }).catch(() => {});
           }
         }
+      } else {
+        // Silence or low energy chunk - no action needed to keep transcript clean
       }
     } catch (err) {
       console.error("Transcription Error:", err);
@@ -9929,6 +10098,15 @@ Provide a highly detailed, clean, precise transcription. Return ONLY the transcr
   const isSecondaryPage = !isMainPage;
 
   const isAuthView = Boolean(!user || showAuthModal || (activeTab === 'profile' && !user));
+
+  if (!isAuthReady) {
+    return (
+      <div 
+        className="h-screen w-screen flex items-center justify-center bg-[#0B0813] text-[#F0F4FF] overflow-hidden select-none"
+        style={{ backgroundColor: '#0B0813' }}
+      />
+    );
+  }
 
   return (
     <AppBootstrapper onDeepLink={handleDeepLinkUrl}>

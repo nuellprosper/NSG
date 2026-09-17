@@ -7,6 +7,7 @@ import {
   persistentMultipleTabManager, 
   persistentSingleTabManager, 
   memoryLocalCache, 
+  setLogLevel,
   doc, 
   getDoc, 
   setDoc, 
@@ -26,6 +27,11 @@ import {
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
+// Silence non-fatal transport warnings (e.g. initial offline detection / fallback notifications)
+try {
+  setLogLevel('error');
+} catch (e) {}
+
 // Initialize Firebase SDK with fixed valid authDomain
 const activeFirebaseConfig = {
   ...firebaseConfig,
@@ -34,7 +40,7 @@ const activeFirebaseConfig = {
 
 const app = initializeApp(activeFirebaseConfig);
 
-// Initialize Firestore with auto-detecting transport and resilient caching
+// Initialize Firestore with force long polling to prevent 10s WebSocket timeout in sandboxed iframe environments
 const databaseId = firebaseConfig.firestoreDatabaseId || '(default)';
 let firestoreInstance: any;
 
@@ -43,21 +49,21 @@ try {
     localCache: persistentLocalCache({
       tabManager: persistentMultipleTabManager()
     }),
-    experimentalAutoDetectLongPolling: true,
+    experimentalForceLongPolling: true,
   }, databaseId);
 } catch (err) {
   try {
     firestoreInstance = initializeFirestore(app, {
       localCache: persistentLocalCache({
-        tabManager: persistentSingleTabManager()
+        tabManager: persistentSingleTabManager({})
       }),
-      experimentalAutoDetectLongPolling: true,
+      experimentalForceLongPolling: true,
     }, databaseId);
   } catch (err2) {
     try {
       firestoreInstance = initializeFirestore(app, {
         localCache: memoryLocalCache(),
-        experimentalAutoDetectLongPolling: true,
+        experimentalForceLongPolling: true,
       }, databaseId);
     } catch (fallbackErr) {
       firestoreInstance = getFirestore(app, databaseId);
@@ -463,5 +469,27 @@ async function testConnection() {
   }
 }
 testConnection();
+
+/**
+ * Recursively strips undefined values from an object or array so it can be safely written to Firestore.
+ * Firestore throws an error if any field value is undefined.
+ */
+export function sanitizeForFirestore<T = any>(data: T): T {
+  if (data === undefined) return null as any;
+  if (data === null) return null as any;
+  if (typeof data !== 'object') return data;
+  if (Array.isArray(data)) {
+    return data
+      .filter(item => item !== undefined)
+      .map(item => sanitizeForFirestore(item)) as any;
+  }
+  const clean: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data as Record<string, any>)) {
+    if (value !== undefined) {
+      clean[key] = sanitizeForFirestore(value);
+    }
+  }
+  return clean as T;
+}
 
 export { signOut, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, onSnapshot, getDocs, addDoc, serverTimestamp, orderBy, limit, arrayUnion };

@@ -24,6 +24,7 @@ import {
   fileToGenerativePart, Course, MediaFile, ChatMessage, ChatSession, LectureSession,
   QuizQuestion, ExamQuestion, StudentResult, RegisteredStudent, ExamConfig, HomeHistoryItem
 } from './utils';
+import { apiUrl } from './services/apiConfig';
 
 // Icons & Consts
 export const WhatsAppIcon = ({ size = 24, className = "" }: { size?: number, className?: string }) => (
@@ -492,7 +493,7 @@ export const CoursesTool = ({ theme, user, getAiInstance, getHfInstance, setUser
     setGeneratedChapters([]);
 
     try {
-      const res = await fetch(`/api/noun/search?q=${encodeURIComponent(term)}`);
+      const res = await fetch(apiUrl(`/api/noun/search?q=${encodeURIComponent(term)}`));
       const data = await res.json();
       if (data.success && Array.isArray(data.courses)) {
         setSearchResults(data.courses);
@@ -522,7 +523,7 @@ export const CoursesTool = ({ theme, user, getAiInstance, getHfInstance, setUser
       const urlParam = encodeURIComponent(courseItem.url || '');
       const filenameParam = encodeURIComponent(`${(courseItem.code || 'NOUN').replace(/\s+/g, '_')}_Material.pdf`);
       
-      const downloadUrl = `/api/noun/download?url=${urlParam}&filename=${filenameParam}&code=${codeParam}&title=${titleParam}`;
+      const downloadUrl = apiUrl(`/api/noun/download?url=${urlParam}&filename=${filenameParam}&code=${codeParam}&title=${titleParam}`);
       const link = document.createElement('a');
       link.href = downloadUrl;
       link.setAttribute('download', `${courseItem.code}_NOUN_Material.pdf`);
@@ -538,7 +539,7 @@ export const CoursesTool = ({ theme, user, getAiInstance, getHfInstance, setUser
     setProcessingStatus(`Extracting NOUN Course Text & Categorizing Chapters for ${courseItem.code}...`);
 
     try {
-      const processRes = await fetch('/api/noun/process-pdf', {
+      const processRes = await fetch(apiUrl('/api/noun/process-pdf'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -567,7 +568,7 @@ export const CoursesTool = ({ theme, user, getAiInstance, getHfInstance, setUser
         
         setProcessingStatus(`Streaming AI Study Notes: Chapters ${currentIdx + 1}${chunk.length > 1 ? ` & ${currentIdx + 2}` : ''} of ${allChapters.length}...`);
 
-        const chunkRes = await fetch('/api/noun/generate-chapter-chunk', {
+        const chunkRes = await fetch(apiUrl('/api/noun/generate-chapter-chunk'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -602,7 +603,7 @@ export const CoursesTool = ({ theme, user, getAiInstance, getHfInstance, setUser
     if (!selectedCourse) return;
     setIsGeneratingGlobalQuiz(true);
     try {
-      const res = await fetch('/api/noun/generate-full-course-quiz', {
+      const res = await fetch(apiUrl('/api/noun/generate-full-course-quiz'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -774,7 +775,7 @@ export const CoursesTool = ({ theme, user, getAiInstance, getHfInstance, setUser
                     const titleParam = encodeURIComponent(selectedCourse.title || selectedCourse.name || '');
                     const urlParam = encodeURIComponent(selectedCourse.url || '');
                     const filenameParam = encodeURIComponent(`${(selectedCourse.code || 'NOUN').replace(/\s+/g, '_')}_Material.pdf`);
-                    const dlUrl = `/api/noun/download?url=${urlParam}&filename=${filenameParam}&code=${codeParam}&title=${titleParam}`;
+                    const dlUrl = apiUrl(`/api/noun/download?url=${urlParam}&filename=${filenameParam}&code=${codeParam}&title=${titleParam}`);
                     
                     const link = document.createElement('a');
                     link.href = dlUrl;

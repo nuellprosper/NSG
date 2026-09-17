@@ -959,3 +959,53 @@ export interface HomeHistoryItem {
   studentName?: string;
   subjectScores?: SubjectScore[];
 }
+
+/**
+ * Strips HTML, leaked CSS/Tailwind class fragments, and markdown from note previews.
+ * Returns clean plain text or empty string if empty.
+ */
+export function getCleanNoteSnippet(rawContent: any, maxLength = 120): string {
+  if (!rawContent) return '';
+  let text = typeof rawContent === 'string' ? rawContent : (rawContent?.text || '');
+  if (!text || typeof text !== 'string') return '';
+
+  // 1. Remove style and script tags and contents
+  text = text.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ');
+  text = text.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ');
+
+  // 2. Remove HTML tags
+  text = text.replace(/<[^>]+>/g, ' ');
+
+  // 3. Decode common HTML entities
+  text = text
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&apos;/gi, "'");
+
+  // 4. Remove class attributes and common Tailwind class names that might have leaked from raw HTML
+  text = text.replace(/class(?:Name)?=["'][^"']*["']/gi, ' ');
+  text = text.replace(/\b(text-(?:xs|sm|base|lg|xl|2xl|3xl|4xl|5xl|white|black|slate-\d+|blue-\d+|emerald-\d+|gray-\d+|red-\d+|amber-\d+)|font-(?:thin|light|normal|medium|semibold|bold|black|extrabold)|tracking-(?:tighter|tight|normal|wide|wider|widest)|my-\d+|mx-\d+|py-\d+|px-\d+|p-\d+|m-\d+|bg-[a-z0-9\/-]+|rounded-[a-z0-9]+|flex|items-\w+|justify-\w+|border-[a-z0-9\/-]+)\b/gi, ' ');
+
+  // 5. Remove Markdown markers (#, *, `, _, ~, >, links)
+  text = text.replace(/!\[.*?\]\(.*?\)/g, ' ');
+  text = text.replace(/\[(.*?)\]\(.*?\)/g, '$1');
+  text = text.replace(/[#*`_~>]/g, ' ');
+
+  // 6. Normalize whitespace
+  text = text.replace(/\s+/g, ' ').trim();
+
+  // 7. Check if empty or only meaningless characters (e.g. leftover brackets or punctuation)
+  const alphaNumeric = text.replace(/[^a-zA-Z0-9]/g, '');
+  if (alphaNumeric.length === 0) {
+    return '';
+  }
+
+  if (text.length > maxLength) {
+    return text.substring(0, maxLength).trim() + '...';
+  }
+  return text;
+}
