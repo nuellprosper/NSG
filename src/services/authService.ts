@@ -27,27 +27,16 @@ export function getAppSecret(): string {
   return 'nsg-super-secure-app-secret-2026';
 }
 
+import { apiUrl } from './apiConfig';
+
+export { apiUrl };
+
 /**
  * Resolves the absolute backend API base URL for CapacitorHttp requests
+ * Delegates to centralized, environment-aware apiUrl utility.
  */
 export function resolveApiUrl(path: string): string {
-  const cleanPath = path.startsWith('/') ? path : `/${path}`;
-  if (typeof window !== 'undefined') {
-    const customUrl = (import.meta as any).env?.VITE_API_BASE_URL || (import.meta as any).env?.VITE_SERVER_URL;
-    if (customUrl && String(customUrl).trim()) {
-      return `${String(customUrl).trim().replace(/\/$/, '')}${cleanPath}`;
-    }
-
-    const origin = window.location.origin;
-    // On web browser (non-file/non-capacitor origin), relative or origin is fine
-    if (origin && !origin.includes('localhost:5173') && !origin.startsWith('capacitor://') && !origin.startsWith('ionic://')) {
-      return `${origin.replace(/\/$/, '')}${cleanPath}`;
-    }
-  }
-
-  // Fallback to active app domain for Android APK native HTTP requests
-  const fallbackHost = (import.meta as any).env?.VITE_APP_URL || 'https://ais-dev-rumylq2hbsylarrx6vsq5h-648855362704.europe-west2.run.app';
-  return `${fallbackHost.replace(/\/$/, '')}${cleanPath}`;
+  return apiUrl(path);
 }
 
 /**
