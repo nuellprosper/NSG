@@ -29,7 +29,12 @@ export interface ResourceResult {
   providerId: string;
   providerName: string;
   sourceUrl: string;
+  publisherUrl?: string;
+  readingUrl?: string;
+  borrowUrl?: string;
   license?: string;
+  category?: string;
+  providerBadgeClass?: string;
   capabilities: ResourceCapabilities;
   assets: ResourceAsset[];
 
@@ -44,13 +49,16 @@ export interface ResourceResult {
   rating?: number;
   reviewsCount?: number;
   uploaderName?: string;
+  uploaderAvatar?: string;
   uploaderUid?: string;
   totalSizeBytes?: number;
   isOpenStax?: boolean;
   source?: 'openstax' | 'community' | 'gutendex' | 'openlibrary' | 'admin';
+  isNonCommercial?: boolean;
   verifiedPdfUrl?: string;
   openstaxPageUrl?: string;
   rexReaderUrl?: string;
+  rexWebUrl?: string;
   status?: 'pending' | 'approved' | 'rejected';
   driveFileId?: string;
   attachedDocs?: any[];
