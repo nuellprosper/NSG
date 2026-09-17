@@ -1449,19 +1449,21 @@ export function matchOrSynthesizeOpenStaxCourse(query: string) {
   let mappedTitle = "General College Studies";
   let mappedFaculty = "Faculty of Physical Sciences";
   let mappedDept = "General";
-  let mappedPdf = "https://assets.openstax.org/oscms-prodcms/media/documents/CalculusVolume1-WEB.pdf";
+  let mappedPdf = "https://assets.openstax.org/oscms-prodcms/media/documents/calculus-volume-1_-_WEB.pdf";
   let mappedCover = "https://assets.openstax.org/oscms-prodcms/media/documents/calculus_volume_1.svg";
   let mappedSlug = "calculus-volume-1";
   let mappedLevel = "100L";
+  let mappedSize = 52298922;
   let mappedNotes = "Comprehensive open-access course curriculum authored by faculty experts with problem sets, lecture outlines, and key concept reviews.";
 
   if (lowerQ.includes('math') || lowerQ.includes('mth') || lowerQ.includes('calc') || lowerQ.includes('algebra')) {
     mappedTitle = "College Mathematics & Calculus";
     mappedFaculty = "Faculty of Physical Sciences";
     mappedDept = "Mathematics";
-    mappedPdf = "https://assets.openstax.org/oscms-prodcms/media/documents/CalculusVolume1-WEB.pdf";
+    mappedPdf = "https://assets.openstax.org/oscms-prodcms/media/documents/calculus-volume-1_-_WEB.pdf";
     mappedCover = "https://assets.openstax.org/oscms-prodcms/media/documents/calculus_volume_1.svg";
     mappedSlug = "calculus-volume-1";
+    mappedSize = 52298922;
     mappedNotes = "Thorough coverage of algebraic functions, calculus fundamentals, limit theorems, derivatives, integrals, and mathematical problem solving.";
   } else if (lowerQ.includes('phy') || lowerQ.includes('physics') || lowerQ.includes('mech')) {
     mappedTitle = "University Physics & Mechanics";
@@ -1470,63 +1472,71 @@ export function matchOrSynthesizeOpenStaxCourse(query: string) {
     mappedPdf = "https://assets.openstax.org/oscms-prodcms/media/documents/university-physics-volume-2_-_WEB.pdf";
     mappedCover = "https://assets.openstax.org/oscms-prodcms/media/documents/university_physics_volume_2.svg";
     mappedSlug = "university-physics-volume-2";
+    mappedSize = 63000000;
     mappedNotes = "Classical and modern physics exploring thermodynamics, electricity, magnetism, optics, wave mechanics, and laboratory experiments.";
   } else if (lowerQ.includes('chm') || lowerQ.includes('chem') || lowerQ.includes('organic')) {
     mappedTitle = "General Chemistry: Atoms First";
     mappedFaculty = "Faculty of Physical Sciences";
     mappedDept = "Pure & Industrial Chemistry";
-    mappedPdf = "https://assets.openstax.org/oscms-prodcms/media/documents/ChemistryAtomsFirst2e-WEB.pdf";
+    mappedPdf = "https://assets.openstax.org/oscms-prodcms/media/documents/chemistry-2e_-_WEB.pdf";
     mappedCover = "https://assets.openstax.org/oscms-prodcms/media/documents/chemistry_2e.svg";
-    mappedSlug = "chemistry-atoms-first-2e";
+    mappedSlug = "chemistry-2e";
+    mappedSize = 217314642;
     mappedNotes = "Explores atomic structures, chemical bonds, molecular stoichiometry, kinetics, thermodynamics, and organic compounds.";
   } else if (lowerQ.includes('bio') || lowerQ.includes('mcb') || lowerQ.includes('bot') || lowerQ.includes('zoo')) {
     mappedTitle = "Concepts of Biological Sciences";
     mappedFaculty = "Faculty of Basic Medical / Biological Sciences";
     mappedDept = "Biological Sciences";
-    mappedPdf = "https://assets.openstax.org/oscms-prodcms/media/documents/ConceptsOfBiology-WEB.pdf";
+    mappedPdf = "https://assets.openstax.org/oscms-prodcms/media/documents/Biology-2e_-_WEB.pdf";
     mappedCover = "https://assets.openstax.org/oscms-prodcms/media/documents/concepts_of_biology.svg";
-    mappedSlug = "concepts-biology";
+    mappedSlug = "biology-2e";
+    mappedSize = 401234912;
     mappedNotes = "Investigates cellular biology, genetic inheritance, evolutionary adaptations, biodiversity, and ecosystem dynamics.";
   } else if (lowerQ.includes('cs') || lowerQ.includes('csc') || lowerQ.includes('program') || lowerQ.includes('python') || lowerQ.includes('code')) {
-    mappedTitle = "Introduction to Computer Science & Python";
+    mappedTitle = "Introduction to Computer Science";
     mappedFaculty = "Faculty of Physical Sciences";
     mappedDept = "Computer Science";
-    mappedPdf = "https://assets.openstax.org/oscms-prodcms/media/documents/Introduction_to_Python_Programming-WEB.pdf";
+    mappedPdf = "https://assets.openstax.org/oscms-prodcms/media/documents/Introduction_To_Computer_Science_-_WEB.pdf";
     mappedCover = "https://assets.openstax.org/oscms-prodcms/media/documents/introduction_to_python_programming.svg";
-    mappedSlug = "introduction-python-programming";
+    mappedSlug = "introduction-computer-science";
+    mappedSize = 56128490;
     mappedNotes = "Computational thinking, data structures, algorithms, modular programming, and practical software engineering.";
   } else if (lowerQ.includes('eco') || lowerQ.includes('econ') || lowerQ.includes('macro') || lowerQ.includes('micro')) {
     mappedTitle = "Principles of Economics & Markets";
     mappedFaculty = "Faculty of Social Sciences";
     mappedDept = "Economics";
-    mappedPdf = "https://assets.openstax.org/oscms-prodcms/media/documents/Principles_of_Macroeconomics_3e-WEB.pdf";
+    mappedPdf = "https://assets.openstax.org/oscms-prodcms/media/documents/principles-economics-3e_-_WEB.pdf";
     mappedCover = "https://assets.openstax.org/oscms-prodcms/media/documents/principles_of_macroeconomics_3e.svg";
-    mappedSlug = "principles-macroeconomics-3e";
+    mappedSlug = "principles-economics-3e";
+    mappedSize = 49021988;
     mappedNotes = "Foundations of economic decision making, supply and demand, fiscal policy, macroeconomic indicators, and trade.";
   } else if (lowerQ.includes('nur') || lowerQ.includes('nurs') || lowerQ.includes('med') || lowerQ.includes('pha') || lowerQ.includes('health')) {
-    mappedTitle = "Clinical Nursing & Healthcare Essentials";
+    mappedTitle = "Anatomy, Physiology & Healthcare Essentials";
     mappedFaculty = "Faculty of Basic Medical / Biological Sciences";
     mappedDept = "Nursing Science";
-    mappedPdf = "https://assets.openstax.org/oscms-prodcms/media/documents/Clinical_Nursing_Skills-WEB.pdf";
+    mappedPdf = "https://assets.openstax.org/oscms-prodcms/media/documents/anatomy-and-physiology-2e_-_WEB.pdf";
     mappedCover = "https://assets.openstax.org/oscms-prodcms/media/documents/clinical_nursing_skills.svg";
-    mappedSlug = "clinical-nursing-skills";
-    mappedNotes = "Patient assessment, clinical nursing interventions, pharmacological safety, and healthcare management.";
+    mappedSlug = "anatomy-and-physiology-2e";
+    mappedSize = 476590832;
+    mappedNotes = "Patient assessment, anatomy, clinical physiology, pharmacological safety, and healthcare management.";
   } else if (lowerQ.includes('bus') || lowerQ.includes('mgt') || lowerQ.includes('acc') || lowerQ.includes('mkt') || lowerQ.includes('ent')) {
-    mappedTitle = "Business Administration & Management";
+    mappedTitle = "Introduction to Business Administration";
     mappedFaculty = "Faculty of Management Sciences";
     mappedDept = "Business Administration";
-    mappedPdf = "https://assets.openstax.org/oscms-prodcms/media/documents/Introduction_to_Business-WEB.pdf";
+    mappedPdf = "https://assets.openstax.org/oscms-prodcms/media/documents/Introduction_to_Business_2e_-_WEB.pdf";
     mappedCover = "https://assets.openstax.org/oscms-prodcms/media/documents/introduction_to_business.svg";
     mappedSlug = "introduction-business";
+    mappedSize = 148812044;
     mappedNotes = "Core principles of organizational management, marketing strategies, business finance, leadership, and ethical entrepreneurship.";
   } else if (lowerQ.includes('gst') || lowerQ.includes('eng') || lowerQ.includes('use') || lowerQ.includes('lit')) {
-    mappedTitle = "Use of English & Communication Skills";
+    mappedTitle = "Introduction to Philosophy & Critical Thinking";
     mappedFaculty = "Faculty of Arts / Humanities";
     mappedDept = "English & Literary Studies";
-    mappedPdf = "https://assets.openstax.org/oscms-prodcms/media/documents/Writing_Guide_with_Handbook-WEB.pdf";
+    mappedPdf = "https://assets.openstax.org/oscms-prodcms/media/documents/Introduction_to_Philosophy-WEB.pdf";
     mappedCover = "https://assets.openstax.org/oscms-prodcms/media/documents/writing_guide_with_handbook.svg";
-    mappedSlug = "writing-guide";
-    mappedNotes = "Grammatical structures, academic discourse, essay composition, critical evaluation, and presentation skills.";
+    mappedSlug = "introduction-philosophy";
+    mappedSize = 48000000;
+    mappedNotes = "Critical thinking, academic discourse, essay composition, logical evaluation, and presentation skills.";
   }
 
   const generatedCode = cleanCode.length >= 3 ? cleanCode : `CRS ${cleanCode || '101'}`;
@@ -1553,7 +1563,7 @@ export function matchOrSynthesizeOpenStaxCourse(query: string) {
     isOpenStax: true,
     uploaderName: "openstax.org",
     uploaderAvatar: "https://openstax.org/dist/images/icons/apple-touch-icon.png",
-    totalSizeBytes: 26000000,
+    totalSizeBytes: mappedSize,
     notes: mappedNotes,
     likesCount: 78,
     rating: 4.8,
@@ -1563,7 +1573,7 @@ export function matchOrSynthesizeOpenStaxCourse(query: string) {
         id: `doc-${generatedId}`,
         name: `${generatedCode}_Verified_Textbook.pdf`,
         type: "pdf",
-        size: 26000000,
+        size: mappedSize,
         url: mappedPdf,
         verifiedPdfUrl: mappedPdf,
         license: "CC BY 4.0",
@@ -1587,6 +1597,7 @@ export function getOpenStaxCoursesForCatalog() {
     semester: item.semester,
     credits: item.credits,
     thumbnailUrl: item.coverUrl,
+    coverUrl: item.coverUrl,
     galleryImages: [item.coverUrl],
     notes: item.notes,
     likesCount: item.likesCount,
@@ -1600,12 +1611,22 @@ export function getOpenStaxCoursesForCatalog() {
     attachedDocs: item.attachedDocs,
     isOpenStax: true as const,
     source: "openstax" as const,
+    providerId: "openstax" as const,
+    providerName: "OpenStax",
+    providerBadgeClass: "bg-emerald-500/15 text-emerald-400 border border-emerald-500/25",
+    publisherUrl: item.openstaxPageUrl,
+    readingUrl: item.rexReaderUrl || item.openstaxPageUrl,
     license: item.license,
     isNonCommercial: item.isNonCommercial,
     lastVerified: item.lastVerified,
     openstaxPageUrl: item.openstaxPageUrl,
     rexReaderUrl: item.rexReaderUrl,
     verifiedPdfUrl: item.verifiedPdfUrl,
-    status: "approved" as const
+    status: "approved" as const,
+    capabilities: {
+      readableOnline: true,
+      downloadable: Boolean(item.verifiedPdfUrl),
+      borrowable: false
+    }
   }));
 }
